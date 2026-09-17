@@ -373,6 +373,11 @@ def iter_blocks(doc):
             yield Table(child, doc)
 
 
+def has_drawing(p):
+    """段落里是否含图片。含图片的段落**绝不能**改文本，否则图会被整段抹掉。"""
+    return bool(p._p.findall(".//" + qn("w:drawing")))
+
+
 def set_para_text(p, text):
     """整段文字写进首个 run 并清空其余 run。题注是纯文本，可安全合并。"""
     runs = p.runs
@@ -381,6 +386,8 @@ def set_para_text(p, text):
         return
     runs[0].text = text
     for r in runs[1:]:
+        if r._element.findall(".//" + qn("w:drawing")):
+            continue          # 带图片的 run 绝不能清空
         r.text = ""
 
 
@@ -402,6 +409,8 @@ def auto_number(doc):
     for block in iter_blocks(doc):
         if isinstance(block, Table):
             continue                       # 单元格里的文字不参与编号
+        if has_drawing(block):
+            continue                       # 图片所在段落不参与编号，否则图会被抹掉
         sn = style_name(block)
         if sn in H1_STYLES:
             chapter += 1

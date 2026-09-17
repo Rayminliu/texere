@@ -57,6 +57,9 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 ```
 
 - `章节目录` 内放 `01_xxx.md … 0N_xxx.md`，按文件名排序合并；`#` 为章、`##` 为节；
+- **图片搜索路径**：`src` 目录、其全部子目录、**`src` 的父目录及其子目录**都会自动加入；
+  还找不到就用 config 的 `"resource_paths": ["图片目录", ...]` 补充。
+  渲染结束会打印 `images: n/m ok`，源里有图却没嵌进去时会报 `[ERROR]`；
 - 表格用 pipe table，表题写成独立一行 `表 1-1 标题`（会自动居中灰字）；
 - 图用 `![图 1-1 标题](path.jpg){width=13cm}`（自动居中灰字题注）；
 - 封面与页眉在 config.json 里配（见 sample_config.json）；不配 cover 则只注入目录；
@@ -85,6 +88,7 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 | `auto_number` | `true` 开启图表自动编号与交叉引用 |
 | `style` | 版式微调，见下表 |
 | `caption_words` | 自定义题注关键字（默认 表/图/Table/Figure），见下 |
+| `resource_paths` | 额外的图片搜索目录列表（默认已含 src、其子目录与父目录） |
 
 `caption_words`（需要非中文或不惯用叫法时才配，`post.py` 与 lua filter 会同步）：
 

@@ -19,7 +19,16 @@
 - `make_ref.py` 支持 `--body-font / --latin-font / --heading-font / --body-size`
 - `render.py --version`；CI（GitHub Actions）跑不依赖 Word 的 22 项断言与 docx 冒烟
 
-### 修复
+### 修复（真实项目实测暴露）
+- **自动编号会抹掉图片**：pandoc 把图片放在 `Captioned Figure` 样式的段落里，
+  按文本重写该段落时清空了带 `w:drawing` 的 run——真实项目里 28 张图全部丢失。
+  现跳过含图段落，并加了回归测试（去掉防护即测试失败，已验证）
+- **图片搜索范围不含 src 的兄弟目录**：真实项目 md 在 `build/src/`、图在 `build/media_plan/`，
+  导致 28 张图全部找不到。现自动加入父目录及其子目录，并支持 `resource_paths`
+- **pandoc 的 WARNING 被静默吞掉**：缺图只给警告不报错，会让人交付一份没图的文档。
+  现在 `run()` 始终上报诊断信息，渲染后再自检 `images: n/m ok`
+
+### 修复（其他）
 - ~~跨页重复表头（`w:tblHeader`）此前只写在 README 军规里，**代码未实现**~~
   **更正**：pandoc 原生就给表头行设了 `tblHeader`（grid table 的 `+===+` 以上全部算表头），
   本轮新增的 `set_repeat_header()` 只是**幂等加固**，并非该功能的实现者。

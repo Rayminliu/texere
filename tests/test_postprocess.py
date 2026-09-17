@@ -358,6 +358,49 @@ def test_style_cfg_numeric_and_spacing(tmp_path):
     assert cap.paragraph_format.space_before.pt == 12.0, "题注段前间距未生效"
 
 
+def test_render_finds_sibling_media(tmp_path):
+    """图片在 src 的**兄弟**目录时也要能找到（真实项目就是这种布局：
+
+    build/src/*.md 引用了 build/media_plan/*.jpg）。
+    """
+    fitz = pytest.importorskip("fitz")
+    proj = tmp_path / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "media").mkdir()
+    fitz.open().new_page().get_pixmap().save(str(proj / "media" / "img.png"))
+    (proj / "src" / "01.md").write_text(
+        "# 第一章\n\n![图 1-1 兄弟目录图片](media/img.png)\n\n正文。\n", encoding="utf-8")
+
+    out = str(tmp_path / "out.docx")
+    r = subprocess.run(
+        [sys.executable, os.path.join(KIT, "render.py"),
+         "--src", str(proj / "src"), "--out", out],
+        capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+
+    from docx import Document
+    assert len(Document(out).inline_shapes) == 1, "兄弟目录里的图片没被找到"
+    assert "images: 1/1 ok" in r.stdout.decode("utf-8", "replace"), "缺图自检未通过"
+
+
+def test_auto_number_keeps_images(tmp_path):
+    """自动编号绝不能把图片弄丢。
+
+    真实项目踩过的坑：pandoc 把图放在 `Captioned Figure` 样式的段落里，
+    自动编号按文本重写该段落时清空了带 w:drawing 的 run，28 张图全没了。
+    """
+    fitz = pytest.importorskip("fitz")
+    from docx import Document
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    fitz.open().new_page().get_pixmap().save(str(src / "fig.png"))
+
+    md = "# 第一章\n\n![图 架构示意](fig.png)\n\n正文引用。\n"
+    out = _build_md(tmp_path, md, {"auto_number": True})
+    doc = Document(out)
+    assert len(doc.inline_shapes) == 1, "自动编号把图片抹掉了"
+
+
 def test_caption_words_configurable(tmp_path):
     """题注关键字可配（post.py 与 lua filter 同步）。"""
     from docx import Document

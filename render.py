@@ -37,6 +37,15 @@ def run(cmd, cwd=None):
                        encoding="utf-8", errors="replace")
     if r.stdout.strip():
         print(r.stdout.strip()[:1200])
+    if r.stderr.strip():
+        # 不能只在失败时看 stderr：pandoc 找不到图片只是 WARNING，
+        # 静默吞掉会让人拿到一份没图的文档还以为没问题。
+        lines = [l for l in r.stderr.strip().splitlines() if l.strip()]
+        print("[warn] %s 输出 %d 行诊断信息" % (os.path.basename(cmd[0]), len(lines)))
+        for l in lines[:5]:
+            print("   ", l[:160])
+        if len(lines) > 5:
+            print("    ...（另 %d 行）" % (len(lines) - 5))
     if r.returncode != 0:
         print("STDERR:", r.stderr.strip()[:2500])
         sys.exit(r.returncode)
@@ -161,20 +170,36 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
         parts.append(open(f, encoding="utf-8").read().rstrip() + "\n")
     if not parts:
         sys.exit("src 目录下没有 .md 文件: " + src_dir)
+    merged = "\n".join(parts)
     with open(all_md, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(parts))
+        fh.write(merged)
     print("[1/3] merged %d md files (%d chars)" % (len(parts), sum(len(p) for p in parts)))
 
     body = os.path.join(tmp, "body.docx")
-    # 图片可能放在 src 的子目录里，pandoc 只按给出的路径查找，
-    # 故把 src 及其全部子目录都加进 resource-path（分隔符按平台取）。
+    # 图片常放在 src 的子目录或**兄弟**目录里（真实项目里 md 在 src/、图在 media/），
+    # pandoc 只按给出的路径查找，故把 src、其全部子目录、src 的父目录及其子目录
+    # 都加进 resource-path；还可用 config 的 resource_paths 补充。
     res_paths = [src_dir]
     for root, dirs, _files in os.walk(src_dir):
         res_paths.extend(os.path.join(root, d) for d in dirs)
+    parent = os.path.dirname(os.path.abspath(src_dir))
+    if os.path.isdir(parent):
+        res_paths.append(parent)
+        for d in sorted(os.listdir(parent)):
+            p = os.path.join(parent, d)
+            if os.path.isdir(p):
+                res_paths.append(p)
+    res_paths.extend(cfg.get("resource_paths") or [])
+    seen, uniq = set(), []
+    for p in res_paths:
+        p = os.path.abspath(p)
+        if p not in seen:
+            seen.add(p)
+            uniq.append(p)
     lua_filter = os.path.join(KIT, "filters", "captions.lua")
     cmd = ["pandoc", all_md, "-o", body,
            "--reference-doc=" + ref,
-           "--resource-path=" + os.pathsep.join(res_paths),
+           "--resource-path=" + os.pathsep.join(uniq),
            "-f", "markdown+pipe_tables+raw_html", "--wrap=none"]
     if os.path.exists(lua_filter):
         # AST 层标记表题/图注，post.py 就不用再靠正则猜
@@ -193,6 +218,7 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     run([sys.executable, os.path.join(KIT, "post.py"), body, out_docx,
          config_path or ""])
     print("[3/3] postprocess ->", out_docx)
+    check_images(merged, out_docx)
 
     if want_pdf:
         pdf = os.path.splitext(out_docx)[0] + ".pdf"
@@ -200,6 +226,25 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
         if want_check:
             run([sys.executable, os.path.join(KIT, "check_pdf.py"), pdf])
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_images(md_text, docx_path):
+    """源 md 里写了图、文档里却没嵌进去时，必须大声报错。
+
+    这是真实项目里最容易翻车的一环：pandoc 找不到图只给 WARNING，
+    静默过去就会交付一份没图的标书。
+    """
+    n_ref = len(re.findall(r"!\[", md_text))
+    if not n_ref:
+        return
+    from docx import Document
+    n_img = len(Document(docx_path).inline_shapes)
+    if n_img >= n_ref:
+        print("images: %d/%d ok" % (n_img, n_ref))
+        return
+    print("[ERROR] 源 md 引用 %d 张图，文档里只嵌进 %d 张" % (n_ref, n_img))
+    print("        图片目录不在搜索范围内时就会这样；")
+    print("        在 config 里加 \"resource_paths\": [\"图片目录\"] 补充搜索路径。")
 
 
 def main():
