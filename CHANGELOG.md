@@ -86,7 +86,7 @@
   **更正**：pandoc 原生就给表头行设了 `tblHeader`（grid table 的 `+===+` 以上全部算表头），
   本轮新增的 `set_repeat_header()` 只是**幂等加固**，并非该功能的实现者。
   之前的判断是只 grep 了代码、没验证 pandoc 输出得出的，在此更正。
-- `make_ref.py` 硬编码 开发机上的绝对路径 路径，换机器即失效且模板会悄悄漂移
+- `make_ref.py` 硬编码开发机上的绝对路径，换机器即失效且模板会悄悄漂移
 - `post.py` 缺一级标题时抛 `StopIteration`，现给出可诊断提示
 - Windows GBK 控制台下 `render.py` 打印子进程输出会 `UnicodeEncodeError` 崩溃
 - `--check` 单独使用时被静默忽略，现自动补 `--pdf`
