@@ -111,39 +111,20 @@ def test_cover_and_toc_injected(docx_path):
     assert toc_idx < body_idx, "目录必须排在正文之前"
 
 
-def test_auto_number_and_crossref(tmp_path):
-    """P1：表/图按章自动编号（含已手写编号的重排）+ @tab:/@fig: 交叉引用。"""
+def test_never_touches_text(tmp_path):
+    """核心契约：post.py 只改版式，一个字都不改内容。
+
+    曾经开启过自动编号功能，它改写过题注文字（`附件 8-1 …` → `图 8-1 附件 8-1 …`）
+    并篡改过正文（`**表层…**` → `表 3-5 层…`）。该功能已删除，这里守住契约。
+    """
     from docx import Document
-    md = (
-        "# 第一章 概述\n\n"
-        "表 9-9 商务条款响应表 @tab:clause\n\n"      # 故意写错编号，应被重排
-        "| 条款 | 响应 |\n|:---|:---|\n| 工期 | 完全响应 |\n\n"
-        "详见 @tab:clause 与 @tab:mod。\n\n"
-        "# 第二章 方案\n\n"
-        "表 模块清单 @tab:mod\n\n"                    # 不写编号，应自动插入
-        "| 模块 | 说明 |\n|:---|:---|\n| 接入层 | 设备接入 |\n"
-    )
-    out = _build_md(tmp_path, md, {"auto_number": True})
-    texts = [p.text.strip() for p in Document(out).paragraphs]
-
-    cap1 = next(t for t in texts if "商务条款响应表" in t)
-    cap2 = next(t for t in texts if "模块清单" in t)
-    assert cap1.startswith("表 1-1"), "章内首个表题应为 表 1-1，实际：%s" % cap1
-    assert cap2.startswith("表 2-1"), "第二章表题应为 表 2-1，实际：%s" % cap2
-    assert "@tab" not in cap1 and "@tab" not in cap2, "标签标记应从题注里剥掉"
-
-    ref = next(t for t in texts if "详见" in t)
-    assert "表 1-1" in ref and "表 2-1" in ref, "交叉引用未替换：%s" % ref
-    assert "@tab" not in ref, "引用标记未替换干净：%s" % ref
-
-
-def test_auto_number_off_by_default(tmp_path):
-    """未开启时不得改动原文。"""
-    from docx import Document
-    md = "# 第一章\n\n表 9-9 商务条款响应表\n\n| a |\n|:--|\n| 1 |\n"
+    md = ("# 第一章\n\n表 9-9 商务条款响应表\n\n| a |\n|:--|\n| 1 |\n\n"
+          "- **表层（边缘轻算力）：** 基于公开预训练模型迁移微调。\n")
     out = _build_md(tmp_path, md, {})
     texts = [p.text.strip() for p in Document(out).paragraphs]
-    assert "表 9-9 商务条款响应表" in texts, "默认应保持手写编号不变"
+    assert "表 9-9 商务条款响应表" in texts, "题注文字被改动了"
+    assert any(t.startswith("表层（边缘轻算力）") for t in texts), \
+        "正文被改动了：%s" % [t for t in texts if "表层" in t]
 
 
 def test_two_sections_with_page_number(docx_path):
@@ -156,8 +137,8 @@ def test_two_sections_with_page_number(docx_path):
     assert "PAGE" in footer_xml, "正文节页脚缺少页码域"
 
 
-def test_caption_variants_renumbered(tmp_path):
-    """全角编号、英文关键字、写错的编号都要识别并重排，且居中。"""
+def test_caption_variants_centered(tmp_path):
+    """全角编号、英文关键字都要识别为题注（居中），但文字保持原样。"""
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     md = (
@@ -165,33 +146,34 @@ def test_caption_variants_renumbered(tmp_path):
         "表1.1 窄格式表题\n\n| a |\n|:--|\n| 1 |\n\n"
         "表 １－１ 全角编号\n\n| a |\n|:--|\n| 1 |\n\n"
         "Figure 1-1 英文图注\n\n"
-        "Table 1-9 写错的表号\n\n| a |\n|:--|\n| 1 |\n"
+        "Table 1-9 另一张表\n\n| a |\n|:--|\n| 1 |\n"
     )
-    out = _build_md(tmp_path, md, {"auto_number": True})
+    out = _build_md(tmp_path, md, {})
     doc = Document(out)
     texts = [p.text.strip() for p in doc.paragraphs]
-    for want in ("表 1-1 窄格式表题", "表 1-2 全角编号",
-                 "图 1-1 英文图注", "表 1-3 写错的表号"):
-        assert want in texts, "未得到「%s」，实际：%s" % (want, texts)
-    caps = [p for p in doc.paragraphs if p.text.strip().startswith(("表 1-", "图 1-"))]
-    assert caps, "没有题注被编号"
+    for want in ("表1.1 窄格式表题", "表 １－１ 全角编号",
+                 "Figure 1-1 英文图注", "Table 1-9 另一张表"):
+        assert want in texts, "题注文字被改动了：缺「%s」，实际：%s" % (want, texts)
+    caps = [p for p in doc.paragraphs
+            if p.text.strip().startswith(("表1.1", "表 １", "Figure 1-1", "Table 1-9"))]
+    assert len(caps) == 4, "题注未全部识别：%s" % [p.text[:20] for p in caps]
     assert all(p.alignment == WD_ALIGN_PARAGRAPH.CENTER for p in caps), "题注未居中"
 
 
-def test_figure_caption_auto_number(tmp_path):
-    """图注（Lua filter 标为 FigureCaption）与正文引用。"""
+def test_figure_caption_centered(tmp_path):
+    """图注（Lua filter 标为 FigureCaption）居中，文字原样。"""
     from docx import Document
-    md = "# 第一章 测试\n\n图 架构示意 @fig:arch\n\n如 @fig:arch 所示。\n"
-    out = _build_md(tmp_path, md, {"auto_number": True})
-    texts = [p.text.strip() for p in Document(out).paragraphs]
-    assert "图 1-1 架构示意" in texts, "图注未编号：%s" % texts
-    ref = next(t for t in texts if "所示" in t)
-    assert "图 1-1" in ref, "图注引用未替换：%s" % ref
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    md = "# 第一章 测试\n\n图 架构示意\n\n正文段落。\n"
+    out = _build_md(tmp_path, md, {})
+    doc = Document(out)
+    cap = next(p for p in doc.paragraphs if p.text.strip().startswith("图 架构示意"))
+    assert cap.alignment == WD_ALIGN_PARAGRAPH.CENTER, "图注未居中"
 
 
 GRID_MD = (
     "# 第一章 测试\n\n"
-    "表 1-1 多级表头 @tab:t1\n\n"
+    "表 1-1 多级表头\n\n"
     "+------------------+------------------+\n"
     "| 商务部分         | 技术部分         |\n"
     "+--------+---------+--------+---------+\n"
@@ -314,9 +296,8 @@ def test_style_cfg_overrides(tmp_path):
     """config 的 style 段能改页码模板 / 题注颜色 / 字号。"""
     from docx import Document
     from docx.shared import RGBColor
-    md = "# 第一章\n\n表 清单 @tab:list\n\n| a |\n|:--|\n| 1 |\n"
-    cfg = {"auto_number": True,
-           "style": {"page_number": "第 {n} 页", "toc_depth": "1-3",
+    md = "# 第一章\n\n表 清单\n\n| a |\n|:--|\n| 1 |\n"
+    cfg = {"style": {"page_number": "第 {n} 页", "toc_depth": "1-3",
                      "caption_gray": "FF0000", "caption_size": 9.0}}
     out = _build_md(tmp_path, md, cfg)
     doc = Document(out)
@@ -334,9 +315,8 @@ def test_style_cfg_numeric_and_spacing(tmp_path):
     """页眉/页码字号、单元格边距、边框、题注间距都要能被 style 段改。"""
     from docx import Document
     from docx.oxml.ns import qn
-    md = "# 第一章\n\n表 清单 @tab:t\n\n| a | b |\n|:--|:--|\n| 1 | 2 |\n"
+    md = "# 第一章\n\n表 清单\n\n| a | b |\n|:--|:--|\n| 1 | 2 |\n"
     out = _build_md(tmp_path, md, {
-        "auto_number": True,
         "header": "页眉文字",
         "style": {"header_size": 12.0, "page_number_size": 14.0,
                   "cell_margin_h": 200, "border_size": 12,
@@ -354,7 +334,7 @@ def test_style_cfg_numeric_and_spacing(tmp_path):
     top = tbl._tbl.tblPr.find(qn("w:tblBorders")).find(qn("w:top"))
     assert top.get(qn("w:sz")) == "12" and top.get(qn("w:color")) == "000000"
 
-    cap = next(p for p in doc.paragraphs if p.text.strip().startswith("表 1-1"))
+    cap = next(p for p in doc.paragraphs if p.text.strip().startswith("表 清单"))
     assert cap.paragraph_format.space_before.pt == 12.0, "题注段前间距未生效"
 
 
@@ -383,29 +363,8 @@ def test_render_finds_sibling_media(tmp_path):
     assert "images: 1/1 ok" in r.stdout.decode("utf-8", "replace"), "缺图自检未通过"
 
 
-def test_body_text_starting_with_keyword_is_untouched(tmp_path):
-    """以「表」「图」开头的正文不能被当成题注，更不能被插入编号。
-
-    真实项目踩过：`- **表层（边缘轻算力）：** 基于…` 被改写成
-    「表 3-5 层（边缘轻算力）：…」——静默篡改正文 + 毁掉加粗。
-    """
-    from docx import Document
-    md = ("# 第一章\n\n表 1-1 真题注\n\n| a |\n|:--|\n| 1 |\n\n"
-          "- **表层（边缘轻算力）：** 基于公开预训练模型迁移微调。\n")
-    out = _build_md(tmp_path, md, {"auto_number": True})
-    texts = [p.text.strip() for p in Document(out).paragraphs]
-    assert "表 1-1 真题注" in texts, "真题注未被编号：%s" % texts
-    body = [t for t in texts if "边缘轻算力" in t]
-    assert body and body[0].startswith("表层（边缘轻算力）"), \
-        "正文被改坏：%s" % body
-
-
-def test_auto_number_keeps_images(tmp_path):
-    """自动编号绝不能把图片弄丢。
-
-    真实项目踩过的坑：pandoc 把图放在 `Captioned Figure` 样式的段落里，
-    自动编号按文本重写该段落时清空了带 w:drawing 的 run，28 张图全没了。
-    """
+def test_images_survive_postprocess(tmp_path):
+    """后处理绝不能把图片弄丢（曾被自动编号抹掉过 28 张）。"""
     fitz = pytest.importorskip("fitz")
     from docx import Document
     src = tmp_path / "src"
@@ -413,24 +372,27 @@ def test_auto_number_keeps_images(tmp_path):
     fitz.open().new_page().get_pixmap().save(str(src / "fig.png"))
 
     md = "# 第一章\n\n![图 架构示意](fig.png)\n\n正文引用。\n"
-    out = _build_md(tmp_path, md, {"auto_number": True})
+    out = _build_md(tmp_path, md, {})
     doc = Document(out)
-    assert len(doc.inline_shapes) == 1, "自动编号把图片抹掉了"
+    assert len(doc.inline_shapes) == 1, "图片被后处理弄丢了"
 
 
 def test_caption_words_configurable(tmp_path):
     """题注关键字可配（post.py 与 lua filter 同步）。"""
     from docx import Document
-    md = "# 第一章\n\n照片 架构示意 @fig:a\n\n如 @fig:a 所示。\n"
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    md = "# 第一章\n\n照片 架构示意\n\n正文段落。\n"
     words = {"table": ["清单"], "figure": ["照片"]}
 
-    off = _build_md(tmp_path, md, {"auto_number": True})
-    assert "图 1-1" not in [p.text for p in Document(off).paragraphs], \
+    off = _build_md(tmp_path, md, {})
+    para = next(p for p in Document(off).paragraphs if "照片" in p.text)
+    assert para.alignment != WD_ALIGN_PARAGRAPH.CENTER, \
         "默认关键字下不该把「照片」当图注"
 
-    on = _build_md(tmp_path, md, {"auto_number": True, "caption_words": words})
-    texts = [p.text.strip() for p in Document(on).paragraphs]
-    assert "图 1-1 架构示意" in texts, "自定义关键字未生效：%s" % texts
+    on = _build_md(tmp_path, md, {"caption_words": words})
+    para = next(p for p in Document(on).paragraphs if "照片" in p.text)
+    assert para.alignment == WD_ALIGN_PARAGRAPH.CENTER, \
+        "自定义关键字未生效（应被识别为图注并居中）"
 
 
 def test_to_rgb_accepts_common_forms():
@@ -467,13 +429,3 @@ def test_missing_h1_exits_with_hint(tmp_path):
         capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
     assert r.returncode != 0, "缺一级标题时必须失败"
     assert "一级标题" in r.stderr.decode("utf-8", "replace")
-
-
-def test_crossref_inside_table_cell(tmp_path):
-    """表格单元格里的引用也要被替换。"""
-    from docx import Document
-    md = ("# 第一章\n\n表 清单 @tab:list\n\n"
-          "| 说明 | 备注 |\n|:--|:--|\n| 见 @tab:list | ok |\n")
-    out = _build_md(tmp_path, md, {"auto_number": True})
-    cell = Document(out).tables[0].rows[1].cells[0].text
-    assert "表 1-1" in cell, "单元格内引用未替换：%s" % cell

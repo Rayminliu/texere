@@ -8,9 +8,11 @@ config.json 字段（均可省）:
   header  : 页眉文字（正文节）
   title / author / subject / comments : 文档属性
   toc_heading : 目录标题，默认 "目　　录"
+  style   : 版式微调（字体/颜色/间距/表格边框等，见 README 的完整键表）
 行为: 去掉前置书名页与空段 -> 注入封面 -> 注入目录域 -> 分节(封面目录/正文各自页码)
       -> 正文节页眉页脚(居中页码) -> 表格 100% 宽/表头加粗灰底居中/单元格 10.5pt
       -> 表题与图注居中灰色去斜体 -> settings 加 updateFields。
+契约: **只改版式，不改内容**——不触碰正文与题注的文字（图表编号由源文件手写）。
 所有手写 OOXML 均按 ECMA-376 子元素顺序插入，避免 Word 报"文档已损坏"。
 """
 import copy
@@ -20,8 +22,6 @@ import sys
 
 from docx import Document
 from docx.shared import Pt, RGBColor
-from docx.table import Table
-from docx.text.paragraph import Paragraph
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.oxml.ns import qn
@@ -67,29 +67,16 @@ S = {
 # 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
 H1_STYLES = {"Heading 1", "标题 1"}
 TITLE_STYLES = {"Title", "Subtitle", "Author", "Date", "标题", "副标题"}
-# 题注编号：半角/全角数字 + 半角/全角分隔符
+# 题注识别（文本兜底用；正常路径由 filters/captions.lua 在 AST 层打样式）
 # 覆盖 表 1-1 / 表1.1 / 表１－１ / 图 2-3 / Table 1-1 / Figure 1-2
 _D = r"[0-9０-９]"
 _SEP = r"[.\-－—．]"
 CAPTION_RE = re.compile(
     r"^(?:表|圖|图|表格|图片|Table|Figure|Fig\.?)\s*%s+(?:\s*%s\s*%s+)?" % (_D, _SEP, _D),
     re.IGNORECASE)
-# 题注里的可选编号前缀，用于自动编号时替换（编号可写可不写）
-CAP_NUM_RE = re.compile(
-    (r"^(表|圖|图|表格|图片|Table|Figure|Fig\.?)"         # 1 题注关键字
-     r"(\s*)"                                             # 2 分隔
-     r"(%s+(?:\s*%s\s*%s+)?)?"                            # 3 可选旧编号
-     r"(\s*)") % (_D, _SEP, _D),                          # 4 分隔
-    re.IGNORECASE)
-# 交叉引用标签：@tab:xxx / @fig:xxx（题注末尾声明，正文里引用）
-CAP_LABEL_RE = re.compile(r"\s*@(tab|fig):([A-Za-z0-9_\-]+)\s*$")
-REF_RE = re.compile(r"@(tab|fig):([A-Za-z0-9_\-]+)")
-KIND_OF = {"表": "表", "圖": "图", "图": "图", "表格": "表", "图片": "图",
-           "table": "表", "figure": "图", "fig": "图", "fig.": "图"}
 # 由 filters/captions.lua 在 AST 层打上的语义样式（按 styleId 匹配，见 style_id 注释）
-KIND_BY_STYLE_ID = {"TableCaption": "表", "FigureCaption": "图",
-                    "ImageCaption": "图", "Caption": "图", "CaptionedFigure": "图"}
-CAPTION_STYLE_IDS = set(KIND_BY_STYLE_ID)
+CAPTION_STYLE_IDS = {"TableCaption", "FigureCaption",
+                     "ImageCaption", "Caption", "CaptionedFigure"}
 
 PPR_ORDER = ["pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr",
              "widowControl", "numPr", "suppressLineNumbers", "pBdr", "shd", "tabs",
@@ -273,25 +260,17 @@ def build_caption_matchers(words):
     """按 config 的 caption_words 重建题注关键字（默认 表/图/Table/Figure）。
 
     words 形如 {"table": ["表", "表格"], "figure": ["图", "图片"]}。
-    同时供 filters/captions.lua 使用（由 render.py 以 -M 传入），两边必须一致。
+    同时供 filters/captions.lua 使用（由 render.py 以 -M 传入），两边保持一致。
     """
-    global CAPTION_RE, CAP_NUM_RE, KIND_OF
-    pairs = []
-    for kind, ws in (("表", words.get("table") or []),
-                     ("图", words.get("figure") or [])):
-        for w in ws:
-            if w:
-                pairs.append((w, kind))
-    if not pairs:
+    global CAPTION_RE
+    ws = (words.get("table") or []) + (words.get("figure") or [])
+    ws = [w for w in ws if w]
+    if not ws:
         return
-    pairs.sort(key=lambda x: -len(x[0]))          # 长词优先，避免「表」抢「表格」
-    KIND_OF = dict((w.lower(), k) for w, k in pairs)
-    alt = "|".join(re.escape(w) for w, _k in pairs)
+    ws.sort(key=len, reverse=True)                # 长词优先，避免「表」抢「表格」
+    alt = "|".join(re.escape(w) for w in ws)
     CAPTION_RE = re.compile(
         r"^(?:%s)\s*%s+(?:\s*%s\s*%s+)?" % (alt, _D, _SEP, _D), re.IGNORECASE)
-    CAP_NUM_RE = re.compile(
-        r"^(%s)(\s*)(%s+(?:\s*%s\s*%s+)?)?(\s*)" % (alt, _D, _SEP, _D),
-        re.IGNORECASE)
 
 
 def uses_caption_styles(doc):
@@ -379,95 +358,6 @@ def find_h1(paras):
     return None
 
 
-def iter_blocks(doc):
-    """按文档真实顺序遍历顶层段落与表格（doc.paragraphs 只给顶层段落，会漏掉表格）。"""
-    for child in doc.element.body.iterchildren():
-        if child.tag == qn("w:p"):
-            yield Paragraph(child, doc)
-        elif child.tag == qn("w:tbl"):
-            yield Table(child, doc)
-
-
-def has_drawing(p):
-    """段落里是否含图片。含图片的段落**绝不能**改文本，否则图会被整段抹掉。"""
-    return bool(p._p.findall(".//" + qn("w:drawing")))
-
-
-def set_para_text(p, text):
-    """整段文字写进首个 run 并清空其余 run。题注是纯文本，可安全合并。"""
-    runs = p.runs
-    if not runs:
-        p.add_run(text)
-        return
-    runs[0].text = text
-    for r in runs[1:]:
-        if r._element.findall(".//" + qn("w:drawing")):
-            continue          # 带图片的 run 绝不能清空
-        r.text = ""
-
-
-def auto_number(doc):
-    """表/图按章自动编号 + 交叉引用替换（config 里 "auto_number": true 启用）。
-
-      表题  表 商务条款响应表 @tab:clause     ->  表 1-1 商务条款响应表
-      图注  ![图 架构示意](a.png) @fig:arch   ->  图 1-2 架构示意
-      引用  详见 @tab:clause                  ->  详见 表 1-1
-
-    已手写的编号会被重排：插入/删除图表后无需人工对号。
-    返回 (编号数, 引用数)。
-    """
-    chapter = 0
-    counts = {"表": 0, "图": 0}
-    labels = {}
-    n_cap = 0
-    strict = uses_caption_styles(doc)      # 有样式就只信样式，见该函数注释
-
-    for block in iter_blocks(doc):
-        if isinstance(block, Table):
-            continue                       # 单元格里的文字不参与编号
-        if has_drawing(block):
-            continue                       # 图片所在段落不参与编号，否则图会被抹掉
-        sn = style_name(block)
-        if sn in H1_STYLES:
-            chapter += 1
-            counts = {"表": 0, "图": 0}
-            continue
-        raw = block.text
-        m_lab = CAP_LABEL_RE.search(raw)
-        if m_lab:
-            raw = raw[:m_lab.start()]
-        txt = raw.strip()
-        m = CAP_NUM_RE.match(txt)          # 有旧编号则匹配到，供下面剥离重排
-        kind = KIND_BY_STYLE_ID.get(style_id(block))     # AST 层已标记：直接采信
-        if kind is None:                   # 没走 filter 的文档才回落到文本判定
-            if strict or not m:
-                continue
-            kind = KIND_OF.get(m.group(1).lower(), "表")
-        counts[kind] = counts.get(kind, 0) + 1
-        number = "%s %d-%d" % (kind, chapter, counts[kind])
-        body = txt[m.end():].strip() if m else txt
-        set_para_text(block, "%s %s" % (number, body))
-        if m_lab:
-            labels[m_lab.group(2)] = number
-        n_cap += 1
-
-    n_ref = 0
-    for block in iter_blocks(doc):
-        # 表格要逐单元格取段落（python-docx 的 Table 没有 .paragraphs）
-        paras = ([p for row in block.rows for cell in row.cells
-                  for p in cell.paragraphs] if isinstance(block, Table) else [block])
-        for p in paras:
-            for r in p.runs:
-                if "@" not in r.text:
-                    continue
-                new, k = REF_RE.subn(
-                    lambda mm: labels.get(mm.group(2), mm.group(0)), r.text)
-                if k:
-                    r.text = new
-                    n_ref += 1
-    return n_cap, n_ref
-
-
 def main(body_path, out_path, cfg_path):
     cfg = json.load(open(cfg_path, encoding="utf-8")) if cfg_path else {}
     apply_style_cfg(cfg)
@@ -496,10 +386,6 @@ def main(body_path, out_path, cfg_path):
     first_h1 = doc.paragraphs[find_h1(doc.paragraphs)]
     first_h1.paragraph_format.page_break_before = False
 
-    # 1.5 表/图自动编号（opt-in；必须在注入封面/目录之前，否则会把封面算进章序）
-    n_auto = n_ref = 0
-    if cfg.get("auto_number"):
-        n_auto, n_ref = auto_number(doc)
 
     # 2. 封面 + 目录 + 分节段（先追加到末尾再整体前移）
     created = []
@@ -647,8 +533,6 @@ def main(body_path, out_path, cfg_path):
     doc.save(out_path)
     print("saved:", out_path, "| captions centered:", n_cap,
           "| tables:", len(doc.tables), "| sections:", len(doc.sections))
-    if n_auto or n_ref:
-        print("auto-number: %d captions, %d cross-refs" % (n_auto, n_ref))
 
 
 if __name__ == "__main__":
