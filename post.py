@@ -39,7 +39,7 @@ S = {
     "table_size": 10.5,       # 表格字号 pt
     "toc_depth": "1-2",       # 目录收录层级
     "page_number": "— {n} —",  # 页码模板，{n} 处插入页码域
-    "header_rows": 1,         # 表头行数（多级表头设 2 或更多）
+    "header_rows": None,      # 表头行数；None = 自动（读 pandoc 打的 w:tblHeader）
     "table_border": "full",   # 表格边框：full 全框线 / three 三线表 / none 无框线
 }
 # 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
@@ -243,6 +243,22 @@ def style_id(p):
         return p.style.style_id or ""
     except Exception:
         return ""
+
+
+def detect_header_rows(tbl):
+    """数出开头连续带 w:tblHeader 的行数。
+
+    pandoc 已经把表头行标好了（grid table 的 `+===+` 以上全部算表头），
+    直接读它，比让用户填一个全局 header_rows 靠谱得多——同一文档里
+    不同表的表头行数往往不一样。
+    """
+    n = 0
+    for row in tbl.rows:
+        trPr = row._tr.find(qn("w:trPr"))
+        if trPr is None or trPr.find(qn("w:tblHeader")) is None:
+            break
+        n += 1
+    return n
 
 
 def to_rgb(v):
@@ -480,7 +496,8 @@ def main(body_path, out_path, cfg_path):
             if el is None:
                 el = OxmlElement("w:" + side); mar.append(el)
             el.set(qn("w:w"), val); el.set(qn("w:type"), "dxa")
-        header_rows = min(int(S["header_rows"]), len(tbl.rows))
+        n_head = S["header_rows"] or detect_header_rows(tbl)
+        header_rows = max(1, min(int(n_head), len(tbl.rows)))
         set_table_borders(tbl, S["table_border"], header_rows)
         for ri, row in enumerate(tbl.rows):
             is_head = ri < header_rows          # 多级表头时前 N 行都算表头

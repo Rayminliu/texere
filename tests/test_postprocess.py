@@ -238,22 +238,36 @@ def test_pandoc_sets_tblheader_natively(tmp_path):
     assert not _has_tbl_header(rows[2])
 
 
-def test_multilevel_header_rows(tmp_path):
-    """style.header_rows=2 时前两行都要灰底加粗（视觉表头）。"""
+def test_auto_header_rows_from_pandoc(tmp_path):
+    """默认自动识别：pandoc 标了几行表头，就给几行上灰底。"""
     from docx import Document
-    out = _build_md(tmp_path, GRID_MD, {"style": {"header_rows": 2}})
+    out = _build_md(tmp_path, GRID_MD, {})
     rows = Document(out).tables[0].rows
     assert _shaded(rows[0].cells[0]) and _shaded(rows[1].cells[0]), "多级表头未全部灰底"
     assert not _shaded(rows[2].cells[0]), "数据行被误当成表头"
 
 
-def test_header_rows_default_is_one(tmp_path):
-    """默认只有第一行做视觉表头（灰底）；第二行虽然 pandoc 给了重复表头，但不上灰底。"""
+def test_auto_header_rows_per_table(tmp_path):
+    """同一文档里不同表表头行数不同，必须各算各的（这是全局配置做不到的）。"""
     from docx import Document
-    out = _build_md(tmp_path, GRID_MD, {})
+    md = ("# 第一章\n\n"
+          "| a | b |\n|:--|:--|\n| 1 | 2 |\n\n"          # 单行表头
+          + GRID_MD.split("# 第一章 测试\n\n", 1)[1])       # 两行表头
+    out = _build_md(tmp_path, md, {})
+    t0, t1 = Document(out).tables
+    assert _shaded(t0.rows[0].cells[0]) and not _shaded(t0.rows[1].cells[0]), \
+        "pipe table 只该第一行灰底"
+    assert _shaded(t1.rows[0].cells[0]) and _shaded(t1.rows[1].cells[0]), \
+        "grid table 该前两行灰底"
+
+
+def test_header_rows_override(tmp_path):
+    """显式给 header_rows 时以配置为准（覆盖自动识别）。"""
+    from docx import Document
+    out = _build_md(tmp_path, GRID_MD, {"style": {"header_rows": 1}})
     rows = Document(out).tables[0].rows
     assert _shaded(rows[0].cells[0])
-    assert not _shaded(rows[1].cells[0]), "默认不该给第二行上灰底"
+    assert not _shaded(rows[1].cells[0]), "显式设为 1 时第二行不该有灰底"
 
 
 def test_three_line_table(tmp_path):
@@ -270,8 +284,9 @@ def test_three_line_table(tmp_path):
 
     assert val("insideH") == "nil" and val("insideV") == "nil", "三线表内部不应有框线"
     assert val("top") == "single" and borders.find(qn("w:top")).get(qn("w:sz")) == "12"
-    cell = tbl.rows[0].cells[0]._tc.find(qn("w:tcPr")).find(qn("w:tcBorders"))
-    assert cell is not None and cell.find(qn("w:bottom")) is not None, "缺表头下线"
+    # 表头下线画在「最后一行表头」上；本表自动识别为 2 行表头，所以查 rows[1]
+    last_head = tbl.rows[1].cells[0]._tc.find(qn("w:tcPr")).find(qn("w:tcBorders"))
+    assert last_head is not None and last_head.find(qn("w:bottom")) is not None, "缺表头下线"
 
 
 def test_caption_keeps_with_table(tmp_path):

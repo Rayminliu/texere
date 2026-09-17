@@ -135,7 +135,7 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `header_rows` | `1` | 前 N 行做**视觉**表头（灰底加粗居中）；多级表头要设 `2` |
+| `header_rows` | 自动 | 前 N 行做**视觉**表头（灰底加粗居中）。默认**按表自动识别**（读 pandoc 打的 `w:tblHeader`），同一文档里不同表可以各不一样；想强制才填数字 |
 | `table_border` | `full` | `full` 全框线 / `three` 三线表 / `none` 无框线 |
 | `table_shade` | `EDEDED` | 表头底纹 |
 | `table_size` | `10.5` | 表格字号 pt |
