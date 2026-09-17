@@ -51,6 +51,10 @@ CAP_LABEL_RE = re.compile(r"\s*@(tab|fig):([A-Za-z0-9_\-]+)\s*$")
 REF_RE = re.compile(r"@(tab|fig):([A-Za-z0-9_\-]+)")
 KIND_OF = {"表": "表", "圖": "图", "图": "图", "表格": "表", "图片": "图",
            "table": "表", "figure": "图", "fig": "图", "fig.": "图"}
+# 由 filters/captions.lua 在 AST 层打上的语义样式（按 styleId 匹配，见 style_id 注释）
+KIND_BY_STYLE_ID = {"TableCaption": "表", "FigureCaption": "图",
+                    "ImageCaption": "图", "Caption": "图", "CaptionedFigure": "图"}
+CAPTION_STYLE_IDS = set(KIND_BY_STYLE_ID)
 
 PPR_ORDER = ["pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr",
              "widowControl", "numPr", "suppressLineNumbers", "pBdr", "shd", "tabs",
@@ -162,6 +166,15 @@ def style_name(p):
         return ""
 
 
+def style_id(p):
+    """样式 styleId。比 name 可靠：内置「Table Caption」与我们的 TableCaption
+    同名不同字，按 name 判会歧义，按 styleId 判唯一。"""
+    try:
+        return p.style.style_id or ""
+    except Exception:
+        return ""
+
+
 def find_h1(paras):
     """定位第一章标题；兼容中文模板的「标题 1」。找不到返回 None。"""
     for k, p in enumerate(paras):
@@ -218,13 +231,12 @@ def auto_number(doc):
         if m_lab:
             raw = raw[:m_lab.start()]
         txt = raw.strip()
-        m = CAP_NUM_RE.match(txt)
-        if m:
+        m = CAP_NUM_RE.match(txt)          # 有旧编号则匹配到，供下面剥离重排
+        kind = KIND_BY_STYLE_ID.get(style_id(block))     # AST 层已标记：直接采信
+        if kind is None:                   # 没走 filter 的文档才回落到文本判定
+            if not m:
+                continue
             kind = KIND_OF.get(m.group(1).lower(), "表")
-        elif sn in {"Image Caption", "Captioned Figure", "Figure"}:
-            kind, m = "图", None           # pandoc 图注：整段就是说明文字
-        else:
-            continue
         counts[kind] = counts.get(kind, 0) + 1
         number = "%s %d-%d" % (kind, chapter, counts[kind])
         body = txt[m.end():].strip() if m else txt
@@ -383,11 +395,10 @@ def main(body_path, out_path, cfg_path):
                         set_run_font(r, size=10.5, bold=True if ri == 0 else None)
 
     # 5. 表题 / 图注 居中、灰色、去斜体
-    cap_styles = {"Image Caption", "Caption", "Table Caption", "Captioned Figure"}
     n_cap = 0
     for p in doc.paragraphs:
         txt = p.text.strip()
-        if CAPTION_RE.match(txt) or style_name(p) in cap_styles:
+        if style_id(p) in CAPTION_STYLE_IDS or CAPTION_RE.match(txt):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             pf = p.paragraph_format
             pf.first_line_indent = Pt(0); pf.left_indent = Pt(0)

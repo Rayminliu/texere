@@ -170,10 +170,17 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     res_paths = [src_dir]
     for root, dirs, _files in os.walk(src_dir):
         res_paths.extend(os.path.join(root, d) for d in dirs)
-    run(["pandoc", all_md, "-o", body,
-         "--reference-doc=" + ref,
-         "--resource-path=" + os.pathsep.join(res_paths),
-         "-f", "markdown+pipe_tables+raw_html", "--wrap=none"])
+    lua_filter = os.path.join(KIT, "filters", "captions.lua")
+    cmd = ["pandoc", all_md, "-o", body,
+           "--reference-doc=" + ref,
+           "--resource-path=" + os.pathsep.join(res_paths),
+           "-f", "markdown+pipe_tables+raw_html", "--wrap=none"]
+    if os.path.exists(lua_filter):
+        # AST 层标记表题/图注，post.py 就不用再靠正则猜
+        cmd.append("--lua-filter=" + lua_filter)
+    else:
+        print("[warn] 缺少 filters/captions.lua，题注退回文本正则判定")
+    run(cmd)
     print("[2/3] pandoc -> body.docx")
 
     run([sys.executable, os.path.join(KIT, "post.py"), body, out_docx,

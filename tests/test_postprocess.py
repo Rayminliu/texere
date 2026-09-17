@@ -15,9 +15,21 @@ import sys
 import pytest
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LUA_FILTER = os.path.join(KIT, "filters", "captions.lua")
 
 pytestmark = pytest.mark.skipif(
     shutil.which("pandoc") is None, reason="需要 pandoc")
+
+
+def _pandoc_cmd(md, body, res):
+    """与 render.py 保持一致：带上 AST 标记用的 lua filter。"""
+    cmd = ["pandoc", md, "-o", body,
+           "--reference-doc=" + os.path.join(KIT, "ref.docx"),
+           "--resource-path=" + res,
+           "-f", "markdown+pipe_tables+raw_html", "--wrap=none"]
+    if os.path.exists(LUA_FILTER):
+        cmd.append("--lua-filter=" + LUA_FILTER)
+    return cmd
 
 
 def _build(tmp_path):
@@ -26,12 +38,8 @@ def _build(tmp_path):
     shutil.copy(os.path.join(KIT, "sample.md"), src / "01_sample.md")
     body = str(tmp_path / "body.docx")
     out = str(tmp_path / "out.docx")
-    subprocess.run(
-        ["pandoc", str(src / "01_sample.md"), "-o", body,
-         "--reference-doc=" + os.path.join(KIT, "ref.docx"),
-         "--resource-path=" + str(src),
-         "-f", "markdown+pipe_tables+raw_html", "--wrap=none"],
-        check=True, capture_output=True)
+    subprocess.run(_pandoc_cmd(str(src / "01_sample.md"), body, str(src)),
+                   check=True, capture_output=True)
     subprocess.run(
         [sys.executable, os.path.join(KIT, "post.py"), body, out,
          os.path.join(KIT, "sample_config.json")],
@@ -47,12 +55,8 @@ def _build_md(tmp_path, md_text, cfg):
     cfg_path = tmp_path / "cfg.json"
     cfg_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
     body, out = str(tmp_path / "body.docx"), str(tmp_path / "out.docx")
-    subprocess.run(
-        ["pandoc", str(src / "01.md"), "-o", body,
-         "--reference-doc=" + os.path.join(KIT, "ref.docx"),
-         "--resource-path=" + str(src),
-         "-f", "markdown+pipe_tables+raw_html", "--wrap=none"],
-        check=True, capture_output=True)
+    subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)),
+                   check=True, capture_output=True)
     subprocess.run(
         [sys.executable, os.path.join(KIT, "post.py"), body, out, str(cfg_path)],
         check=True, capture_output=True)
@@ -145,3 +149,61 @@ def test_two_sections_with_page_number(docx_path):
     assert len(doc.sections) == 2, "应为 2 节，实际 %d" % len(doc.sections)
     footer_xml = doc.sections[-1].footer.paragraphs[0]._p.xml
     assert "PAGE" in footer_xml, "正文节页脚缺少页码域"
+
+
+def test_caption_variants_renumbered(tmp_path):
+    """全角编号、英文关键字、写错的编号都要识别并重排，且居中。"""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    md = (
+        "# 第一章 测试\n\n"
+        "表1.1 窄格式表题\n\n| a |\n|:--|\n| 1 |\n\n"
+        "表 １－１ 全角编号\n\n| a |\n|:--|\n| 1 |\n\n"
+        "Figure 1-1 英文图注\n\n"
+        "Table 1-9 写错的表号\n\n| a |\n|:--|\n| 1 |\n"
+    )
+    out = _build_md(tmp_path, md, {"auto_number": True})
+    doc = Document(out)
+    texts = [p.text.strip() for p in doc.paragraphs]
+    for want in ("表 1-1 窄格式表题", "表 1-2 全角编号",
+                 "图 1-1 英文图注", "表 1-3 写错的表号"):
+        assert want in texts, "未得到「%s」，实际：%s" % (want, texts)
+    caps = [p for p in doc.paragraphs if p.text.strip().startswith(("表 1-", "图 1-"))]
+    assert caps, "没有题注被编号"
+    assert all(p.alignment == WD_ALIGN_PARAGRAPH.CENTER for p in caps), "题注未居中"
+
+
+def test_figure_caption_auto_number(tmp_path):
+    """图注（Lua filter 标为 FigureCaption）与正文引用。"""
+    from docx import Document
+    md = "# 第一章 测试\n\n图 架构示意 @fig:arch\n\n如 @fig:arch 所示。\n"
+    out = _build_md(tmp_path, md, {"auto_number": True})
+    texts = [p.text.strip() for p in Document(out).paragraphs]
+    assert "图 1-1 架构示意" in texts, "图注未编号：%s" % texts
+    ref = next(t for t in texts if "所示" in t)
+    assert "图 1-1" in ref, "图注引用未替换：%s" % ref
+
+
+def test_missing_h1_exits_with_hint(tmp_path):
+    """缺一级标题时要给可诊断提示，而不是抛 StopIteration。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "01.md").write_text("## 只有二级标题\n\n正文。\n", encoding="utf-8")
+    body, out = str(tmp_path / "body.docx"), str(tmp_path / "out.docx")
+    subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)),
+                   check=True, capture_output=True)
+    r = subprocess.run(
+        [sys.executable, os.path.join(KIT, "post.py"), body, out, ""],
+        capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    assert r.returncode != 0, "缺一级标题时必须失败"
+    assert "一级标题" in r.stderr.decode("utf-8", "replace")
+
+
+def test_crossref_inside_table_cell(tmp_path):
+    """表格单元格里的引用也要被替换。"""
+    from docx import Document
+    md = ("# 第一章\n\n表 清单 @tab:list\n\n"
+          "| 说明 | 备注 |\n|:--|:--|\n| 见 @tab:list | ok |\n")
+    out = _build_md(tmp_path, md, {"auto_number": True})
+    cell = Document(out).tables[0].rows[1].cells[0].text
+    assert "表 1-1" in cell, "单元格内引用未替换：%s" % cell

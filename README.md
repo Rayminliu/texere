@@ -12,7 +12,10 @@
 | `render.py` | 入口：合并 md → pandoc → post.py →（可选）finalize/check |
 | `post.py` | 后处理：封面注入、目录域、分节页码、页眉页脚、表格规则、表题图注居中；OOXML 按 schema 顺序插入 |
 | `finalize.py` | Word COM：打开验收（打不开=结构错）、刷目录域、导 PDF、存回 |
-| `check_pdf.py` | PyMuPDF：空白页检测 + 渲染页面 PNG 供目视 |
+| `check_pdf.py` | PyMuPDF：空白页检测 + 渲染页面 PNG 供目视；空白页超阈值 exit 1 |
+| `snapshot.py` | PDF 版式快照回归：逐像素比对 `baselines/`，漂移即 exit 1 |
+| `filters/captions.lua` | pandoc Lua filter：在 **AST 层**把表题/图注标记成 `TableCaption`/`FigureCaption`，`post.py` 不再靠正则猜 |
+| `tests/` | pytest 断言：排版军规、自动编号与交叉引用、退出码、快照逻辑 |
 | `sample.md` / `sample_config.json` | 冒烟测试样例（投标文件风格） |
 
 ## 依赖
@@ -38,6 +41,10 @@
 python render.py --doctor                          # 环境自检（pandoc / 依赖 / Word 版本）
 python render.py --sample                          # 冒烟测试，产出 sample_out.docx/.pdf
 python render.py --src 章节目录 --out 标书.docx --config config.json --pdf --check
+
+python -m pytest -q                            # 排版断言（不需要 Word）
+python snapshot.py 标书.pdf --update           # 录版式基线（确认版式无误后执行）
+python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit 1
 ```
 
 - `章节目录` 内放 `01_xxx.md … 0N_xxx.md`，按文件名排序合并；`#` 为章、`##` 为节；
@@ -77,4 +84,6 @@ python render.py --src 章节目录 --out 标书.docx --config config.json --pdf
 - 目录为 Word 域，首次打开若未刷新请全选按 F9（已设 updateFields，通常自动）；
 - 图表编号：默认手写；开启 `auto_number` 后可自动按章编号并交叉引用（见「用法」）。
   未开启时插删图表仍需人工对号；
-- 不使用 Quarto：其 1.10.x 的 docx 对带自动编号题注的表格会丢失表体。
+- 不使用 Quarto：其 1.10.x 的 docx 对带自动编号题注的表格会丢失表体；
+- 快照基线依赖本机 Word 版本与字体，**换机器后先 `snapshot.py --update` 重录**，
+  否则会满屏漂移；阈值默认 0.1%（实测同文档重复导出为 0.00%，改一处页眉为 0.16%）。

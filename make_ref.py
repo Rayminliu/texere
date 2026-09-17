@@ -242,6 +242,10 @@ custom = [
     ("Lead", SONG, 12, False, WD_ALIGN_PARAGRAPH.LEFT, 4, 8, 1.0, None, (0x33, 0x33, 0x33)),
     ("SmallNote", SONG, 10.5, False, WD_ALIGN_PARAGRAPH.LEFT, 2, 8, 1.0, None, (0x59, 0x59, 0x59)),
     ("FigurePara", SONG, 12, False, WD_ALIGN_PARAGRAPH.CENTER, 6, 2, 1.0, None, None),
+    # filters/captions.lua 打上的题注语义样式（TableCaption 复用内置「Table Caption」，
+    # 其 styleId 同为 TableCaption，故这里只补 FigureCaption，避免 styleId 撞车）
+    ("FigureCaption", SONG, 10.5, False, WD_ALIGN_PARAGRAPH.CENTER, 3, 10, 1.0,
+     None, (0x40, 0x40, 0x40)),
 ]
 for name, east, size, bold, align, before, after, line, ind, color in custom:
     try:
