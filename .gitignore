@@ -12,3 +12,6 @@ ref_default.docx
 
 # 真实项目测试素材（属于另一个项目，不进本工具包的仓库）
 国创/
+
+# 第三方参考：Codex 的 Documents 插件技能包（只作写法参照）
+documents/
