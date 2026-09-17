@@ -23,9 +23,12 @@
 - **表格**：支持 grid table（多级表头 / 合并单元格 / 单元格内换行 / 列宽控制，均为 pandoc 原生能力，已文档化）
 - `style.header_rows`：多级表头的视觉表头行数；`style.table_border`：`full` / `three`（三线表）/ `none`
 - `make_ref.py` 支持 `--body-font / --latin-font / --heading-font / --body-size`
-- `render.py --version`；CI（GitHub Actions）跑不依赖 Word 的 22 项断言与 docx 冒烟
+- `render.py --version`
 
 ### 移除
+- **GitHub Actions CI 配置**：本地自用 + 只有熟人使用，且 CI 的 Linux runner 没有 Word，
+  只能覆盖 33 项断言那半条链，而 Word 真机验收才是这个项目最值钱的部分。
+  留着一个从未跑过的配置反而会造成"有保障"的错觉。需要时再写，五分钟的事。
 - **图表自动编号与 `@tab:` / `@fig:` 交叉引用**（0.2.0 内测期间的功能）整体删除。
   理由：它会改写题注文字（题注内局部加粗被合并）、给原本无编号的题注补号
   （`附件 8-1 …` → `图 8-1 附件 8-1 …`）、且不同步正文里手写的引用。
