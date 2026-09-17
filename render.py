@@ -10,6 +10,7 @@
       正文样式即继承对方模板（封面/目录/页眉页脚仍由 post.py 统一注入）。
 """
 import argparse
+import atexit
 import glob
 import importlib
 import json
@@ -204,6 +205,9 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     ref = cfg.get("reference_doc") or os.path.join(KIT, "ref.docx")
 
     tmp = tempfile.mkdtemp(prefix="docxkit_")
+    # 用 atexit 而不是在函数末尾 rmtree：任何 sys.exit（preflight、子进程报错、
+    # 配置有误）都会绕过末尾那行，临时目录就会烂在 %TEMP% 里（实测一天攒了 12 个）。
+    atexit.register(shutil.rmtree, tmp, ignore_errors=True)
     all_md = os.path.join(tmp, "all.md")
     parts = []
     for f in sorted(glob.glob(os.path.join(src_dir, "*.md"))):
@@ -320,6 +324,8 @@ def main():
 
     if a.sample:
         tmp = tempfile.mkdtemp(prefix="docxkit_sample_")
+        # 这里以前完全没清理：每跑一次 --sample 就在 %TEMP% 留一个目录
+        atexit.register(shutil.rmtree, tmp, ignore_errors=True)
         shutil.copy(os.path.join(KIT, "sample.md"), os.path.join(tmp, "01_sample.md"))
         out = os.path.join(KIT, "sample_out.docx")
         render(tmp, out, os.path.join(KIT, "sample_config.json"), True, True)

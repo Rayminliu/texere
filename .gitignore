@@ -1,5 +1,6 @@
 .venv/
 __pycache__/
+.pytest_cache/
 *.pyc
 
 # 渲染产物（每次 --sample 重新生成）

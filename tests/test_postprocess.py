@@ -405,6 +405,33 @@ def test_style_cfg_numeric_and_spacing(tmp_path):
     assert cap.paragraph_format.space_before.pt == 12.0, "题注段前间距未生效"
 
 
+def test_temp_dir_cleaned_on_failure(tmp_path):
+    """渲染失败时也要清掉临时目录。
+
+    以前只在 render() 末尾 rmtree，任何 sys.exit（配置有误、子进程报错）都会绕过它，
+    临时目录就烂在 %TEMP% 里——实测一天攒了 12 个。
+    """
+    import glob
+    import tempfile
+    pat = os.path.join(tempfile.gettempdir(), "docxkit_*")
+    before = set(glob.glob(pat))
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "01.md").write_text("# 第一章\n\n正文。\n", encoding="utf-8")
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text('{"content_fixes_file": "这个文件不存在.py"}', encoding="utf-8")
+
+    r = subprocess.run(
+        [sys.executable, os.path.join(KIT, "render.py"), "--src", str(src),
+         "--out", str(tmp_path / "o.docx"), "--config", str(cfg)],
+        capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    assert r.returncode != 0, "这个配置应当失败"
+
+    leaked = sorted(set(glob.glob(pat)) - before)
+    assert not leaked, "失败后临时目录未清理：%s" % leaked
+
+
 def test_render_finds_sibling_media(tmp_path):
     """图片在 src 的**兄弟**目录时也要能找到（真实项目就是这种布局：
 
