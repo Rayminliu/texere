@@ -22,7 +22,7 @@ import sys
 import tempfile
 
 KIT = os.path.dirname(os.path.abspath(__file__))
-__version__ = "0.2.0"          # 与 pyproject.toml 的 version 保持一致
+__version__ = "0.2.1"          # 与 pyproject.toml 的 version 保持一致
 
 # Windows 控制台默认 GBK，子进程输出里若出现 GBK 无法编码的字符（如 PyMuPDF 解出的
 # U+FFFD），print 会抛 UnicodeEncodeError 让验收环节崩掉。这里保持控制台原编码不变
@@ -204,7 +204,7 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
         cfg = json.load(open(config_path, encoding="utf-8-sig"))
     ref = cfg.get("reference_doc") or os.path.join(KIT, "ref.docx")
 
-    tmp = tempfile.mkdtemp(prefix="docxkit_")
+    tmp = tempfile.mkdtemp(prefix="texere_")
     # 用 atexit 而不是在函数末尾 rmtree：任何 sys.exit（preflight、子进程报错、
     # 配置有误）都会绕过末尾那行，临时目录就会烂在 %TEMP% 里（实测一天攒了 12 个）。
     atexit.register(shutil.rmtree, tmp, ignore_errors=True)
@@ -316,14 +316,14 @@ def main():
     ap.add_argument("--doctor", action="store_true",
                     help="只做环境自检：pandoc / Python 依赖 / Word，不渲染")
     ap.add_argument("--version", action="version",
-                    version="docx-kit " + __version__)
+                    version="texere " + __version__)
     a = ap.parse_args()
 
     if a.doctor:
         sys.exit(doctor())
 
     if a.sample:
-        tmp = tempfile.mkdtemp(prefix="docxkit_sample_")
+        tmp = tempfile.mkdtemp(prefix="texere_sample_")
         # 这里以前完全没清理：每跑一次 --sample 就在 %TEMP% 留一个目录
         atexit.register(shutil.rmtree, tmp, ignore_errors=True)
         shutil.copy(os.path.join(KIT, "sample.md"), os.path.join(tmp, "01_sample.md"))

@@ -1,9 +1,9 @@
 ---
-name: docx-kit
+name: texere
 description: Render Markdown into properly typeset Chinese formal documents (docx + PDF) — tenders and bids, project plans, grant applications, final reports, white papers — and verify the result by opening it in real Word, refreshing the TOC field, exporting a PDF, and checking for blank pages and layout drift. Use when a task involves generating a formal document from Markdown, adding a cover page / table of contents / header / per-section page numbers, Chinese formal typesetting (SimSun body, SimHei headings, 2-character first-line indent, centred captions), repeating table header rows across pages, or pre-delivery checks for blank pages and layout changes.
 ---
 
-# docx-kit
+# texere
 
 A local toolkit that renders a Markdown chapter directory into a Chinese formal docx / PDF. Two ideas carry
 the whole design: **template-driven** (every visual rule lives in `ref.docx`; the source text carries

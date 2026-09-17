@@ -413,7 +413,7 @@ def test_temp_dir_cleaned_on_failure(tmp_path):
     """
     import glob
     import tempfile
-    pat = os.path.join(tempfile.gettempdir(), "docxkit_*")
+    pat = os.path.join(tempfile.gettempdir(), "texere_*")
     before = set(glob.glob(pat))
 
     src = tmp_path / "src"
@@ -529,7 +529,7 @@ def test_render_version_flag():
     r = subprocess.run([sys.executable, os.path.join(KIT, "render.py"), "--version"],
                        capture_output=True)
     assert r.returncode == 0
-    assert b"docx-kit" in r.stdout, r.stdout
+    assert b"texere" in r.stdout, r.stdout
 
 
 def test_no_h1_is_processed(tmp_path):

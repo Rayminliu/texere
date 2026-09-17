@@ -1,6 +1,9 @@
 English | [简体中文](README.zh-CN.md)
 
-# docx-kit — turn Markdown into properly typeset Chinese documents
+# texere — turn Markdown into properly typeset Chinese documents
+
+*From Latin* texere*, "to weave" — the shared root of* text *and* textile*. Typesetting is the same act:
+body text, tables, captions and page numbers woven into an ordered page.*
 
 Renders a Markdown chapter directory into a **production-grade Chinese formal document** (docx + PDF):
 tenders and bids, project plans, grant applications, final reports, white papers.

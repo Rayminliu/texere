@@ -1,6 +1,9 @@
 [English](README.md) | 简体中文
 
-# docx-kit —— 把 Markdown 渲染成中文正式文档
+# texere —— 把 Markdown 渲染成中文正式文档
+
+> 名字取自拉丁语 **texere**——"编织"，`text`（文本）与 `textile`（织物）的共同词源。
+> 排版做的正是这件事：把正文、表格、题注、页码编织成一页有序的版面。
 
 把 Markdown 章节目录变成**排版合格的中文正式 docx / PDF**：标书、计划书、申报书、结题报告、白皮书。
 

@@ -13,8 +13,23 @@
   `description` 用英文写，便于全球 agent 命中
 - `README.zh-CN.md`：原中文 README 改名保留；`README.md` 改为**英文主文档**
   （GitHub 只把 `README.md` 渲染成仓库首页），两文件首行互为语言切换入口
+- `LICENSE`：**MIT**；`pyproject.toml` 加 `license` 字段
 
 ### 变更
+- **改名 `docx-kit` → `texere`**（拉丁语"编织"，即 `text` / `textile` 的共同词源；排版本就是
+  把正文、表格、题注、页码编织成一页）。改名原因：原名实测已被多处占用——npm 包名 `docx-kit`
+  被占、GitHub 另有 `ntnyq/docx-kit`（TS 库，有独立文档站）与 `LLYN077/docx-kit`。
+  涉及 10 处手改 + 2 处自动重生成。**功能与输出版式零变化**（快照 0.00%，36 项测试全过）。
+  两个容易漏的点：`SKILL.md` 的 `name` 必须与技能目录名一致；`render.py` 的临时目录前缀与
+  `tests/` 里检查"临时目录泄漏"的 glob **互相耦合，必须同步改**
+- 候选名核验方法与实测结论（供将来命名参考）：
+  - 用 GitHub `in:name` 计数，**看占用质量而非数量**（是否活跃、多少 star）
+  - **子串陷阱**：`pagina` 命中 **229,988**（pagination）、`collatio` 命中 **444**（collation）、
+    `maat` 命中 **2,268**（code-maat）——名字藏在常见词里就永远搜不到自己
+  - **拼音同音陷阱**：`kaogong`（考工）被 **191** 个"考公"备考仓库淹没
+  - 神话/古籍类名字基本被占：`maat` 2,268、`scriptorium` 727、`scriba` 404、`seshat` 402、
+    `erya` 329、`colophon` 161、`nisaba` 71、`shuowen` 41
+  - 最终存活的是**拼写独特且非英语日常词**的：`texere` 13 个（全是 0–5 star 空壳）
 - README 重写为使用者视角：新增「能做什么/不做什么」「效果」（引用 `baselines/` 的两张渲染图）
   「验证门槛」；「文件地图」移到末尾
 - 修正 README 两处**会让人直接失败**的错误：
