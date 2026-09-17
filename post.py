@@ -41,6 +41,27 @@ S = {
     "page_number": "— {n} —",  # 页码模板，{n} 处插入页码域
     "header_rows": None,      # 表头行数；None = 自动（读 pandoc 打的 w:tblHeader）
     "table_border": "full",   # 表格边框：full 全框线 / three 三线表 / none 无框线
+    # --- 页眉 / 页脚 ---
+    "header_size": 9.0,           # 页眉字号 pt
+    "header_gray": (0x59, 0x59, 0x59),
+    "header_rule_color": "BFBFBF",  # 页眉下边框颜色
+    "header_rule_size": 4,        # 页眉下边框粗细（1/8 pt）
+    "page_number_size": 9.0,      # 页码字号 pt
+    # --- 目录 ---
+    "toc_title_size": 16.0,
+    "toc_title_color": (0, 0, 0),
+    "toc_placeholder": "【目录将在打开文档时自动生成；若未显示请全选后按 F9】",
+    "toc_placeholder_size": 12.0,
+    # --- 表格 ---
+    "cell_margin_v": 40,      # 单元格上下边距 twips
+    "cell_margin_h": 80,      # 单元格左右边距 twips
+    "table_para_space": 1.0,  # 单元格内段前后 pt
+    "border_size": 6,         # 全框线粗细（1/8 pt）
+    "border_color": "808080",
+    "three_line_size": 12,    # 三线表顶底线粗细（1/8 pt）
+    # --- 题注 ---
+    "caption_space_before": 6.0,
+    "caption_space_after": 4.0,
 }
 # 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
 H1_STYLES = {"Heading 1", "标题 1"}
@@ -149,7 +170,9 @@ def shade(cell, fill=None):
     sh.set(qn("w:fill"), fill)
 
 
-def set_cell_border(cell, edge, sz="6", color="000000"):
+def set_cell_border(cell, edge, sz=None, color=None):
+    sz = str(sz if sz is not None else S["border_size"])
+    color = color or S["border_color"]
     tcPr = cell._tc.get_or_add_tcPr()
     tb = tcPr.find(qn("w:tcBorders"))
     if tb is None:
@@ -185,16 +208,16 @@ def set_table_borders(tbl, mode, header_rows):
         elif mode == "three":
             if edge in ("top", "bottom"):
                 el.set(qn("w:val"), "single")
-                el.set(qn("w:sz"), "12")     # 1.5pt，三线表的顶底线要粗
+                el.set(qn("w:sz"), str(S["three_line_size"]))  # 顶底线比内部线粗
                 el.set(qn("w:space"), "0")
                 el.set(qn("w:color"), "000000")
             else:
                 el.set(qn("w:val"), "nil")
         else:
             el.set(qn("w:val"), "single")
-            el.set(qn("w:sz"), "6")
+            el.set(qn("w:sz"), str(S["border_size"]))
             el.set(qn("w:space"), "0")
-            el.set(qn("w:color"), "808080")
+            el.set(qn("w:color"), S["border_color"])
     if mode == "three":
         # 表头最后一行的下边框 = 三线表的中间那条线
         for cell in tbl.rows[min(header_rows, len(tbl.rows)) - 1].cells:
@@ -245,6 +268,31 @@ def style_id(p):
         return ""
 
 
+def build_caption_matchers(words):
+    """按 config 的 caption_words 重建题注关键字（默认 表/图/Table/Figure）。
+
+    words 形如 {"table": ["表", "表格"], "figure": ["图", "图片"]}。
+    同时供 filters/captions.lua 使用（由 render.py 以 -M 传入），两边必须一致。
+    """
+    global CAPTION_RE, CAP_NUM_RE, KIND_OF
+    pairs = []
+    for kind, ws in (("表", words.get("table") or []),
+                     ("图", words.get("figure") or [])):
+        for w in ws:
+            if w:
+                pairs.append((w, kind))
+    if not pairs:
+        return
+    pairs.sort(key=lambda x: -len(x[0]))          # 长词优先，避免「表」抢「表格」
+    KIND_OF = dict((w.lower(), k) for w, k in pairs)
+    alt = "|".join(re.escape(w) for w, _k in pairs)
+    CAPTION_RE = re.compile(
+        r"^(?:%s)\s*%s+(?:\s*%s\s*%s+)?" % (alt, _D, _SEP, _D), re.IGNORECASE)
+    CAP_NUM_RE = re.compile(
+        r"^(%s)(\s*)(%s+(?:\s*%s\s*%s+)?)?(\s*)" % (alt, _D, _SEP, _D),
+        re.IGNORECASE)
+
+
 def detect_header_rows(tbl):
     """数出开头连续带 w:tblHeader 的行数。
 
@@ -273,20 +321,38 @@ def to_rgb(v):
     return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
 
 
+# style 段各键的类型（决定怎么解析），见 apply_style_cfg
+_STYLE_STR = ("east_font", "latin_font", "toc_depth", "page_number", "table_border",
+              "toc_placeholder", "table_shade", "header_rule_color", "border_color")
+_STYLE_FLOAT = ("caption_size", "table_size", "header_size", "page_number_size",
+                "toc_title_size", "toc_placeholder_size", "table_para_space",
+                "caption_space_before", "caption_space_after")
+_STYLE_INT = ("cell_margin_v", "cell_margin_h", "border_size", "three_line_size",
+              "header_rule_size")
+_STYLE_COLOR = ("caption_gray", "header_gray", "toc_title_color")
+
+
 def apply_style_cfg(cfg):
     """把 config.json 的 "style" 段套到全局设置 S 上；没写的保持默认。"""
     st = cfg.get("style") or {}
-    for k in ("east_font", "latin_font", "table_shade", "toc_depth", "page_number",
-              "table_border"):
+    for k in _STYLE_STR:
         if k in st:
             S[k] = st[k]
-    for k in ("caption_size", "table_size"):
+    for k in _STYLE_FLOAT:
         if k in st:
             S[k] = float(st[k])
+    for k in _STYLE_INT:
+        if k in st:
+            S[k] = int(st[k])
+    for k in _STYLE_COLOR:
+        if k in st:
+            S[k] = to_rgb(st[k])
     if "header_rows" in st:
         S["header_rows"] = max(1, int(st["header_rows"]))
-    if "caption_gray" in st:
-        S["caption_gray"] = to_rgb(st["caption_gray"])
+    # caption_words 是顶层键（它不是"样式"，是语义），也兼容写在 style 里
+    cw = cfg.get("caption_words") or st.get("caption_words")
+    if cw:
+        build_caption_matchers(cw)
     return S
 
 
@@ -429,11 +495,12 @@ def main(body_path, out_path, cfg_path):
     toc_head = np(cfg.get("toc_heading", "目　　录"), "TOC Heading",
                   align=WD_ALIGN_PARAGRAPH.CENTER, page_break=True)
     for r in toc_head.runs:
-        set_run_font(r, size=16, bold=True, color=(0, 0, 0))
+        set_run_font(r, size=S["toc_title_size"], bold=True,
+                     color=S["toc_title_color"])
     toc_para = np("")
     toc_para.paragraph_format.first_line_indent = Pt(0)
     add_field(toc_para, 'TOC \\o "%s" \\h \\z \\u' % S["toc_depth"],
-              "【目录将在打开文档时自动生成；若未显示请全选后按 F9】", size=12)
+              S["toc_placeholder"], size=S["toc_placeholder_size"])
     sect_para = np("")
     sect_para.paragraph_format.first_line_indent = Pt(0)
 
@@ -458,10 +525,10 @@ def main(body_path, out_path, cfg_path):
     fp.paragraph_format.first_line_indent = Pt(0)
     left, _sep, right = S["page_number"].partition("{n}")
     if left:
-        set_run_font(fp.add_run(left), size=9)
-    add_field(fp, "PAGE", "1", size=9)
+        set_run_font(fp.add_run(left), size=S["page_number_size"])
+    add_field(fp, "PAGE", "1", size=S["page_number_size"])
     if right:
-        set_run_font(fp.add_run(right), size=9)
+        set_run_font(fp.add_run(right), size=S["page_number_size"])
 
     header_text = cfg.get("header")
     if header_text:
@@ -469,11 +536,14 @@ def main(body_path, out_path, cfg_path):
         hp = sec_body.header.paragraphs[0]
         hp.alignment = WD_ALIGN_PARAGRAPH.CENTER
         hp.paragraph_format.first_line_indent = Pt(0)
-        set_run_font(hp.add_run(header_text), size=9, color=(0x59, 0x59, 0x59))
+        set_run_font(hp.add_run(header_text), size=S["header_size"],
+                     color=S["header_gray"])
         pbdr = OxmlElement("w:pBdr")
         btm = OxmlElement("w:bottom")
-        btm.set(qn("w:val"), "single"); btm.set(qn("w:sz"), "4")
-        btm.set(qn("w:space"), "1"); btm.set(qn("w:color"), "BFBFBF")
+        btm.set(qn("w:val"), "single")
+        btm.set(qn("w:sz"), str(S["header_rule_size"]))
+        btm.set(qn("w:space"), "1")
+        btm.set(qn("w:color"), S["header_rule_color"])
         pbdr.append(btm)
         insert_ordered(hp._p.get_or_add_pPr(), pbdr, PPR_ORDER)
 
@@ -491,11 +561,13 @@ def main(body_path, out_path, cfg_path):
         mar = tblPr.find(qn("w:tblCellMar"))
         if mar is None:
             mar = insert_ordered(tblPr, OxmlElement("w:tblCellMar"), TBLPR_ORDER)
-        for side, val in (("top", "40"), ("left", "80"), ("bottom", "40"), ("right", "80")):
+        for side, val in (("top", S["cell_margin_v"]), ("left", S["cell_margin_h"]),
+                          ("bottom", S["cell_margin_v"]),
+                          ("right", S["cell_margin_h"])):
             el = mar.find(qn("w:" + side))
             if el is None:
                 el = OxmlElement("w:" + side); mar.append(el)
-            el.set(qn("w:w"), val); el.set(qn("w:type"), "dxa")
+            el.set(qn("w:w"), str(val)); el.set(qn("w:type"), "dxa")
         n_head = S["header_rows"] or detect_header_rows(tbl)
         header_rows = max(1, min(int(n_head), len(tbl.rows)))
         set_table_borders(tbl, S["table_border"], header_rows)
@@ -510,7 +582,8 @@ def main(body_path, out_path, cfg_path):
                 for p in cell.paragraphs:
                     pf = p.paragraph_format
                     pf.first_line_indent = Pt(0)
-                    pf.space_before = Pt(1); pf.space_after = Pt(1)
+                    pf.space_before = Pt(S["table_para_space"])
+                    pf.space_after = Pt(S["table_para_space"])
                     pf.line_spacing = 1.0
                     if is_head:
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -526,7 +599,8 @@ def main(body_path, out_path, cfg_path):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             pf = p.paragraph_format
             pf.first_line_indent = Pt(0); pf.left_indent = Pt(0)
-            pf.space_before = Pt(6); pf.space_after = Pt(4)
+            pf.space_before = Pt(S["caption_space_before"])
+            pf.space_after = Pt(S["caption_space_after"])
             # 表题必须与表格同页，否则会孤零零留在页尾
             pf.keep_with_next = True
             for r in p.runs:

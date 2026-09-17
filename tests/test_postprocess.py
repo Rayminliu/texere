@@ -21,14 +21,19 @@ pytestmark = pytest.mark.skipif(
     shutil.which("pandoc") is None, reason="需要 pandoc")
 
 
-def _pandoc_cmd(md, body, res):
-    """与 render.py 保持一致：带上 AST 标记用的 lua filter。"""
+def _pandoc_cmd(md, body, res, cfg=None):
+    """与 render.py 保持一致：带上 lua filter，并在配置题注关键字时传 -M。"""
     cmd = ["pandoc", md, "-o", body,
            "--reference-doc=" + os.path.join(KIT, "ref.docx"),
            "--resource-path=" + res,
            "-f", "markdown+pipe_tables+raw_html", "--wrap=none"]
     if os.path.exists(LUA_FILTER):
         cmd.append("--lua-filter=" + LUA_FILTER)
+        cw = (cfg or {}).get("caption_words") or {}
+        for key, meta_name in (("table", "dk-table-words"),
+                               ("figure", "dk-figure-words")):
+            if cw.get(key):
+                cmd += ["-M", "%s=%s" % (meta_name, ",".join(cw[key]))]
     return cmd
 
 
@@ -55,7 +60,7 @@ def _build_md(tmp_path, md_text, cfg):
     cfg_path = tmp_path / "cfg.json"
     cfg_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
     body, out = str(tmp_path / "body.docx"), str(tmp_path / "out.docx")
-    subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)),
+    subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src), cfg),
                    check=True, capture_output=True)
     subprocess.run(
         [sys.executable, os.path.join(KIT, "post.py"), body, out, str(cfg_path)],
@@ -323,6 +328,49 @@ def test_style_cfg_overrides(tmp_path):
     cap = next(p for p in doc.paragraphs if "清单" in p.text)
     assert cap.runs[0].font.color.rgb == RGBColor(0xFF, 0x00, 0x00), "题注颜色未生效"
     assert cap.runs[0].font.size.pt == 9.0, "题注字号未生效"
+
+
+def test_style_cfg_numeric_and_spacing(tmp_path):
+    """页眉/页码字号、单元格边距、边框、题注间距都要能被 style 段改。"""
+    from docx import Document
+    from docx.oxml.ns import qn
+    md = "# 第一章\n\n表 清单 @tab:t\n\n| a | b |\n|:--|:--|\n| 1 | 2 |\n"
+    out = _build_md(tmp_path, md, {
+        "auto_number": True,
+        "header": "页眉文字",
+        "style": {"header_size": 12.0, "page_number_size": 14.0,
+                  "cell_margin_h": 200, "border_size": 12,
+                  "border_color": "000000", "caption_space_before": 12.0}})
+    doc = Document(out)
+
+    footer_run = doc.sections[-1].footer.paragraphs[0].runs[0]
+    assert footer_run.font.size.pt == 14.0, "页码字号未生效"
+    hdr = doc.sections[-1].header.paragraphs[0].runs[0]
+    assert hdr.font.size.pt == 12.0, "页眉字号未生效"
+
+    tbl = doc.tables[0]
+    mar = tbl._tbl.tblPr.find(qn("w:tblCellMar"))
+    assert mar.find(qn("w:left")).get(qn("w:w")) == "200", "单元格边距未生效"
+    top = tbl._tbl.tblPr.find(qn("w:tblBorders")).find(qn("w:top"))
+    assert top.get(qn("w:sz")) == "12" and top.get(qn("w:color")) == "000000"
+
+    cap = next(p for p in doc.paragraphs if p.text.strip().startswith("表 1-1"))
+    assert cap.paragraph_format.space_before.pt == 12.0, "题注段前间距未生效"
+
+
+def test_caption_words_configurable(tmp_path):
+    """题注关键字可配（post.py 与 lua filter 同步）。"""
+    from docx import Document
+    md = "# 第一章\n\n照片 架构示意 @fig:a\n\n如 @fig:a 所示。\n"
+    words = {"table": ["清单"], "figure": ["照片"]}
+
+    off = _build_md(tmp_path, md, {"auto_number": True})
+    assert "图 1-1" not in [p.text for p in Document(off).paragraphs], \
+        "默认关键字下不该把「照片」当图注"
+
+    on = _build_md(tmp_path, md, {"auto_number": True, "caption_words": words})
+    texts = [p.text.strip() for p in Document(on).paragraphs]
+    assert "图 1-1 架构示意" in texts, "自定义关键字未生效：%s" % texts
 
 
 def test_to_rgb_accepts_common_forms():

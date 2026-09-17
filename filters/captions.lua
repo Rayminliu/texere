@@ -20,24 +20,38 @@ local function text_head(inlines)
   return nil
 end
 
-local function kind_by_text(s)
+-- 题注关键字默认值。可用 config 的 caption_words 覆盖：
+-- render.py 会以 -M dk-table-words=... -M dk-figure-words=... 传进来，
+-- post.py 那边同步重建正则，两边始终一致。
+local DEFAULT_TABLE_WORDS = { "表", "表格", "圖片", "Table" }
+local DEFAULT_FIGURE_WORDS = { "图", "圖", "图片", "圖片", "Figure", "Fig" }
+
+local function meta_words(meta, key, default)
+  local v = meta[key]
+  if v == nil then
+    return default
+  end
+  local s = pandoc.utils.stringify(v)
+  local out = {}
+  for w in s:gmatch("[^,%s]+") do
+    out[#out + 1] = w
+  end
+  if #out == 0 then
+    return default
+  end
+  return out
+end
+
+local function starts_any(s, words)
   if not s then
-    return nil
+    return false
   end
-  if s:match("^表") or s:match("^表格") or s:match("^圖片") then
-    return TABLE_STYLE
+  for _, w in ipairs(words) do
+    if s:sub(1, #w) == w then
+      return true
+    end
   end
-  if s:match("^图") or s:match("^圖") or s:match("^图片") then
-    return FIGURE_STYLE
-  end
-  local lower = s:lower()
-  if lower:match("^table") then
-    return TABLE_STYLE
-  end
-  if lower:match("^figure") or lower:match("^fig%.") then
-    return FIGURE_STYLE
-  end
-  return nil
+  return false
 end
 
 local function single_image(para)
@@ -61,6 +75,8 @@ local function single_image(para)
 end
 
 function Pandoc(doc)
+  local tw = meta_words(doc.meta, "dk-table-words", DEFAULT_TABLE_WORDS)
+  local fw = meta_words(doc.meta, "dk-figure-words", DEFAULT_FIGURE_WORDS)
   local blocks = doc.blocks
   for i, block in ipairs(blocks) do
     if block.t == "Para" then
@@ -71,7 +87,12 @@ function Pandoc(doc)
       elseif single_image(block) then
         kind = FIGURE_STYLE
       else
-        kind = kind_by_text(text_head(block.content))
+        local head = text_head(block.content)
+        if starts_any(head, tw) then
+          kind = TABLE_STYLE
+        elseif starts_any(head, fw) then
+          kind = FIGURE_STYLE
+        end
       end
       if kind ~= nil then
         blocks[i] = pandoc.Div({ block },

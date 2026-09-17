@@ -84,18 +84,28 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 | `toc_heading` | 目录标题，默认「目　　录」 |
 | `auto_number` | `true` 开启图表自动编号与交叉引用 |
 | `style` | 版式微调，见下表 |
+| `caption_words` | 自定义题注关键字（默认 表/图/Table/Figure），见下 |
+
+`caption_words`（需要非中文或不惯用叫法时才配，`post.py` 与 lua filter 会同步）：
+
+```json
+"caption_words": {"table": ["表", "表格"], "figure": ["图", "图片"]}
+```
 
 `style` 段（全部可省，缺省即中文正式文档惯例）：
 
-| 键 | 默认 | 说明 |
+| 分组 | 键 | 默认 |
 |---|---|---|
-| `page_number` | `— {n} —` | 页码模板，`{n}` 处插入页码域 |
-| `toc_depth` | `1-2` | 目录收录层级 |
-| `caption_gray` | `404040` | 题注颜色（6 位十六进制） |
-| `caption_size` | `10.5` | 题注字号 pt |
-| `table_shade` | `EDEDED` | 表头底纹 |
-| `table_size` | `10.5` | 表格字号 pt |
-| `east_font` / `latin_font` | `宋体` / `Times New Roman` | **只作用于表格与题注** |
+| 页脚 | `page_number` / `page_number_size` | `— {n} —` / `9` |
+| 页眉 | `header_size` / `header_gray` / `header_rule_color` / `header_rule_size` | `9` / `595959` / `BFBFBF` / `4` |
+| 目录 | `toc_depth` / `toc_title_size` / `toc_title_color` / `toc_placeholder` / `toc_placeholder_size` | `1-2` / `16` / `000000` / 见提示语 / `12` |
+| 题注 | `caption_gray` / `caption_size` / `caption_space_before` / `caption_space_after` | `404040` / `10.5` / `6` / `4` |
+| 表格 | `header_rows` / `table_border` / `table_shade` / `table_size` | 自动 / `full` / `EDEDED` / `10.5` |
+| 表格 | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
+| 表格 | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |
+| 字体 | `east_font` / `latin_font` | `宋体` / `Times New Roman`（**只作用于表格与题注**） |
+
+> 颜色写 6 位十六进制（`404040`），粗细单位 1/8 pt，间距单位 pt，单元格边距单位 twips。
 
 ## 表格
 

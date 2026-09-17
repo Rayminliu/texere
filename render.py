@@ -179,6 +179,12 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     if os.path.exists(lua_filter):
         # AST 层标记表题/图注，post.py 就不用再靠正则猜
         cmd.append("--lua-filter=" + lua_filter)
+        # 题注关键字可配：同一份配置同时喂给 lua filter 与 post.py
+        cw = cfg.get("caption_words") or {}
+        for key, meta_name in (("table", "dk-table-words"),
+                               ("figure", "dk-figure-words")):
+            if cw.get(key):
+                cmd += ["-M", "%s=%s" % (meta_name, ",".join(cw[key]))]
     else:
         print("[warn] 缺少 filters/captions.lua，题注退回文本正则判定")
     run(cmd)
