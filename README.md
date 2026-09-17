@@ -10,7 +10,7 @@ tenders and bids, project plans, grant applications, final reports, white papers
 
 Three things define it:
 
-1. **Template-driven** — every visual rule lives in `ref.docx`. The Markdown source carries semantics only.
+1. **Template-driven** — every visual rule lives in `assets/ref.docx`. The Markdown source carries semantics only.
    You can restyle the whole document without touching a single word of content.
 2. **Real Word acceptance** — it opens the result in your local Word, refreshes the TOC field, exports a PDF,
    and renders pages for eyeballing. It does not trust "it read back fine".
@@ -21,8 +21,8 @@ Three things define it:
 
 | | |
 |---|---|
-| **Does** | Markdown → docx / PDF; cover page, TOC field, per-section page numbers, headers; table typesetting (borders / header rows / repeating headers / zebra stripes); caption conventions for tables and figures; one-command pre-delivery acceptance (does Word open it, are there blank pages, did the layout drift) |
-| **Doesn't** | **Edit existing docx files** (comments, tracked changes, redaction, accessibility, watermarks) — use a general-purpose docx skill for that; automatic figure numbering (numbers are hand-written, see *Contract*); thesis features such as bibliography, equation numbering, odd/even page headers |
+| **Does** | Markdown → docx / PDF; cover page, TOC field, per-section page numbers, headers; table typesetting (borders / header rows / repeating headers / zebra stripes); caption conventions for tables and figures; one-command pre-delivery acceptance (does Word open it, are there blank pages, did the layout drift); **targeted edits to an existing docx** (replace text, insert/delete paragraphs, table cells, headers/footers) without re-typesetting the rest |
+| **Doesn't** | Comments, tracked changes, redaction, accessibility and watermarks on an existing docx — use a general-purpose docx skill for those; automatic figure numbering (numbers are hand-written, see *Contract*); thesis features such as bibliography, equation numbering, odd/even page headers |
 
 > **Scope note.** This tool is opinionated about *Chinese* formal documents: A4 paper, 宋体 (SimSun) body text,
 > 黑体 (SimHei) headings, 2-character first-line indent, full-width punctuation. It is not a general
@@ -42,18 +42,19 @@ External dependencies: `pandoc` is required; `--pdf` needs a local Microsoft Wor
 | Microsoft Word | `--pdf` only | system-level; neither pip nor uv can install it |
 
 > **This repository is a collection of scripts, not a pip-installable package** — `pip install .` fails
-> (there is no build backend, and the tool locates `ref.docx` / `filters/` / `sample.md` by relative path).
+> (there is no build backend, and the tool resolves `assets/ref.docx` / `scripts/` / `assets/sample.md` by
+> relative path from each script's own location).
 > Put the folder anywhere and run the scripts in place.
 
 ```powershell
 winget install --id JohnMacFarlane.Pandoc
 
-# Dependencies — pick one:
-uv sync --all-extras                 # with uv (recommended; pinned in uv.lock)
-pip install -r requirements.txt      # plain pip (exact versions exported by uv)
+# Dependencies:
+pip install -r requirements.txt      # plain pip; versions are exported from uv.lock
+                                     # (uv users: `uv sync --all-extras`)
 
-python render.py --doctor            # environment self-check
-python render.py --sample            # smoke test -> sample_out.docx/.pdf
+python scripts/render.py --doctor            # environment self-check
+python scripts/render.py --sample            # smoke test -> sample_out.docx/.pdf
 ```
 
 `--doctor` **identifies the Word engine by actually launching it via COM**. It does not read the registry:
@@ -61,7 +62,7 @@ a stale `CurVer` key left over from an uninstalled Office can make that report l
 
 ## Result
 
-Output of `python render.py --sample` (a 4-page tender-style sample):
+Output of `python scripts/render.py --sample` (a 4-page tender-style sample):
 
 ![sample cover](baselines/p001.png)
 ![sample body page](baselines/p003.png)
@@ -79,17 +80,21 @@ and sampled page pixels), with no orphaned Word processes.
 ## Usage
 
 ```bash
-python render.py --doctor                                    # environment self-check
-python render.py --version                                   # version
-python render.py --sample                                    # smoke test
+python scripts/render.py --doctor                                    # environment self-check
+python scripts/render.py --version                                   # version
+python scripts/render.py --sample                                    # smoke test
 
 # Real render (--check implies --pdf)
-python render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
+python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
 
-python -m pytest -q                        # 36 assertions, no Word needed, ~9 s
-python snapshot.py bid.pdf --update        # record layout baseline (after confirming the layout)
-python snapshot.py bid.pdf                 # regression compare; exits 1 on drift
-python make_ref.py --body-font 楷体        # rebuild the typesetting template
+python -m pytest -q                        # 62 assertions, no Word needed, ~15 s
+python scripts/snapshot.py bid.pdf --update  # record layout baseline (after confirming the layout)
+python scripts/snapshot.py bid.pdf           # regression compare; exits 1 on drift
+python scripts/make_ref.py --body-font 楷体   # rebuild the typesetting template
+
+# Runnable examples (see examples/README.md)
+python scripts/render.py --src examples/tables --out examples/tables/tables.docx \
+       --config examples/tables/config.json --pdf --check
 ```
 
 ### Input requirements
@@ -133,6 +138,65 @@ After a real render, check all four. All four must pass:
 4. **The first time you render a new document, look through the rendered page images yourself.**
    A machine can count pages, images and blank pages; it cannot tell whether a diagram is correct or a
    table header got clipped.
+
+## Editing an existing docx
+
+`scripts/edit.py` is a **separate chain** from rendering, with the opposite contract:
+
+| | Rendering chain | Editing chain |
+|---|---|---|
+| Input | Markdown | an existing docx |
+| Contract | layout only, never content | **change only what is asked; leave every other byte alone** |
+| Never | rewrite text | inject a cover, TOC, page numbers, or re-typeset styles |
+
+```bash
+python scripts/edit.py 标书.docx --list                        # structure: sections / tables / paragraphs
+python scripts/edit.py 标书.docx --replace "旧=新" [--replace "旧2=新2"]
+python scripts/edit.py 标书.docx --replace "A=B" --scope body,tables,header,footer
+python scripts/edit.py 标书.docx --after  "锚点文字" --text "新段落"       # \n = another paragraph
+python scripts/edit.py 标书.docx --before "锚点文字" --text "新段落"
+python scripts/edit.py 标书.docx --delete "段落所含文字"
+python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"        # table row column value
+python scripts/edit.py 标书.docx --add-row 0 "接入层" "设备" "320,000"
+python scripts/edit.py 标书.docx --del-row 0 2
+python scripts/edit.py 标书.docx --header "新版页眉"              # default: body section only
+python scripts/edit.py 标书.docx --footer "— X —" --section all
+python scripts/edit.py 标书.docx --replace "A=B" --verify        # open in Word afterwards
+```
+
+Backups go to `<name>.bak.docx` by default (`--no-backup` disables, `--out` writes elsewhere).
+
+**Why editing in place is safe**: `python-docx` round-trips a docx without losing any part — opening and
+saving a 4-page document loses and adds zero package parts (measured; the file only gets smaller because
+it is re-zipped).
+
+**Two traps worth knowing**
+
+1. *Word splits text into runs unpredictably.* `自开标之日起 90 日历天` can be three runs with the number
+   on its own, so a naive `run.text` search misses it. `edit.py` matches against the whole paragraph text
+   and writes the replacement into the run where the match starts, so the run count and each run's
+   formatting survive.
+2. *An anchor matching several paragraphs is refused.* Once Word refreshes a TOC field, a heading like
+   `1.2 资质与业绩` exists both in the TOC and in the body; inserting after it would put content into the
+   table of contents. Use a more precise anchor, or pass `--all-anchors`.
+
+**Not supported, deliberately**: tracked changes, comments, watermarks, content controls, and `.docm`
+files with macros (`python-docx` drops `vbaProject.bin` on save).
+
+### Re-typesetting instead of editing
+
+To bring someone else's docx into this project's format, go through Markdown — but clean it first:
+
+```bash
+pandoc 甲方文档.docx -t markdown --wrap=none --extract-media=media -o 01_内容.md
+# 手工清理：删掉原来的封面行与目录块、去掉表头残留的 ** 加粗
+python scripts/render.py --src . --out 新版.docx --config cfg.json --pdf --check
+```
+
+Measured on a 4-page document: without cleaning, the result has a **duplicated cover and TOC**, leaks
+`[1](#...)` link syntax into the body, and grows from 4 to 5 pages. Image references from
+`--extract-media` are relative to the working directory, so run from the repository root or put `media/`
+inside `--src`.
 
 ## Configuration
 
@@ -245,7 +309,7 @@ Want a narrow "No." column? Write it narrow.
 
 ## Design principles (follow these when editing the template or hand-writing content)
 
-1. Template-driven: visual rules live only in `ref.docx`; the source text carries semantics.
+1. Template-driven: visual rules live only in `assets/ref.docx`; the source text carries semantics.
 2. The Chinese quartet: 宋体 body + 黑体 headings + `eastAsia` font attributes + 2-character first-line indent.
 3. The table triplet: 100 % width + shaded bold centred header + repeating header row.
 4. Captions: centred, one size smaller, grey, **not italic**.
@@ -259,7 +323,7 @@ Want a narrow "No." column? Write it narrow.
 - Figure and table numbers are **hand-written**: after inserting or deleting a figure you must renumber
   manually (see *Contract*).
 - **Body and heading font/size live in the template**; change them with
-  `python make_ref.py --body-font 楷体 --body-size 14`. The fonts in the `style` section cover tables and
+  `python scripts/make_ref.py --body-font 楷体 --body-size 14`. The fonts in the `style` section cover tables and
   captions only.
 - **Grid tables are whitespace-sensitive**: the pipe characters must line up exactly, or parsing goes wrong
   (we have hit a stray trailing `|`).
@@ -276,18 +340,22 @@ Want a narrow "No." column? Write it narrow.
 
 | File | Role |
 |---|---|
-| `render.py` | Entry point: merge md → pandoc → post.py → (optional) finalize / check |
-| `post.py` | Post-processing: cover injection, TOC field, per-section page numbers, headers/footers, table rules, caption styling; hand-written OOXML inserted in ECMA-376 order |
-| `filters/captions.lua` | pandoc Lua filter: marks table/figure captions as `TableCaption` / `FigureCaption` **at the AST level**, so `post.py` never has to guess with regexes |
-| `ref.docx` | The Chinese typesetting template: 宋体 body, 黑体 heading ladder, table borders, caption styles, cover styles (CoverTop/…), callout styles (Lead/SmallNote) |
-| `make_ref.py` | Rebuild `ref.docx` (use when changing fonts / sizes / spacing) |
-| `finalize.py` | Word COM: open for acceptance (failure to open = structural error), refresh TOC field, export PDF, save back |
-| `check_pdf.py` | PyMuPDF: blank-page detection (exits 1 over threshold) + renders page PNGs for review |
-| `snapshot.py` | PDF layout snapshot regression: pixel comparison against `baselines/`, exits 1 on drift |
-| `tests/` | 36 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract |
-| `sample.md` / `sample_config.json` | Smoke-test sample (tender-document style) |
-| `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
+| Path | Role |
+|---|---|
 | `SKILL.md` | Skill description for other agents (when to use, acceptance gate, hard contract) |
+| `scripts/render.py` | Entry point: merge md → pandoc → post.py → (optional) finalize / check |
+| `scripts/post.py` | Post-processing: cover injection, TOC field, per-section page numbers, headers/footers, table rules, caption styling; hand-written OOXML inserted in ECMA-376 order |
+| `scripts/filters/captions.lua` | pandoc Lua filter: marks table/figure captions as `TableCaption` / `FigureCaption` **at the AST level**, so `post.py` never has to guess with regexes |
+| `scripts/finalize.py` | Word COM: open for acceptance (failure to open = structural error), refresh TOC field, export PDF, save back |
+| `scripts/check_pdf.py` | PyMuPDF: blank-page detection (exits 1 over threshold) + renders page PNGs for review |
+| `scripts/snapshot.py` | PDF layout snapshot regression: pixel comparison against `baselines/`, exits 1 on drift |
+| `scripts/make_ref.py` | Rebuild `assets/ref.docx` (use when changing fonts / sizes / spacing) |
+| `scripts/edit.py` | Edit an existing docx: replace / insert / delete / table cells / headers and footers |
+| `assets/ref.docx` | The Chinese typesetting template: 宋体 body, 黑体 heading ladder, table borders, caption styles, cover styles (CoverTop/…), callout styles (Lead/SmallNote) |
+| `assets/sample.md` / `assets/sample_config.json` | Smoke-test sample (tender-document style) |
+| `examples/` | Runnable examples: form-style document, table styling (see `examples/README.md`) |
+| `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
+| `tests/` | 62 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, and cross-run editing (`test_edit.py`) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

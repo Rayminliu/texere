@@ -15,7 +15,7 @@ import sys
 import pytest
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LUA_FILTER = os.path.join(KIT, "filters", "captions.lua")
+LUA_FILTER = os.path.join(KIT, "scripts", "filters", "captions.lua")
 
 pytestmark = pytest.mark.skipif(
     shutil.which("pandoc") is None, reason="需要 pandoc")
@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 def _pandoc_cmd(md, body, res, cfg=None):
     """与 render.py 保持一致：带上 lua filter，并在配置题注关键字时传 -M。"""
     cmd = ["pandoc", md, "-o", body,
-           "--reference-doc=" + os.path.join(KIT, "ref.docx"),
+           "--reference-doc=" + os.path.join(KIT, "assets", "ref.docx"),
            "--resource-path=" + res,
            "-f", "markdown+pipe_tables+raw_html", "--wrap=none"]
     if os.path.exists(LUA_FILTER):
@@ -40,14 +40,14 @@ def _pandoc_cmd(md, body, res, cfg=None):
 def _build(tmp_path):
     src = tmp_path / "src"
     src.mkdir()
-    shutil.copy(os.path.join(KIT, "sample.md"), src / "01_sample.md")
+    shutil.copy(os.path.join(KIT, "assets", "sample.md"), src / "01_sample.md")
     body = str(tmp_path / "body.docx")
     out = str(tmp_path / "out.docx")
     subprocess.run(_pandoc_cmd(str(src / "01_sample.md"), body, str(src)),
                    check=True, capture_output=True)
     subprocess.run(
-        [sys.executable, os.path.join(KIT, "post.py"), body, out,
-         os.path.join(KIT, "sample_config.json")],
+        [sys.executable, os.path.join(KIT, "scripts", "post.py"), body, out,
+         os.path.join(KIT, "assets", "sample_config.json")],
         check=True, capture_output=True)
     return out
 
@@ -63,7 +63,7 @@ def _build_md(tmp_path, md_text, cfg):
     subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src), cfg),
                    check=True, capture_output=True)
     subprocess.run(
-        [sys.executable, os.path.join(KIT, "post.py"), body, out, str(cfg_path)],
+        [sys.executable, os.path.join(KIT, "scripts", "post.py"), body, out, str(cfg_path)],
         check=True, capture_output=True)
     return out
 
@@ -423,7 +423,7 @@ def test_temp_dir_cleaned_on_failure(tmp_path):
     cfg.write_text('{"content_fixes_file": "这个文件不存在.py"}', encoding="utf-8")
 
     r = subprocess.run(
-        [sys.executable, os.path.join(KIT, "render.py"), "--src", str(src),
+        [sys.executable, os.path.join(KIT, "scripts", "render.py"), "--src", str(src),
          "--out", str(tmp_path / "o.docx"), "--config", str(cfg)],
         capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
     assert r.returncode != 0, "这个配置应当失败"
@@ -447,7 +447,7 @@ def test_render_finds_sibling_media(tmp_path):
 
     out = str(tmp_path / "out.docx")
     r = subprocess.run(
-        [sys.executable, os.path.join(KIT, "render.py"),
+        [sys.executable, os.path.join(KIT, "scripts", "render.py"),
          "--src", str(proj / "src"), "--out", out],
         capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
     assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
@@ -505,7 +505,7 @@ def test_config_with_bom(tmp_path):
     subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)),
                    check=True, capture_output=True)
     r = subprocess.run(
-        [sys.executable, os.path.join(KIT, "post.py"), body, out, str(cfg)],
+        [sys.executable, os.path.join(KIT, "scripts", "post.py"), body, out, str(cfg)],
         capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
     assert r.returncode == 0, "带 BOM 的 config 读不了：" + r.stderr.decode("utf-8", "replace")
     assert "带 BOM 的页眉" in Document(out).sections[-1].header.paragraphs[0].text
@@ -514,7 +514,7 @@ def test_config_with_bom(tmp_path):
 def test_to_rgb_accepts_common_forms():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "post", os.path.join(KIT, "post.py"))
+        "post", os.path.join(KIT, "scripts", "post.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.to_rgb("404040") == (0x40, 0x40, 0x40)
@@ -526,7 +526,7 @@ def test_to_rgb_accepts_common_forms():
 
 
 def test_render_version_flag():
-    r = subprocess.run([sys.executable, os.path.join(KIT, "render.py"), "--version"],
+    r = subprocess.run([sys.executable, os.path.join(KIT, "scripts", "render.py"), "--version"],
                        capture_output=True)
     assert r.returncode == 0
     assert b"texere" in r.stdout, r.stdout
@@ -543,7 +543,7 @@ def test_no_h1_is_processed(tmp_path):
     subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)),
                    check=True, capture_output=True)
     r = subprocess.run(
-        [sys.executable, os.path.join(KIT, "post.py"), body, out, ""],
+        [sys.executable, os.path.join(KIT, "scripts", "post.py"), body, out, ""],
         capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
     assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
     doc = Document(out)

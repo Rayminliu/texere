@@ -2,8 +2,8 @@
 """定制 pandoc reference.docx：A4 页面、中文宋体/黑体排版、标题层级、表格与图注样式。
 
 用法:
-  python make_ref.py                                  # 生成包内 ref.docx（默认，改完立即生效）
-  python make_ref.py --src 甲方模板.docx --dst x.docx  # 以指定模板为基准
+  python scripts/make_ref.py                                  # 生成包内 ref.docx（默认，改完立即生效）
+  python scripts/make_ref.py --src 甲方模板.docx --dst x.docx  # 以指定模板为基准
 
 默认输出即包内的 ref.docx，杜绝"改了别处的副本、包里那份悄悄漂移"。
 基准模板缺失时自动用 pandoc 自带默认模板生成，不依赖任何本机绝对路径。
@@ -23,7 +23,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-KIT = os.path.dirname(os.path.abspath(__file__))
+KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # python-docx 1.2 在按 style_id 命中样式时会告警。本模板里 Caption 的 name 与 styleId 同名，
 # 属于误报：取到的确实是目标样式（name=Caption / styleId=Caption）。过滤掉噪音，避免
@@ -47,10 +47,10 @@ def ensure_base(path):
 
 
 _ap = argparse.ArgumentParser()
-_ap.add_argument("--src", default=os.path.join(KIT, "ref_default.docx"),
-                 help="基准模板（默认包内 ref_default.docx，缺失时由 pandoc 生成）")
-_ap.add_argument("--dst", default=os.path.join(KIT, "ref.docx"),
-                 help="输出模板（默认覆盖包内 ref.docx）")
+_ap.add_argument("--src", default=os.path.join(KIT, "assets", "ref_default.docx"),
+                 help="基准模板（默认 assets/ref_default.docx，缺失时由 pandoc 生成）")
+_ap.add_argument("--dst", default=os.path.join(KIT, "assets", "ref.docx"),
+                 help="输出模板（默认覆盖 assets/ref.docx）")
 _ap.add_argument("--body-font", default="宋体", help="正文中文字体（默认 宋体）")
 _ap.add_argument("--latin-font", default="Times New Roman",
                  help="西文字体（默认 Times New Roman）")

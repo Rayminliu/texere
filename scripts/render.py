@@ -2,8 +2,8 @@
 """一键渲染：Markdown 章节目录 -> 正式中文 docx（可选 PDF 与目视验收）。
 
 用法:
-  python render.py --src <md目录> --out <out.docx> [--config config.json] [--pdf] [--check]
-  python render.py --sample            # 用自带 sample.md 做冒烟测试
+  python scripts/render.py --src <md目录> --out <out.docx> [--config config.json] [--pdf] [--check]
+  python scripts/render.py --sample     # 用自带 sample.md 做冒烟测试
 
 依赖: pandoc、python-docx；--pdf 需本机 Word + pywin32；--check 需 PyMuPDF。
 说明: 若招标方/甲方提供强制格式模板 docx，可在 config 中设 "reference_doc" 指向它，
@@ -21,8 +21,8 @@ import subprocess
 import sys
 import tempfile
 
-KIT = os.path.dirname(os.path.abspath(__file__))
-__version__ = "0.2.1"          # 与 pyproject.toml 的 version 保持一致
+KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+__version__ = "0.3.0"          # 与 pyproject.toml 的 version 保持一致
 
 # Windows 控制台默认 GBK，子进程输出里若出现 GBK 无法编码的字符（如 PyMuPDF 解出的
 # U+FFFD），print 会抛 UnicodeEncodeError 让验收环节崩掉。这里保持控制台原编码不变
@@ -162,7 +162,8 @@ def doctor():
     missing = [n for n, s, ok in rows if not ok and "缺失" in s]
     if missing:
         print("\n缺失项处理：")
-        print("  pip install \".[pdf,check]\"   # 或 uv sync --all-extras")
+        # 本仓库没有构建后端，pip install "." 一定失败；只能按依赖清单装。
+        print("  pip install -r requirements.txt   # 或用 uv：uv sync --all-extras")
         if "pandoc" in missing:
             print("  winget install --id JohnMacFarlane.Pandoc   # 已装则把所在目录加进 PATH")
         return 1
@@ -179,13 +180,13 @@ def preflight(want_pdf, want_check):
     try:
         importlib.import_module("docx")
     except ImportError:
-        sys.exit("缺少 python-docx：pip install \".\" 或 pip install \"python-docx>=1.1,<2.0\"")
+        sys.exit("缺少 python-docx：pip install -r requirements.txt")
     if want_pdf:
         try:
             importlib.import_module("win32com.client")
         except ImportError:
             sys.exit("缺少 pywin32，无法做 Word 验收与导 PDF：\n"
-                     "  pip install \".[pdf]\"   或去掉 --pdf（仍可正常产出 docx）")
+                     "  pip install pywin32   或去掉 --pdf（仍可正常产出 docx）")
     if want_check and not want_pdf:
         print("[warn] --check 依赖 --pdf 产出的 PDF，已忽略 --check")
     if want_check:
@@ -193,7 +194,7 @@ def preflight(want_pdf, want_check):
             importlib.import_module("fitz")
         except ImportError:
             sys.exit("缺少 PyMuPDF，无法做 PDF 目视验收：\n"
-                     "  pip install \".[check]\"  或去掉 --check")
+                     "  pip install PyMuPDF   或去掉 --check")
 
 
 def render(src_dir, out_docx, config_path, want_pdf, want_check):
@@ -202,7 +203,7 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     cfg = {}
     if config_path and os.path.exists(config_path):
         cfg = json.load(open(config_path, encoding="utf-8-sig"))
-    ref = cfg.get("reference_doc") or os.path.join(KIT, "ref.docx")
+    ref = cfg.get("reference_doc") or os.path.join(KIT, "assets", "ref.docx")
 
     tmp = tempfile.mkdtemp(prefix="texere_")
     # 用 atexit 而不是在函数末尾 rmtree：任何 sys.exit（preflight、子进程报错、
@@ -254,7 +255,7 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
         if p not in seen:
             seen.add(p)
             uniq.append(p)
-    lua_filter = os.path.join(KIT, "filters", "captions.lua")
+    lua_filter = os.path.join(KIT, "scripts", "filters", "captions.lua")
     cmd = ["pandoc", all_md, "-o", body,
            "--reference-doc=" + ref,
            "--resource-path=" + os.pathsep.join(uniq),
@@ -273,16 +274,16 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     run(cmd)
     print("[2/3] pandoc -> body.docx")
 
-    run([sys.executable, os.path.join(KIT, "post.py"), body, out_docx,
+    run([sys.executable, os.path.join(KIT, "scripts", "post.py"), body, out_docx,
          config_path or ""])
     print("[3/3] postprocess ->", out_docx)
     check_images(merged, out_docx)
 
     if want_pdf:
         pdf = os.path.splitext(out_docx)[0] + ".pdf"
-        run([sys.executable, os.path.join(KIT, "finalize.py"), out_docx, pdf])
+        run([sys.executable, os.path.join(KIT, "scripts", "finalize.py"), out_docx, pdf])
         if want_check:
-            run([sys.executable, os.path.join(KIT, "check_pdf.py"), pdf])
+            run([sys.executable, os.path.join(KIT, "scripts", "check_pdf.py"), pdf])
     shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -326,9 +327,9 @@ def main():
         tmp = tempfile.mkdtemp(prefix="texere_sample_")
         # 这里以前完全没清理：每跑一次 --sample 就在 %TEMP% 留一个目录
         atexit.register(shutil.rmtree, tmp, ignore_errors=True)
-        shutil.copy(os.path.join(KIT, "sample.md"), os.path.join(tmp, "01_sample.md"))
+        shutil.copy(os.path.join(KIT, "assets", "sample.md"), os.path.join(tmp, "01_sample.md"))
         out = os.path.join(KIT, "sample_out.docx")
-        render(tmp, out, os.path.join(KIT, "sample_config.json"), True, True)
+        render(tmp, out, os.path.join(KIT, "assets", "sample_config.json"), True, True)
         print("sample ok ->", out)
         return
 

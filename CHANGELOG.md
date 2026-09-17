@@ -4,6 +4,57 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 0.3.0 — 2026-09-18
+
+按 Agent Skills 规范做结构重组，并新增「编辑已有 docx」的第二条链路。
+输出版式零变化：62 项断言全过，`--sample` 仍是 4 页、快照比对 0.00%。
+
+### 变更（破坏性：路径全变）
+- **脚本移入 `scripts/`，模板与样例移入 `assets/`**，符合规范的
+  `SKILL.md` + `scripts/` + `assets/` 结构
+- `render.py` / `make_ref.py` 的 `KIT` 由「脚本所在目录」改为「其父目录」（即仓库根）。
+  `tests/` 里本来就是这么算的，所以测试侧只需改引用路径，逻辑不动
+- **命令行随之变化**：`python render.py` → `python scripts/render.py`（双语 README 已同步）
+
+### 修复
+- **`--doctor` / `preflight` 给出的安装命令必然失败**：代码里 4 处仍写着
+  `pip install "."` / `".[pdf]"` / `".[check]"` / `".[pdf,check]"`，而本仓库没有构建后端。
+  0.2.1 只改了 README、没改代码，恰好是那类"会让人直接失败"的错误。
+  现统一改为 `pip install -r requirements.txt`（缺哪个可选依赖就单装哪个）
+
+### 新增
+- **`scripts/edit.py`：编辑已有 docx 的第二条链路**。与渲染链路契约相反：
+  渲染是「只改版式、不改内容」，编辑是「**只改你指定的地方，其余字节原样保留**」——
+  不注入封面 / 目录 / 页码，不重排样式。支持：替换文字、锚点前后插入段落、删除段落、
+  改单元格、增删行、改页眉页脚
+- 跨 run 替换（不写出来必踩的两个坑）：
+  - **Word 会把文字切成多个 run**：`自开标之日起 90 日历天` 实测是三个 run，数字单独一个，
+    逐 run 搜索会漏。做法是拼接整段 `w:t` 定位，替换内容只写进「命中起点所在的 run」，
+    其余 run 仅删掉被覆盖的字符——run 数与各 run 的格式（加粗/颜色）都保住
+  - **`xml:space="preserve"`**：`w:t` 首尾有空格时必须设，否则 Word 会吞掉空格
+  - 写法借鉴 Codex Documents 插件的 `redact_docx.py`（拼接 → 定位 → 按原切分写回），只取思路
+- **锚点命中多处时拒绝执行**：实测目录被 Word 刷成静态文本后，`1.2 资质与业绩` 在目录与正文
+  各有一份，照着插两遍会把内容插进目录。现在列出候选并退出，可换更精确的锚点或加 `--all-anchors`
+- 默认备份 `<name>.bak.docx`；`--verify` 复用 `finalize.py` 让 Word 真机打开一次，
+  编辑链路与渲染链路共用同一个验收环节
+- **明确不做**（写进文档，避免以后被当成遗漏）：批注、修订、水印、内容控件；
+  带宏的 `.docm`（`python-docx` 保存会丢 `vbaProject.bin`）
+- `tests/test_edit.py`：26 项断言，守跨 run 替换、run 结构与格式保留、含图段落跳过、
+  歧义锚点拒绝、页眉只动正文节、备份与 `--list` 只读
+- `examples/`：可运行的最小示例——`form/`（表单式文档，`header_rows: 0`）与
+  `tables/`（grid 多级表头 + 合并单元格 + 斑马纹）。自带 md 与 config，渲染产物已忽略
+
+### SKILL.md 按规范重写
+- frontmatter 补 **`license: MIT`** 与 **`compatibility`**（Windows + 本机 Word + pandoc ≥3.1；
+  Linux/macOS 只有 docx 那半条链）。后者让 agent 在**加载前**就能判断环境是否达标，
+  不必等跑完一轮才发现没有 Word
+- `description` 改为规范要求的**第三人称**（`This skill should be used when...`），
+  并补上负向约束（不该用于编辑既有 docx / 学位论文 / 英文文档）。实测 811 字符（上限 1024）
+- 正文新增规范要求的 **`## Examples`**（4 段 input→output：最小标书、grid 多级表头、
+  图注、无标题表单）与 **`## Guidelines`**（原 hard contract 与边界规则合流）
+- **删去与 README 逐字重复的四节**（Configuration 全表 / Known limitations / Repository map /
+  Performance），改为一句指向 `README.md`——规范明确要求同一信息只存一处
+
 ## 0.2.1 — 2026-09-17
 
 面向公开使用（全球读者）的文档与元数据整理。功能无变化，`ref.docx` 未动。

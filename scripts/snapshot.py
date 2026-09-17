@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""PDF 版式快照回归：python snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]
+"""PDF 版式快照回归：python scripts/snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]
 
 把 PDF 每页渲染成 PNG，与 baselines/ 下的基线逐像素比对。
 差异比例超过 --max-diff（默认 0.5%）或页数不一致即退出码 1。
 
 用途：改了 ref.docx / post.py 之后跑一遍，确认版式没被悄悄改坏。
 
-  python snapshot.py out.pdf              # 比对
-  python snapshot.py out.pdf --update     # 重录基线（确认版式变更是有意的时候）
-  python snapshot.py out.pdf --dpi 150    # 更高精度（更慢、更敏感）
+  python scripts/snapshot.py out.pdf              # 比对
+  python scripts/snapshot.py out.pdf --update     # 重录基线（确认版式变更是有意的时候）
+  python scripts/snapshot.py out.pdf --dpi 150    # 更高精度（更慢、更敏感）
 """
 import json
 import operator
@@ -40,7 +40,7 @@ def parse_args(argv):
             pdf = a
         i += 1
     if pdf is None:
-        sys.exit("用法: python snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]")
+        sys.exit("用法: python scripts/snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]")
     return pdf, dpi, max_diff, update
 
 
@@ -74,7 +74,7 @@ def main(argv):
         return 0
 
     if not os.path.exists(meta_path):
-        sys.exit("没有基线，先跑：python snapshot.py %s --update" % os.path.basename(pdf))
+        sys.exit("没有基线，先跑：python scripts/snapshot.py %s --update" % os.path.basename(pdf))
     meta = json.load(open(meta_path, encoding="utf-8"))
     if meta.get("dpi") != dpi:
         print("[warn] 基线 dpi=%s，本次 %s，结果不可比；用 --dpi %s 或重录基线"

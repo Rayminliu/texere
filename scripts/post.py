@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """通用 docx 后处理器：把 pandoc 产出的正文 docx 加工成正式中文文档。
 
-用法: python post.py <body.docx> <out.docx> [config.json]
+用法: python scripts/post.py <body.docx> <out.docx> [config.json]
 
 config.json 字段（均可省）:
   cover   : [[样式名, 文本], ...]  封面行，样式可用 CoverTop/CoverTitle/CoverSub/CoverInfo/CoverDate
@@ -592,5 +592,5 @@ def main(body_path, out_path, cfg_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        sys.exit("用法: python post.py <body.docx> <out.docx> [config.json]")
+        sys.exit("用法: python scripts/post.py <body.docx> <out.docx> [config.json]")
     main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)

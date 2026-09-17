@@ -1,0 +1,11 @@
+{
+  "header": "示例项目 · 报价与配置明细",
+  "title": "表格排版示例",
+  "subject": "表格排版",
+  "comments": "由 texere 渲染",
+  "style": {
+    "table_zebra": true,
+    "table_zebra_fill": "F7F7F7",
+    "table_border": "full"
+  }
+}

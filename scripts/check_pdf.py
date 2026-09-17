@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""PDF 目视验收：python check_pdf.py <file.pdf> [--max-empty N] [页码...]
+"""PDF 目视验收：python scripts/check_pdf.py <file.pdf> [--max-empty N] [页码...]
 
 输出总页数与"近空白页"清单（正文<60字且无图），并把指定页（默认 1-3 页）
 渲染为 PNG 到 PDF 同目录的 check_pages/，供肉眼检查版式。
@@ -8,7 +8,7 @@
   0 = 通过
   1 = PDF 无页，或近空白页数超过 --max-empty（默认 0）
 
-  python check_pdf.py out.pdf && echo OK
+  python scripts/check_pdf.py out.pdf && echo OK
 """
 import os
 import sys
@@ -16,7 +16,7 @@ import sys
 import fitz
 
 if len(sys.argv) < 2:
-    sys.exit("用法: python check_pdf.py <file.pdf> [--max-empty N] [页码...]")
+    sys.exit("用法: python scripts/check_pdf.py <file.pdf> [--max-empty N] [页码...]")
 
 _args = sys.argv[1:]
 PDF = _args[0]

@@ -9,7 +9,7 @@
 
 三条硬特色：
 
-1. **样式表驱动** —— 全部视觉规则写在 `ref.docx`，源 Markdown 只写语义。改版式不用碰一个字的内容。
+1. **样式表驱动** —— 全部视觉规则写在 `assets/ref.docx`，源 Markdown 只写语义。改版式不用碰一个字的内容。
 2. **真 Word 验收** —— 用本机 Word 打开、刷新目录域、导出 PDF，再肉眼过渲染图。不信任何"读回正常"。
 3. **只改版式，不改内容** —— 输出里每一个字都来自源文件。这条有测试守着。
 
@@ -17,8 +17,8 @@
 
 | | |
 |---|---|
-| **做** | Markdown 目录 → docx / PDF；封面、目录域、分节页码、页眉；表格排版（框线 / 表头 / 跨页重复 / 斑马纹）；表题与图注规范；交付前的一键验收（Word 能否打开、有无空白页、版式有无漂移） |
-| **不做** | **编辑已有 docx**（批注、修订、脱敏、无障碍、水印）——那类任务请用通用 docx 技能；图表自动编号（编号手写，见「契约」）；学位论文所需的参考文献、公式编号、奇偶页页眉 |
+| **做** | Markdown 目录 → docx / PDF；封面、目录域、分节页码、页眉；表格排版（框线 / 表头 / 跨页重复 / 斑马纹）；表题与图注规范；交付前的一键验收（Word 能否打开、有无空白页、版式有无漂移）；**对已有 docx 做定点编辑**（改文字、增删段落、改单元格、改页眉页脚），且不重排其余部分 |
+| **不做** | 已有 docx 上的**批注、修订、脱敏、无障碍、水印**——那类任务请用通用 docx 技能；图表自动编号（编号手写，见「契约」）；学位论文所需的参考文献、公式编号、奇偶页页眉 |
 
 ## 快速开始
 
@@ -33,18 +33,18 @@
 | Microsoft Word | 仅 `--pdf` | 系统级，pip / uv 都装不了 |
 
 > **本仓库是「脚本集合」，不是可 pip 安装的包**——`pip install .` 会失败（没有构建后端，
-> 而且工具要靠相对路径找到 `ref.docx` / `filters/` / `sample.md`）。
+> 而且工具要靠相对路径（从各脚本自身位置出发）找到 `assets/ref.docx` / `scripts/` / `assets/sample.md`）。
 > 把文件夹放好，**直接跑脚本**即可。
 
 ```powershell
 winget install --id JohnMacFarlane.Pandoc
 
-# 依赖二选一：
-uv sync --all-extras                 # 用 uv（推荐，版本锁在 uv.lock）
-pip install -r requirements.txt      # 纯 pip（uv export 生成的精确版本）
+# 依赖（一条命令装齐；版本由 uv.lock 导出锁死）
+pip install -r requirements.txt      # 纯 pip
+                                     # 用 uv 的话：uv sync --all-extras
 
-python render.py --doctor            # 环境自检
-python render.py --sample            # 冒烟测试，产出 sample_out.docx/.pdf
+python scripts/render.py --doctor            # 环境自检
+python scripts/render.py --sample            # 冒烟测试，产出 sample_out.docx/.pdf
 ```
 
 `--doctor` 会**实测 Word 引擎身份**（走 COM 直接问）。不读注册表——注册表里的 `CurVer`
@@ -52,7 +52,7 @@ python render.py --sample            # 冒烟测试，产出 sample_out.docx/.pd
 
 ## 效果
 
-`python render.py --sample` 的产物（4 页投标文件风格样例）：
+`python scripts/render.py --sample` 的产物（4 页投标文件风格样例）：
 
 ![样例封面](baselines/p001.png)
 ![样例正文](baselines/p003.png)
@@ -70,17 +70,21 @@ Word 进程无残留。
 ## 用法
 
 ```bash
-python render.py --doctor                                    # 环境自检
-python render.py --version                                   # 版本
-python render.py --sample                                    # 冒烟测试
+python scripts/render.py --doctor                                    # 环境自检
+python scripts/render.py --version                                   # 版本
+python scripts/render.py --sample                                    # 冒烟测试
 
 # 正式渲染（--check 会自动补 --pdf）
-python render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check
+python scripts/render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check
 
-python -m pytest -q                        # 36 项断言，不需要 Word，约 9 秒
-python snapshot.py 标书.pdf --update       # 录版式基线（确认版式无误后执行）
-python snapshot.py 标书.pdf                # 回归比对，漂移即 exit 1
-python make_ref.py --body-font 楷体        # 重建排版模板（改字体/字号时）
+python -m pytest -q                        # 62 项断言，不需要 Word，约 15 秒
+python scripts/snapshot.py 标书.pdf --update  # 录版式基线（确认版式无误后执行）
+python scripts/snapshot.py 标书.pdf           # 回归比对，漂移即 exit 1
+python scripts/make_ref.py --body-font 楷体    # 重建排版模板（改字体/字号时）
+
+# 可运行示例（见 examples/README.md）
+python scripts/render.py --src examples/tables --out examples/tables/tables.docx \
+       --config examples/tables/config.json --pdf --check
 ```
 
 ### 输入要求
@@ -117,6 +121,61 @@ python make_ref.py --body-font 楷体        # 重建排版模板（改字体/�
 3. `OK`（Word 成功打开并导出 PDF）
 4. **首次用于某份新文档时，人工过一遍 PDF 渲染图**——机器能查页数、图片数、空白页，
    查不了"这张图画得对不对、表头有没有被截断"
+
+## 编辑已有 docx
+
+`scripts/edit.py` 是**独立于渲染链路**的第二条链，契约正好相反：
+
+| | 渲染链路 | 编辑链路 |
+|---|---|---|
+| 输入 | Markdown | 已有 docx |
+| 契约 | 只改版式，不改内容 | **只改你指定的地方，其余字节原样保留** |
+| 禁止 | 改写文字 | 注入封面 / 目录 / 页码 / 重排样式 |
+
+```bash
+python scripts/edit.py 标书.docx --list                        # 看结构：分节 / 表格 / 段落
+python scripts/edit.py 标书.docx --replace "旧=新" [--replace "旧2=新2"]
+python scripts/edit.py 标书.docx --replace "A=B" --scope body,tables,header,footer
+python scripts/edit.py 标书.docx --after  "锚点文字" --text "新段落"       # \n 表示另起一段
+python scripts/edit.py 标书.docx --before "锚点文字" --text "新段落"
+python scripts/edit.py 标书.docx --delete "段落所含文字"
+python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"        # 表号 行 列 值
+python scripts/edit.py 标书.docx --add-row 0 "接入层" "设备" "320,000"
+python scripts/edit.py 标书.docx --del-row 0 2
+python scripts/edit.py 标书.docx --header "新版页眉"              # 默认只改正文节，不给封面加页眉
+python scripts/edit.py 标书.docx --footer "— X —" --section all
+python scripts/edit.py 标书.docx --replace "A=B" --verify        # 改完让 Word 打开一次验收
+```
+
+默认先把原文件备份成 `<name>.bak.docx`（`--no-backup` 关闭，`--out` 另存）。
+
+**为什么可以放心原地改**：实测 `python-docx` 打开再保存，部件**零丢失、零新增**（4 页文档实测；
+文件变小只是重新压缩）。
+
+**两个必须知道的坑**
+
+1. **Word 会把文字切成多个 run。** `自开标之日起 90 日历天` 可能是三个 run，数字单独一个，
+   直接遍历 `run.text` 根本找不到。`edit.py` 的做法是：拼整段文本定位，把替换内容写进
+   「命中起点所在的那个 run」，其余 run 只删掉被覆盖的字符——run 数和各 run 的格式都保住。
+2. **锚点命中多处时拒绝执行。** 目录被 Word 刷成静态文本后，`1.2 资质与业绩` 这类标题在目录和
+   正文里各有一份，照着插两遍就会插进目录。此时会列出候选并退出，换更精确的锚点，
+   或显式加 `--all-anchors`。
+
+**明确不做**：批注、修订、水印、内容控件，以及带宏的 `.docm`（`python-docx` 保存会丢
+`vbaProject.bin`）。
+
+### 要"重排"而不是"编辑"时
+
+想把别人的 docx 换成我们这套格式，走 Markdown 中转，但**中间产物必须手工清理**：
+
+```bash
+pandoc 甲方文档.docx -t markdown --wrap=none --extract-media=media -o 01_内容.md
+# 手工清理：删掉原来的封面行与目录块、去掉表头残留的 ** 加粗
+python scripts/render.py --src . --out 新版.docx --config cfg.json --pdf --check
+```
+
+4 页文档实测：不清理会得到**双封面 + 双目录**，`[1](#...)` 链接语法漏进正文，页数从 4 变 5。
+`--extract-media` 抽出的图片路径是相对**执行目录**的，所以在仓库根执行，或把 `media/` 放进 `--src`。
 
 ## 配置
 
@@ -223,7 +282,7 @@ python make_ref.py --body-font 楷体        # 重建排版模板（改字体/�
 
 ## 设计原则（改模板或手写内容时遵守）
 
-1. 样式表驱动：视觉规则只写在 `ref.docx`，源文本只写语义；
+1. 样式表驱动：视觉规则只写在 `assets/ref.docx`，源文本只写语义；
 2. 中文四件套：宋体正文 + 黑体标题 + eastAsia 字体属性 + 首行缩进 2 字符；
 3. 表格三件套：100% 宽 + 灰底加粗居中表头 + 跨页重复表头；
 4. 题注居中、小一号、灰色、**去斜体**；
@@ -234,7 +293,7 @@ python make_ref.py --body-font 楷体        # 重建排版模板（改字体/�
 
 - 目录为 Word 域，首次打开若未刷新请全选按 F9（已设 `updateFields`，通常自动）；
 - 图表编号为**手写**：插删图表后需要人工对号（见「契约」）；
-- **正文与标题的字体 / 字号在模板层**，改它是 `python make_ref.py --body-font 楷体 --body-size 14`
+- **正文与标题的字体 / 字号在模板层**，改它是 `python scripts/make_ref.py --body-font 楷体 --body-size 14`
   （`style` 段的字体只管表格与题注，管不到正文）；
 - **grid table 对空格敏感**：每行竖线必须严格对齐，否则会解析错乱（实测过末尾多出一个 `|`）；
 - **Windows + Word 绑定**：`--pdf` 需要本机 Word（COM）。Linux / macOS 只能出 docx
@@ -249,18 +308,22 @@ python make_ref.py --body-font 楷体        # 重建排版模板（改字体/�
 
 | 文件 | 职责 |
 |---|---|
-| `render.py` | 入口：合并 md → pandoc → post.py →（可选）finalize / check |
-| `post.py` | 后处理：封面注入、目录域、分节页码、页眉页脚、表格规则、题注样式；手写 OOXML 按 ECMA-376 顺序插入 |
-| `filters/captions.lua` | pandoc Lua filter：在 **AST 层**把表题 / 图注标记成 `TableCaption` / `FigureCaption`，`post.py` 不必用正则猜 |
-| `ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
-| `make_ref.py` | 重新生成 `ref.docx`（改字体 / 字号 / 间距时用它） |
-| `finalize.py` | Word COM：打开验收（打不开 = 结构错）、刷目录域、导 PDF、存回 |
-| `check_pdf.py` | PyMuPDF：空白页检测（超阈值 exit 1）+ 渲染页面 PNG 供目视 |
-| `snapshot.py` | PDF 版式快照回归：逐像素比对 `baselines/`，漂移即 exit 1 |
-| `tests/` | 36 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约 |
-| `sample.md` / `sample_config.json` | 冒烟测试样例（投标文件风格） |
-| `baselines/` | 快照基线（样例 4 页 PNG） |
+| 路径 | 职责 |
+|---|---|
 | `SKILL.md` | 给其他 agent 用的技能说明（何时用、验证门槛、硬契约） |
+| `scripts/render.py` | 入口：合并 md → pandoc → post.py →（可选）finalize / check |
+| `scripts/post.py` | 后处理：封面注入、目录域、分节页码、页眉页脚、表格规则、题注样式；手写 OOXML 按 ECMA-376 顺序插入 |
+| `scripts/filters/captions.lua` | pandoc Lua filter：在 **AST 层**把表题 / 图注标记成 `TableCaption` / `FigureCaption`，`post.py` 不必用正则猜 |
+| `scripts/finalize.py` | Word COM：打开验收（打不开 = 结构错）、刷目录域、导 PDF、存回 |
+| `scripts/check_pdf.py` | PyMuPDF：空白页检测（超阈值 exit 1）+ 渲染页面 PNG 供目视 |
+| `scripts/snapshot.py` | PDF 版式快照回归：逐像素比对 `baselines/`，漂移即 exit 1 |
+| `scripts/make_ref.py` | 重新生成 `assets/ref.docx`（改字体 / 字号 / 间距时用它） |
+| `scripts/edit.py` | 编辑已有 docx：改文字 / 增删段落 / 改单元格 / 改页眉页脚 |
+| `assets/ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
+| `assets/sample.md` / `assets/sample_config.json` | 冒烟测试样例（投标文件风格） |
+| `examples/` | 可运行示例：表单式文档、表格排版（见 `examples/README.md`） |
+| `baselines/` | 快照基线（样例 4 页 PNG） |
+| `tests/` | 62 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约，以及跨 run 编辑（`test_edit.py`） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

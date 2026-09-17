@@ -1,6 +1,6 @@
 [project]
 name = "texere"
-version = "0.2.1"
+version = "0.3.0"
 description = "把 Markdown 渲染成排版合格的中文正式 docx / PDF（标书 / 申报书 / 结题报告）"
 readme = "README.md"
 license = "MIT"
@@ -38,4 +38,4 @@ package = false
 testpaths = ["tests"]
 
 # 注意：pandoc 与 Microsoft Word 是系统级依赖，pip/uv 都无法安装。
-# 用 `python render.py --doctor` 检查。
+# 用 `python scripts/render.py --doctor` 检查。

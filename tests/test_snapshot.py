@@ -30,7 +30,7 @@ def make_pdf(path, lines, pages=1):
 def run_script(name, *args):
     # 固定子进程编码，否则 Windows 下拿到的是 GBK 字节，断言会假失败
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    return subprocess.run([sys.executable, os.path.join(KIT, name), *args],
+    return subprocess.run([sys.executable, os.path.join(KIT, "scripts", name), *args],
                           capture_output=True, env=env)
 
 
@@ -84,7 +84,7 @@ def test_diff_ratio_semantics():
     """完全相同=0；长度不同=1；逐字节算比例。"""
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "snapshot", os.path.join(KIT, "snapshot.py"))
+        "snapshot", os.path.join(KIT, "scripts", "snapshot.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.diff_ratio(b"abc", b"abc") == 0.0
