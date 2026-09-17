@@ -2,23 +2,14 @@
 -- 不再用正则反推"这段是不是题注"。
 --
 -- 判定优先级（结构优先，文本兜底）：
---   1. 段落后面紧跟一个 Table          -> TableCaption
---   2. 段落只含一张图片                -> FigureCaption
---   3. 文本以 表/图/Table/Figure 开头  -> 对应样式
+--   1. 段落后面紧跟一个 Table                    -> TableCaption
+--   2. 段落只含一张图片                          -> FigureCaption
+--   3. 文本以 表/图/Table/Figure + 编号 开头     -> 对应样式
 --
 -- 必须配合 ref.docx 里已定义的同名样式使用（见 make_ref.py）。
 
 local TABLE_STYLE = "TableCaption"
 local FIGURE_STYLE = "FigureCaption"
-
-local function text_head(inlines)
-  for _, inline in ipairs(inlines) do
-    if inline.t == "Str" then
-      return inline.text
-    end
-  end
-  return nil
-end
 
 -- 题注关键字默认值。可用 config 的 caption_words 覆盖：
 -- render.py 会以 -M dk-table-words=... -M dk-figure-words=... 传进来，
@@ -42,13 +33,22 @@ local function meta_words(meta, key, default)
   return out
 end
 
-local function starts_any(s, words)
+-- 关键字后面必须跟数字（表 1-1 / 图 3-2）；或跟空格且整段很短、无句号
+-- （允许「表 商务条款响应表」这种不带编号的题注）。
+-- 这样「表层（边缘轻算力）：…」这类正文不会被误认成表题。
+local function looks_like_caption(s, words)
   if not s then
     return false
   end
   for _, w in ipairs(words) do
     if s:sub(1, #w) == w then
-      return true
+      local rest = s:sub(#w + 1)
+      if rest:match("^[%s]*[0-9０-９]") then
+        return true
+      end
+      if rest:match("^%s+") and #s <= 40 and not s:find("。") then
+        return true
+      end
     end
   end
   return false
@@ -87,10 +87,10 @@ function Pandoc(doc)
       elseif single_image(block) then
         kind = FIGURE_STYLE
       else
-        local head = text_head(block.content)
-        if starts_any(head, tw) then
+        local head = pandoc.utils.stringify(block.content)
+        if looks_like_caption(head, tw) then
           kind = TABLE_STYLE
-        elseif starts_any(head, fw) then
+        elseif looks_like_caption(head, fw) then
           kind = FIGURE_STYLE
         end
       end

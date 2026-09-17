@@ -294,6 +294,18 @@ def build_caption_matchers(words):
         re.IGNORECASE)
 
 
+def uses_caption_styles(doc):
+    """文档里是否已有 AST 层打的题注样式。
+
+    有的话就**只信样式**，不再用文本正则兜底——否则「**表层（边缘轻算力）：**基于…」
+    这类正文会被当成表题，插入编号并毁掉加粗（真实项目实测发生过）。
+    """
+    for p in doc.paragraphs:
+        if style_id(p) in CAPTION_STYLE_IDS:
+            return True
+    return False
+
+
 def detect_header_rows(tbl):
     """数出开头连续带 w:tblHeader 的行数。
 
@@ -408,6 +420,7 @@ def auto_number(doc):
     counts = {"表": 0, "图": 0}
     labels = {}
     n_cap = 0
+    strict = uses_caption_styles(doc)      # 有样式就只信样式，见该函数注释
 
     for block in iter_blocks(doc):
         if isinstance(block, Table):
@@ -427,7 +440,7 @@ def auto_number(doc):
         m = CAP_NUM_RE.match(txt)          # 有旧编号则匹配到，供下面剥离重排
         kind = KIND_BY_STYLE_ID.get(style_id(block))     # AST 层已标记：直接采信
         if kind is None:                   # 没走 filter 的文档才回落到文本判定
-            if not m:
+            if strict or not m:
                 continue
             kind = KIND_OF.get(m.group(1).lower(), "表")
         counts[kind] = counts.get(kind, 0) + 1
@@ -605,9 +618,10 @@ def main(body_path, out_path, cfg_path):
 
     # 5. 表题 / 图注 居中、灰色、去斜体
     n_cap = 0
+    strict = uses_caption_styles(doc)      # 同上：有样式就不靠正则猜
     for p in doc.paragraphs:
         txt = p.text.strip()
-        if style_id(p) in CAPTION_STYLE_IDS or CAPTION_RE.match(txt):
+        if style_id(p) in CAPTION_STYLE_IDS or (not strict and CAPTION_RE.match(txt)):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             pf = p.paragraph_format
             pf.first_line_indent = Pt(0); pf.left_indent = Pt(0)

@@ -383,6 +383,23 @@ def test_render_finds_sibling_media(tmp_path):
     assert "images: 1/1 ok" in r.stdout.decode("utf-8", "replace"), "缺图自检未通过"
 
 
+def test_body_text_starting_with_keyword_is_untouched(tmp_path):
+    """以「表」「图」开头的正文不能被当成题注，更不能被插入编号。
+
+    真实项目踩过：`- **表层（边缘轻算力）：** 基于…` 被改写成
+    「表 3-5 层（边缘轻算力）：…」——静默篡改正文 + 毁掉加粗。
+    """
+    from docx import Document
+    md = ("# 第一章\n\n表 1-1 真题注\n\n| a |\n|:--|\n| 1 |\n\n"
+          "- **表层（边缘轻算力）：** 基于公开预训练模型迁移微调。\n")
+    out = _build_md(tmp_path, md, {"auto_number": True})
+    texts = [p.text.strip() for p in Document(out).paragraphs]
+    assert "表 1-1 真题注" in texts, "真题注未被编号：%s" % texts
+    body = [t for t in texts if "边缘轻算力" in t]
+    assert body and body[0].startswith("表层（边缘轻算力）"), \
+        "正文被改坏：%s" % body
+
+
 def test_auto_number_keeps_images(tmp_path):
     """自动编号绝不能把图片弄丢。
 

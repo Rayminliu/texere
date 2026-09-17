@@ -12,6 +12,7 @@
 import argparse
 import glob
 import importlib
+import json
 import os
 import re
 import shutil
@@ -50,6 +51,45 @@ def run(cmd, cwd=None):
         print("STDERR:", r.stderr.strip()[:2500])
         sys.exit(r.returncode)
     return r
+
+
+def _extract_py_list(path, name="CONTENT_FIXES"):
+    """从 .py 里取出 `name = [...]` 字面量。
+
+    用 ast 解析而不是 import/exec——只读值，不执行用户的代码。
+    """
+    import ast
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id == name:
+                    return ast.literal_eval(node.value)
+    sys.exit("在 %s 里没找到 %s = [...]" % (path, name))
+
+
+def load_content_fixes(cfg, cfg_dir):
+    """载入「编辑性替换表」：上游管线常用它删掉注释性括号、统一措辞。
+
+    支持三种写法（可叠加）：
+      "content_fixes":      [[旧, 新], ...]                  内联
+      "content_fixes_file": "content_fixes.json"             JSON
+      "content_fixes_file": "content_fixes.py"               取其中 CONTENT_FIXES 字面量
+    相对路径按 config 文件所在目录解析。
+    """
+    fixes = [tuple(x) for x in (cfg.get("content_fixes") or [])]
+    path = cfg.get("content_fixes_file")
+    if not path:
+        return fixes
+    p = path if os.path.isabs(path) else os.path.join(cfg_dir, path)
+    if not os.path.exists(p):
+        sys.exit("content_fixes_file 不存在: " + p)
+    if p.lower().endswith(".json"):
+        data = json.load(open(p, encoding="utf-8"))
+    else:
+        data = _extract_py_list(p)
+    fixes += list(data.items()) if isinstance(data, dict) else [tuple(x) for x in data]
+    return fixes
 
 
 def _pandoc():
@@ -171,9 +211,22 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     if not parts:
         sys.exit("src 目录下没有 .md 文件: " + src_dir)
     merged = "\n".join(parts)
+
+    # 编辑性替换：上游管线常用来删掉注释性括号、统一措辞。
+    # 不做这一步，正文内容就和定稿版本不一致（真实项目实测差 122 处、约 1581 字）。
+    cfg_dir = os.path.dirname(os.path.abspath(config_path)) if config_path else os.getcwd()
+    fixes = load_content_fixes(cfg, cfg_dir)
+    n_fix = 0
+    for old, new in fixes:
+        c = merged.count(old)
+        if c:
+            n_fix += c
+            merged = merged.replace(old, new)
     with open(all_md, "w", encoding="utf-8") as fh:
         fh.write(merged)
-    print("[1/3] merged %d md files (%d chars)" % (len(parts), sum(len(p) for p in parts)))
+    print("[1/3] merged %d md files (%d chars)" % (len(parts), len(merged)))
+    if fixes:
+        print("      content fixes: %d 处（%d 条规则）" % (n_fix, len(fixes)))
 
     body = os.path.join(tmp, "body.docx")
     # 图片常放在 src 的子目录或**兄弟**目录里（真实项目里 md 在 src/、图在 media/），

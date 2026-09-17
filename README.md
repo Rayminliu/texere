@@ -62,7 +62,9 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
   渲染结束会打印 `images: n/m ok`，源里有图却没嵌进去时会报 `[ERROR]`；
 - 表格用 pipe table，表题写成独立一行 `表 1-1 标题`（会自动居中灰字）；
 - 图用 `![图 1-1 标题](path.jpg){width=13cm}`（自动居中灰字题注）；
-- 封面与页眉在 config.json 里配（见 sample_config.json）；不配 cover 则只注入目录；
+- 封面与页眉在 config.json 里配（见 sample_config.json）；不配 cover 则只注入目录。
+  **注意**：注入封面后 `post.py` 会自动补一个空 `CoverInfo` 段，所以 config 里
+  不要再写行首/行尾空行，否则封面容易溢出成两页（多出一张空白页）；
 - 强调用 `**加粗**`，灰底提示框用 `::: {custom-style="Lead"} … :::`。
 
 **图表自动编号与交叉引用（可选）**：config 里加 `"auto_number": true` 后——
@@ -89,6 +91,11 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 | `style` | 版式微调，见下表 |
 | `caption_words` | 自定义题注关键字（默认 表/图/Table/Figure），见下 |
 | `resource_paths` | 额外的图片搜索目录列表（默认已含 src、其子目录与父目录） |
+| `content_fixes` | 编辑性替换表 `[[旧文本, 新文本], …]`，合并 md 后、转换前套用 |
+| `content_fixes_file` | 替换表文件（`.json`，或 `.py` 里的 `CONTENT_FIXES` 字面量；相对路径按 config 所在目录解析） |
+
+> `content_fixes` 用来删掉注释性括号、统一措辞。指向上游管线已有的 `.py` 时，
+> 是用 `ast` **只读取值、不执行代码**，因此不必把规则复制成第二份。
 
 `caption_words`（需要非中文或不惯用叫法时才配，`post.py` 与 lua filter 会同步）：
 
