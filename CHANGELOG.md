@@ -14,6 +14,12 @@
 - `post.py` 支持 config 的 `style` 段：**全部版式数值可配**——页码模板与字号、页眉字号/灰色/下边框、
   目录标题字号与占位提示、题注颜色/字号/段前后、单元格边距、表格边框粗细颜色、三线表顶底线
 - `caption_words`：题注关键字可自定义（默认 表/图/Table/Figure），`post.py` 与 lua filter 同步
+
+### 已知限制（`auto_number` 开启时）
+- 会改写题注段落文字：题注内的局部加粗/斜体被合并掉
+- 会给原本无编号的题注补号（如 `附件 8-1 …` → `图 8-1 附件 8-1 …`）
+- 不同步正文里手写的引用（`（表2-2）` 这类），只有 `@tab:` / `@fig:` 标签会更新
+- **编号本已正确的文档建议不开**：真实项目实测，关闭后页数一致且原文一字不改
 - **表格**：支持 grid table（多级表头 / 合并单元格 / 单元格内换行 / 列宽控制，均为 pandoc 原生能力，已文档化）
 - `style.header_rows`：多级表头的视觉表头行数；`style.table_border`：`full` / `three`（三线表）/ `none`
 - `make_ref.py` 支持 `--body-font / --latin-font / --heading-font / --body-size`
