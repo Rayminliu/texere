@@ -286,3 +286,7 @@ Want a narrow "No." column? Write it narrow.
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
 | `SKILL.md` | Skill description for other agents (when to use, acceptance gate, hard contract) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
+
+## License
+
+MIT — see [LICENSE](LICENSE).

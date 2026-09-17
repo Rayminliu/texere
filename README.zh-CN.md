@@ -259,3 +259,7 @@ python make_ref.py --body-font 楷体        # 重建排版模板（改字体/�
 | `baselines/` | 快照基线（样例 4 页 PNG） |
 | `SKILL.md` | 给其他 agent 用的技能说明（何时用、验证门槛、硬契约） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
