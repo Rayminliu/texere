@@ -4,6 +4,30 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 0.2.1 — 2026-09-17
+
+面向公开使用（全球读者）的文档与元数据整理。功能无变化，`ref.docx` 未动。
+
+### 新增
+- `SKILL.md`：给其他 agent 用的技能说明（何时用/不用、验证门槛、硬契约）。frontmatter 的
+  `description` 用英文写，便于全球 agent 命中
+- `README.zh-CN.md`：原中文 README 改名保留；`README.md` 改为**英文主文档**
+  （GitHub 只把 `README.md` 渲染成仓库首页），两文件首行互为语言切换入口
+
+### 变更
+- README 重写为使用者视角：新增「能做什么/不做什么」「效果」（引用 `baselines/` 的两张渲染图）
+  「验证门槛」；「文件地图」移到末尾
+- 修正 README 两处**会让人直接失败**的错误：
+  - `pip install .` —— 实测失败（本仓库无构建后端，且工具靠相对路径找 `ref.docx`/`filters/`），
+    改为 `uv sync --all-extras` / `pip install -r requirements.txt`（均已验证）
+  - `tests/` 的描述仍写着已删除的「自动编号与交叉引用」
+
+### 仓库
+- 清除文档中残留的项目名与开发机绝对路径
+- 提交身份与全局配置改为 GitHub 匿名邮箱（`<id>+<user>@users.noreply.github.com`），
+  并 `reflog expire` + `gc --prune=now` 使旧提交不可取回；**因此本日之前的 commit hash 全部变更**
+- 删除从未验证过的 GitHub Actions 配置（本地自用，且 Linux runner 无 Word，只能覆盖半条验收链）
+
 ## 0.2.0 — 2026-09-16
 
 ### 新增

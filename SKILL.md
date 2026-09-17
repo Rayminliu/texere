@@ -1,119 +1,134 @@
 ---
 name: docx-kit
-description: 把 Markdown 渲染成排版合格的中文正式 docx 与 PDF（标书、申报书、结题报告、白皮书），并用真 Word 做打开验收、导出 PDF、检查空白页与版式漂移。当任务涉及"从 Markdown 生成正式文档""给文档加封面/目录/页眉/分节页码""中文正式排版"（宋体正文、黑体标题、首行缩进两字符、题注居中）"表格跨页重复表头""交付前检查空白页或版式变化"时使用本技能。
+description: Render Markdown into properly typeset Chinese formal documents (docx + PDF) — tenders and bids, project plans, grant applications, final reports, white papers — and verify the result by opening it in real Word, refreshing the TOC field, exporting a PDF, and checking for blank pages and layout drift. Use when a task involves generating a formal document from Markdown, adding a cover page / table of contents / header / per-section page numbers, Chinese formal typesetting (SimSun body, SimHei headings, 2-character first-line indent, centred captions), repeating table header rows across pages, or pre-delivery checks for blank pages and layout changes.
 ---
 
 # docx-kit
 
-把 Markdown 章节目录渲染成中文正式 docx / PDF 的本地工具包。设计核心是两条：
-**样式表驱动**（全部视觉规则写在 `ref.docx`，源文本只写语义）与**真机验收**
-（用 Word 打开并导 PDF，再肉眼过渲染图，不信任何"读回正常"）。
+A local toolkit that renders a Markdown chapter directory into a Chinese formal docx / PDF. Two ideas carry
+the whole design: **template-driven** (every visual rule lives in `ref.docx`; the source text carries
+semantics only) and **real-machine acceptance** (open in Word, export a PDF, then look at the rendered pages —
+never trust "it read back fine").
 
-## 硬契约：只改版式，不改内容
+## Hard contract: layout only, never content
 
-`post.py` 不触碰正文与题注的**任何文字**。输出里的每一个字都来自源 Markdown。
+`post.py` does not touch **any** of the text in the body or the captions. Every character in the output comes
+from the source Markdown.
 
-不要给这条管线添加"改写文字"的功能。历史上曾有过 `auto_number`（图表自动编号），
-它静默篡改了正文（`**表层…**` → `表 3-5 层…`）、并给原本无编号的题注补号，
-因此被整体删除。`tests/test_postprocess.py::test_never_touches_text` 守着这条契约。
+Do not add features to this pipeline that rewrite text. An `auto_number` (automatic figure/table numbering)
+feature once existed and silently corrupted body text (`**表层…**` became `表 3-5 层…`) and added numbers to
+captions that had none; it was removed entirely. `tests/test_postprocess.py::test_never_touches_text` guards
+this contract.
 
-需要图表自动编号与交叉引用时，正确做法是插入 Word 原生 `SEQ` / `REF` 域
-（域可更新、不改文本），而不是重写题注文字。
+If automatic numbering and cross-references are ever needed, the correct implementation is Word's native
+`SEQ` / `REF` fields (updatable, no text rewriting) — not rewriting caption text.
 
-## 何时使用 / 何时不使用
+## When to use / when not to
 
-使用：
+Use it for:
 
-- 从 Markdown 生成中文正式文档（标书、申报书、结题报告、白皮书、方案建议书）
-- 需要封面、目录域、分节页码、页眉、表题与图注规范、表格跨页重复表头
-- 交付前需要一键验收（Word 能否打开、有无空白页、版式有没有变）
+- Generating a Chinese formal document from Markdown (bid, grant application, final report, white paper, proposal)
+- Cover page, TOC field, per-section page numbers, header, table/figure caption conventions, repeating table
+  header rows
+- One-command pre-delivery acceptance (does Word open it, are there blank pages, did the layout drift)
 
-不使用：
+Do **not** use it for:
 
-- **编辑已有 docx**：批注、修订痕迹、脱敏、无障碍修复、水印、表单控件。
-  本工具没有编辑能力，也不该有——那类任务请用通用 docx 技能（例如 Codex 的
-  Documents 插件，它走 LibreOffice 渲染 + 36 个 OOXML 脚本）。
-- 学位论文、书稿：需要参考文献（citeproc）、公式编号、奇偶页不同页眉，本工具不支持。
+- **Editing an existing docx**: comments, tracked changes, redaction, accessibility fixes, watermarks, form
+  controls. This tool has no editing capability and should not gain one — use a general-purpose docx skill
+  instead (for example Codex's Documents plugin, which renders via LibreOffice and ships 36 OOXML scripts).
+- Theses or book manuscripts: bibliography (citeproc), equation numbering and odd/even page headers are not
+  supported.
+- English-language documents: the defaults (A4, SimSun/SimHei, full-width punctuation, Chinese caption
+  keywords) are Chinese-document conventions. `caption_words` lets you change the keywords, not the typography.
 
-## 命令
+## Commands
 
 ```bash
-python render.py --doctor                    # 环境自检：pandoc / 依赖 / Word 引擎身份
-python render.py --version                   # 版本
-python render.py --sample                    # 冒烟测试（产出 sample_out.docx/.pdf）
+python render.py --doctor                    # environment self-check: pandoc / deps / Word engine identity
+python render.py --version                   # version
+python render.py --sample                    # smoke test (produces sample_out.docx/.pdf)
 
-# 正式渲染（--check 会自动补 --pdf）
-python render.py --src <md目录> --out 标书.docx --config cfg.json --pdf --check
+# Real render (--check implies --pdf)
+python render.py --src <md dir> --out bid.docx --config cfg.json --pdf --check
 
-python -m pytest -q                          # 33 项断言，不需要 Word，约 8 秒
-python snapshot.py 标书.pdf                  # 版式快照回归，漂移即 exit 1
-python snapshot.py 标书.pdf --update         # 确认版式变更后重录基线
-python make_ref.py --body-font 楷体          # 重建排版模板（改字体/字号用）
+python -m pytest -q                          # 36 assertions, no Word needed, ~9 s
+python snapshot.py bid.pdf                   # layout snapshot regression; exits 1 on drift
+python snapshot.py bid.pdf --update          # re-record the baseline after an intended layout change
+python make_ref.py --body-font 楷体          # rebuild the typesetting template (fonts / sizes / spacing)
 ```
 
-## 输入要求
+## Input requirements
 
-- `--src` 指向一个目录，里面的 `*.md` **按文件名排序**后合并（用 `01_`、`02_` 前缀控制顺序）
-- `#` 为章、`##` 为节；表题写成独立一行 `表 1-1 标题`；图注写进图片 alt：`![图 1-1 标题](a.png){width=13cm}`
-- 图片搜索路径：`src` 目录、其全部子目录、**`src` 的父目录及其子目录**（图片常在兄弟目录），
-  仍找不到就用 config 的 `resource_paths` 补充
-- 第一个 `#` **之前不要放内容**（不会被当成封面，且会排在目录之后）；真放了会打印 `[warn]`，但不会替你删
-- config.json 与源 md 带 UTF-8 BOM 也能读
+- `--src` points at a directory; its `*.md` files are merged **in filename order** (use `01_`, `02_` prefixes
+  to control the order)
+- `#` is a chapter, `##` a section; a table caption is its own line (`表 1-1 Caption`); a figure caption goes
+  in the image alt text: `![图 1-1 Caption](a.png){width=13cm}`
+- Image search path: the `src` directory, all of its subdirectories, and **the parent of `src` plus that
+  parent's subdirectories** (images often live in a sibling directory); add more with `resource_paths`
+- **Do not put content before the first `#`** (it is neither treated as a cover nor kept in place — it lands
+  after the TOC). `post.py` prints a `[warn]` but will not delete it for you
+- config.json and source `.md` files may carry a UTF-8 BOM
 
-## 验证门槛：四项全过才算完成
+## Acceptance gate: all four must pass
 
-任何一次正式渲染之后，逐项确认：
+After any real render, check each of these:
 
-1. 日志出现 `images: n/m ok` 且 **n == m**（m 是源 md 中 `![` 的出现次数）
+1. The log shows `images: n/m ok` with **n == m** (m = occurrences of `![` in the source)
 2. `near-empty pages: 0`
-3. `OK`（Word 成功打开并导出 PDF）
-4. **首次用于某份新文档时，必须人工看一遍 PDF 渲染图**——机器能查页数、图片数、
-   空白页，查不了"这张图画得对不对、表头有没有被截断"
+3. `OK` (Word opened the file and exported a PDF)
+4. **The first time you render a new document, look through the rendered page images yourself.** A machine
+   can count pages, images and blank pages; it cannot tell whether a diagram is correct or a table header
+   got clipped.
 
-`--check` 对「内容稀疏但合法」的页面也会报 FAIL（表单尾页的签字盖章区、
-大表格前的单独标题页）。这类是误报，用 `--max-empty N` 放宽。
+`--check` also reports FAIL for pages that are legitimately sparse (the signature block at the end of a form,
+a heading alone before a large table). Those are false positives — relax with `--max-empty N`.
 
-## 配置
+## Configuration
 
-config.json 全部字段见 `README.md` 的字段表。最常用的：
+Every field is listed in `README.md` (see the config field tables there). The ones used most:
 
-| 键 | 说明 |
+| Key | Meaning |
 |---|---|
-| `cover` | 封面行 `[[样式名, 文本], …]`；样式名用 CoverTop/CoverTitle/CoverSub/CoverInfo/CoverDate。**不要再写行首/行尾空行**（`post.py` 会自动补一个空 CoverInfo 段，多写会导致封面溢出成两页） |
-| `header` | 正文节页眉 |
-| `reference_doc` | 用招标方/甲方给的 docx 当模板 |
-| `content_fixes_file` | 编辑性替换表；指向 `.py` 时用 `ast` 只读取值、不执行代码 |
-| `resource_paths` | 额外的图片搜索目录 |
-| `style` | 版式微调（页码模板、目录深度、题注颜色字号、表格边框、`header_rows: 0` 表示该表无表头…） |
+| `cover` | Cover lines `[[style_name, text], …]`; style names CoverTop/CoverTitle/CoverSub/CoverInfo/CoverDate. **Do not add leading/trailing blank lines** — `post.py` appends one blank `CoverInfo` paragraph itself, and extras overflow the cover onto a second page |
+| `header` | Header text for the body section |
+| `reference_doc` | Use a client-supplied docx as the template |
+| `content_fixes_file` | Editorial replacement table; when it points at a `.py`, values are read with `ast` and never executed |
+| `resource_paths` | Extra directories to search for images |
+| `style` | Fine-grained layout (page-number template, TOC depth, caption colour/size, table borders, `header_rows: 0` for a table with no header, …) |
 
-## 已知边界
+## Known limitations
 
-- **Windows + Word 绑定**：`--pdf` 需要本机 Word（COM）。Linux/macOS 只能出 docx
-- **快照基线绑本机**：换机器或换 Word 版本后先 `snapshot.py --update` 重录
-- 图表编号为**手写**，插删图表后需人工对号（本工具不代改编号，见硬契约）
-- 中文标点是全角、表格用中式全框线（或 `table_border: three` 三线表），
-  与英文文档惯例（Letter 纸、西文字体）不同——本工具面向中文正式文档
+- **Windows + Word bound**: `--pdf` needs a local Word (COM). On Linux/macOS only the docx half works
+- **Snapshot baselines are machine-specific**: after switching machines or Word versions, re-record with
+  `snapshot.py --update`
+- Figure and table numbers are **hand-written**: after inserting or deleting a figure you renumber manually
+  (the tool will not do it — see the hard contract)
+- Chinese full-width punctuation and Chinese-style full-grid tables (or `table_border: three` for a
+  three-line table) differ from English-document conventions (Letter paper, Latin fonts). This tool targets
+  Chinese formal documents.
 
-## 文件地图
+## Repository map
 
-| 文件 | 职责 |
+| File | Role |
 |---|---|
-| `render.py` | 入口：合并 md → pandoc → post.py →（可选）finalize/check |
-| `post.py` | 后处理：封面、目录域、分节页码、页眉页脚、表格规则、题注样式 |
-| `filters/captions.lua` | pandoc Lua filter：在 **AST 层**把表题/图注标成语义样式，post.py 不必用正则猜 |
-| `make_ref.py` | 重建 `ref.docx`（改字体/字号/间距时） |
-| `finalize.py` | Word COM：打开验收 + 刷目录域 + 导 PDF |
-| `check_pdf.py` | PyMuPDF：空白页检测（带退出码）+ 渲染 PNG |
-| `snapshot.py` | PDF 版式快照回归：逐像素比对 `baselines/` |
-| `tests/` | 33 项 pytest 断言 |
-| `README.md` | 完整字段表、排版军规、标书场景注意事项 |
-| `CHANGELOG.md` | 版本历史与每条修复的理由 |
+| `render.py` | Entry point: merge md → pandoc → post.py → (optional) finalize / check |
+| `post.py` | Post-processing: cover, TOC field, per-section page numbers, headers/footers, table rules, caption styling |
+| `filters/captions.lua` | pandoc Lua filter: marks table/figure captions at the **AST level**, so `post.py` never guesses with regexes |
+| `make_ref.py` | Rebuild `ref.docx` (fonts / sizes / spacing) |
+| `finalize.py` | Word COM: open for acceptance + refresh TOC field + export PDF |
+| `check_pdf.py` | PyMuPDF: blank-page detection (with exit code) + render page PNGs |
+| `snapshot.py` | PDF layout snapshot regression: pixel comparison against `baselines/` |
+| `tests/` | 36 pytest assertions |
+| `README.md` | English README (full field tables, typesetting rules, tender notes) |
+| `README.zh-CN.md` | 中文版 README |
+| `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
-## 性能参考
+## Performance
 
-实测（含 Word 验收 + 导 PDF + 空白页检查）：
+Measured (Word acceptance + PDF export + blank-page check included):
 
-| 规模 | 耗时 |
+| Size | Time |
 |---|---|
-| 69 页 / 63 表 / 28 图 | **19.0 秒** |
-| 272 页 / 252 表 / 112 图 | **69.7 / 66.9 秒**（连跑两次，页数、字数、表格、图片及抽查页像素全部一致，Word 进程无残留） |
+| 69 pages / 63 tables / 28 images | **19.0 s** |
+| 272 pages / 252 tables / 112 images | **69.7 / 66.9 s** (two consecutive runs; page count, word count, tables, images and sampled page pixels all matched, no orphaned Word processes) |
