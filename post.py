@@ -29,6 +29,17 @@ from docx.oxml import OxmlElement
 
 SONG, LATIN = "宋体", "Times New Roman"
 GRAY = (0x40, 0x40, 0x40)
+# 可被 config.json 的 "style" 段覆盖（见 apply_style_cfg）。默认即中文正式文档惯例。
+S = {
+    "east_font": SONG,        # 中文字体
+    "latin_font": LATIN,      # 西文字体
+    "caption_gray": GRAY,     # 题注灰
+    "caption_size": 10.5,     # 题注字号 pt
+    "table_shade": "EDEDED",  # 表头底纹
+    "table_size": 10.5,       # 表格字号 pt
+    "toc_depth": "1-2",       # 目录收录层级
+    "page_number": "— {n} —",  # 页码模板，{n} 处插入页码域
+}
 # 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
 H1_STYLES = {"Heading 1", "标题 1"}
 TITLE_STYLES = {"Title", "Subtitle", "Author", "Date", "标题", "副标题"}
@@ -93,7 +104,7 @@ def insert_ordered(parent, child, order):
 
 
 def set_run_font(run, size=None, bold=None, color=None, italic=None):
-    run.font.name = LATIN
+    run.font.name = S["latin_font"]
     if size is not None:
         run.font.size = Pt(size)
     if bold is not None:
@@ -107,9 +118,9 @@ def set_run_font(run, size=None, bold=None, color=None, italic=None):
     if rf is None:
         rf = OxmlElement("w:rFonts")
         rpr.insert(0, rf)
-    rf.set(qn("w:ascii"), LATIN)
-    rf.set(qn("w:hAnsi"), LATIN)
-    rf.set(qn("w:eastAsia"), SONG)
+    rf.set(qn("w:ascii"), S["latin_font"])
+    rf.set(qn("w:hAnsi"), S["latin_font"])
+    rf.set(qn("w:eastAsia"), S["east_font"])
 
 
 def add_field(paragraph, instr, placeholder="", size=10.5):
@@ -125,7 +136,8 @@ def add_field(paragraph, instr, placeholder="", size=10.5):
     return run
 
 
-def shade(cell, fill="EDEDED"):
+def shade(cell, fill=None):
+    fill = fill or S["table_shade"]
     tcpr = cell._tc.get_or_add_tcPr()
     sh = tcpr.find(qn("w:shd"))
     if sh is None:
@@ -173,6 +185,32 @@ def style_id(p):
         return p.style.style_id or ""
     except Exception:
         return ""
+
+
+def to_rgb(v):
+    """颜色解析：接受 "404040" / "#404040" / "0x404040" / [r,g,b]。"""
+    if isinstance(v, (list, tuple)):
+        return tuple(int(x) for x in v)
+    s = str(v).strip().lstrip("#")
+    if s.lower().startswith("0x"):
+        s = s[2:]
+    if len(s) != 6:
+        raise ValueError("颜色应为 6 位十六进制（如 404040），收到：%r" % v)
+    return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def apply_style_cfg(cfg):
+    """把 config.json 的 "style" 段套到全局设置 S 上；没写的保持默认。"""
+    st = cfg.get("style") or {}
+    for k in ("east_font", "latin_font", "table_shade", "toc_depth", "page_number"):
+        if k in st:
+            S[k] = st[k]
+    for k in ("caption_size", "table_size"):
+        if k in st:
+            S[k] = float(st[k])
+    if "caption_gray" in st:
+        S["caption_gray"] = to_rgb(st["caption_gray"])
+    return S
 
 
 def find_h1(paras):
@@ -264,6 +302,7 @@ def auto_number(doc):
 
 def main(body_path, out_path, cfg_path):
     cfg = json.load(open(cfg_path, encoding="utf-8")) if cfg_path else {}
+    apply_style_cfg(cfg)
     doc = Document(body_path)
     body = doc.element.body
 
@@ -316,7 +355,7 @@ def main(body_path, out_path, cfg_path):
         set_run_font(r, size=16, bold=True, color=(0, 0, 0))
     toc_para = np("")
     toc_para.paragraph_format.first_line_indent = Pt(0)
-    add_field(toc_para, 'TOC \\o "1-2" \\h \\z \\u',
+    add_field(toc_para, 'TOC \\o "%s" \\h \\z \\u' % S["toc_depth"],
               "【目录将在打开文档时自动生成；若未显示请全选后按 F9】", size=12)
     sect_para = np("")
     sect_para.paragraph_format.first_line_indent = Pt(0)
@@ -340,9 +379,12 @@ def main(body_path, out_path, cfg_path):
     fp = sec_body.footer.paragraphs[0]
     fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
     fp.paragraph_format.first_line_indent = Pt(0)
-    set_run_font(fp.add_run("— "), size=9)
+    left, _sep, right = S["page_number"].partition("{n}")
+    if left:
+        set_run_font(fp.add_run(left), size=9)
     add_field(fp, "PAGE", "1", size=9)
-    set_run_font(fp.add_run(" —"), size=9)
+    if right:
+        set_run_font(fp.add_run(right), size=9)
 
     header_text = cfg.get("header")
     if header_text:
@@ -392,7 +434,8 @@ def main(body_path, out_path, cfg_path):
                     if ri == 0:
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     for r in p.runs:
-                        set_run_font(r, size=10.5, bold=True if ri == 0 else None)
+                        set_run_font(r, size=S["table_size"],
+                                     bold=True if ri == 0 else None)
 
     # 5. 表题 / 图注 居中、灰色、去斜体
     n_cap = 0
@@ -404,7 +447,8 @@ def main(body_path, out_path, cfg_path):
             pf.first_line_indent = Pt(0); pf.left_indent = Pt(0)
             pf.space_before = Pt(6); pf.space_after = Pt(4)
             for r in p.runs:
-                set_run_font(r, size=10.5, bold=False, color=GRAY, italic=False)
+                set_run_font(r, size=S["caption_size"], bold=False,
+                             color=S["caption_gray"], italic=False)
             n_cap += 1
 
     # 6. 打开时自动刷域 + 文档属性

@@ -20,6 +20,7 @@ import sys
 import tempfile
 
 KIT = os.path.dirname(os.path.abspath(__file__))
+__version__ = "0.2.0"          # 与 pyproject.toml 的 version 保持一致
 
 # Windows 控制台默认 GBK，子进程输出里若出现 GBK 无法编码的字符（如 PyMuPDF 解出的
 # U+FFFD），print 会抛 UnicodeEncodeError 让验收环节崩掉。这里保持控制台原编码不变
@@ -205,6 +206,8 @@ def main():
     ap.add_argument("--sample", action="store_true")
     ap.add_argument("--doctor", action="store_true",
                     help="只做环境自检：pandoc / Python 依赖 / Word，不渲染")
+    ap.add_argument("--version", action="version",
+                    version="docx-kit " + __version__)
     a = ap.parse_args()
 
     if a.doctor:

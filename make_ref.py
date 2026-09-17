@@ -51,14 +51,22 @@ _ap.add_argument("--src", default=os.path.join(KIT, "ref_default.docx"),
                  help="基准模板（默认包内 ref_default.docx，缺失时由 pandoc 生成）")
 _ap.add_argument("--dst", default=os.path.join(KIT, "ref.docx"),
                  help="输出模板（默认覆盖包内 ref.docx）")
+_ap.add_argument("--body-font", default="宋体", help="正文中文字体（默认 宋体）")
+_ap.add_argument("--latin-font", default="Times New Roman",
+                 help="西文字体（默认 Times New Roman）")
+_ap.add_argument("--heading-font", default="黑体", help="标题中文字体（默认 黑体）")
+_ap.add_argument("--body-size", type=float, default=12.0,
+                 help="正文字号 pt（默认 12，即小四）")
 _a = _ap.parse_args()
 
 SRC = ensure_base(_a.src)
 DST = _a.dst
 
-HEI = "黑体"
-SONG = "宋体"
-LATIN = "Times New Roman"
+# 正文字体/字号来自模板，post.py 改不了（它只处理表格与题注），所以在这里开放
+HEI = _a.heading_font
+SONG = _a.body_font
+LATIN = _a.latin_font
+BODY_SIZE = _a.body_size
 
 doc = Document(SRC)
 
@@ -72,7 +80,10 @@ for sec in doc.sections:
     sec.right_margin = Cm(2.6)
 
 
-def set_font(style, latin=LATIN, east=SONG, size=None, bold=None, color=None):
+def set_font(style, latin=None, east=None, size=None, bold=None, color=None):
+    # 默认参数在定义时求值，这里必须延迟到调用时，否则 --body-font 等参数不生效
+    latin = latin or LATIN
+    east = east or SONG
     f = style.font
     f.name = latin
     if size is not None:
@@ -124,7 +135,7 @@ for name in ("Normal", "Body Text", "First Paragraph", "Compact"):
             st = S[name]
         except KeyError:
             continue
-        set_font(st, size=12, east=SONG)
+        set_font(st, size=BODY_SIZE, east=SONG)
         if name in ("Body Text", "First Paragraph"):
             para(st, align=WD_ALIGN_PARAGRAPH.JUSTIFY, before=0, after=6, line=1.0,
                  indent_chars=2)

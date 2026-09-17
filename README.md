@@ -35,6 +35,15 @@
 它会报告 pandoc 版本、缺失的依赖，并**实测 Word 引擎身份**（走 COM 直接问，
 不读注册表——注册表里的 `CurVer` 可能是旧 Office 卸载后的残留值，会误报）。
 
+## 安装
+
+```powershell
+winget install --id JohnMacFarlane.Pandoc   # 必需，md -> docx
+pip install .                                # 只出 docx 的最小集
+pip install ".[pdf,check]"                   # 需要 Word 验收 + PDF 目视时
+python render.py --doctor                    # 确认装齐
+```
+
 ## 用法
 
 ```
@@ -64,6 +73,30 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 编号按「章-序」自动生成；**已手写的编号会被重排**（比如写成 `表 9-9` 也会被纠正），
 所以插入或删除图表后不用再人工对号。不开这个开关则完全不动原文。
 
+### config.json 字段
+
+| 字段 | 作用 |
+|---|---|
+| `cover` | 封面行 `[[样式名, 文本], …]` |
+| `header` | 正文节页眉 |
+| `title` / `author` / `subject` / `comments` | 文档属性 |
+| `reference_doc` | 指定模板 docx（招标方给强制格式时用它） |
+| `toc_heading` | 目录标题，默认「目　　录」 |
+| `auto_number` | `true` 开启图表自动编号与交叉引用 |
+| `style` | 版式微调，见下表 |
+
+`style` 段（全部可省，缺省即中文正式文档惯例）：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `page_number` | `— {n} —` | 页码模板，`{n}` 处插入页码域 |
+| `toc_depth` | `1-2` | 目录收录层级 |
+| `caption_gray` | `404040` | 题注颜色（6 位十六进制） |
+| `caption_size` | `10.5` | 题注字号 pt |
+| `table_shade` | `EDEDED` | 表头底纹 |
+| `table_size` | `10.5` | 表格字号 pt |
+| `east_font` / `latin_font` | `宋体` / `Times New Roman` | **只作用于表格与题注** |
+
 ## 标书场景三条注意
 
 1. **招标方给了强制格式模板时，以对方为准**：把它的 docx 路径写进 config 的 `"reference_doc"`，正文样式即继承对方模板；封面/密封/签字页/页码规则仍按招标文件手工核对，本工具不替代合规审查。
@@ -86,4 +119,6 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
   未开启时插删图表仍需人工对号；
 - 不使用 Quarto：其 1.10.x 的 docx 对带自动编号题注的表格会丢失表体；
 - 快照基线依赖本机 Word 版本与字体，**换机器后先 `snapshot.py --update` 重录**，
-  否则会满屏漂移；阈值默认 0.1%（实测同文档重复导出为 0.00%，改一处页眉为 0.16%）。
+  否则会满屏漂移；阈值默认 0.1%（实测同文档重复导出为 0.00%，改一处页眉为 0.16%）；
+- **正文与标题的字体/字号在模板层**，改它是 `python make_ref.py --body-font 楷体 --body-size 14`
+  （`style` 段的字体只管表格与题注，管不到正文）。

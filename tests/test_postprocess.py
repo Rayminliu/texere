@@ -184,6 +184,55 @@ def test_figure_caption_auto_number(tmp_path):
     assert "图 1-1" in ref, "图注引用未替换：%s" % ref
 
 
+def test_page_number_default(tmp_path):
+    """默认页码样式 — N —。"""
+    from docx import Document
+    out = _build_md(tmp_path, "# 第一章\n\n正文。\n", {})
+    footer = Document(out).sections[-1].footer.paragraphs[0].text
+    assert "—" in footer and "1" in footer, "默认页码异常：%r" % footer
+
+
+def test_style_cfg_overrides(tmp_path):
+    """config 的 style 段能改页码模板 / 题注颜色 / 字号。"""
+    from docx import Document
+    from docx.shared import RGBColor
+    md = "# 第一章\n\n表 清单 @tab:list\n\n| a |\n|:--|\n| 1 |\n"
+    cfg = {"auto_number": True,
+           "style": {"page_number": "第 {n} 页", "toc_depth": "1-3",
+                     "caption_gray": "FF0000", "caption_size": 9.0}}
+    out = _build_md(tmp_path, md, cfg)
+    doc = Document(out)
+
+    footer = doc.sections[-1].footer.paragraphs[0].text
+    assert "第" in footer and "页" in footer, "页码模板未生效：%r" % footer
+    assert "—" not in footer, "旧页码样式残留：%r" % footer
+
+    cap = next(p for p in doc.paragraphs if "清单" in p.text)
+    assert cap.runs[0].font.color.rgb == RGBColor(0xFF, 0x00, 0x00), "题注颜色未生效"
+    assert cap.runs[0].font.size.pt == 9.0, "题注字号未生效"
+
+
+def test_to_rgb_accepts_common_forms():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "post", os.path.join(KIT, "post.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.to_rgb("404040") == (0x40, 0x40, 0x40)
+    assert mod.to_rgb("#FF0000") == (0xFF, 0, 0)
+    assert mod.to_rgb("0x010203") == (1, 2, 3)
+    assert mod.to_rgb([1, 2, 3]) == (1, 2, 3)
+    with pytest.raises(ValueError):
+        mod.to_rgb("abc")
+
+
+def test_render_version_flag():
+    r = subprocess.run([sys.executable, os.path.join(KIT, "render.py"), "--version"],
+                       capture_output=True)
+    assert r.returncode == 0
+    assert b"docx-kit" in r.stdout, r.stdout
+
+
 def test_missing_h1_exits_with_hint(tmp_path):
     """缺一级标题时要给可诊断提示，而不是抛 StopIteration。"""
     src = tmp_path / "src"
