@@ -15,9 +15,12 @@ dependencies = [
 ]
 
 # 可选依赖：按需安装，非 Windows / 无 Word 的机器不必装 pywin32。
-#   pip install ".[pdf]"     仅 Word 验收 + 导 PDF
-#   pip install ".[check]"   仅 PDF 目视验收
+#   uv sync --extra pdf      仅 Word 验收 + 导 PDF
+#   uv sync --extra check    仅 PDF 目视验收
 #   uv sync --all-extras     全装
+#
+# 注意：本仓库是脚本集合，没有构建后端，**`pip install .` 会失败**。
+# 纯 pip 环境请用 `pip install -r requirements.txt`；本文件的 extras 是给 uv 用的。
 [project.optional-dependencies]
 pdf = ["pywin32>=306,<400"]
 check = ["PyMuPDF>=1.24,<2"]
