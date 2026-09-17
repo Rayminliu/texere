@@ -104,6 +104,7 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 | 页眉 | `header_size` / `header_gray` / `header_rule_color` / `header_rule_size` | `9` / `595959` / `BFBFBF` / `4` |
 | 目录 | `toc_depth` / `toc_title_size` / `toc_title_color` / `toc_placeholder` / `toc_placeholder_size` | `1-2` / `16` / `000000` / 见提示语 / `12` |
 | 题注 | `caption_gray` / `caption_size` / `caption_space_before` / `caption_space_after` | `404040` / `10.5` / `6` / `4` |
+| 题注 | `caption_keep_with_next` | `true`（表题不与表格分家；实测关掉可省 1 页，但表题可能落在页尾） |
 | 表格 | `header_rows` / `table_border` / `table_shade` / `table_size` | 自动 / `full` / `EDEDED` / `10.5` |
 | 表格 | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
 | 表格 | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |

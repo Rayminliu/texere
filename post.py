@@ -62,6 +62,7 @@ S = {
     # --- 题注 ---
     "caption_space_before": 6.0,
     "caption_space_after": 4.0,
+    "caption_keep_with_next": True,   # 表题与表格同页；关掉可能省页数但会分家
 }
 # 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
 H1_STYLES = {"Heading 1", "标题 1"}
@@ -349,6 +350,8 @@ def apply_style_cfg(cfg):
             S[k] = to_rgb(st[k])
     if "header_rows" in st:
         S["header_rows"] = max(1, int(st["header_rows"]))
+    if "caption_keep_with_next" in st:
+        S["caption_keep_with_next"] = bool(st["caption_keep_with_next"])
     # caption_words 是顶层键（它不是"样式"，是语义），也兼容写在 style 里
     cw = cfg.get("caption_words") or st.get("caption_words")
     if cw:
@@ -611,7 +614,7 @@ def main(body_path, out_path, cfg_path):
             pf.space_before = Pt(S["caption_space_before"])
             pf.space_after = Pt(S["caption_space_after"])
             # 表题必须与表格同页，否则会孤零零留在页尾
-            pf.keep_with_next = True
+            pf.keep_with_next = bool(S["caption_keep_with_next"])
             for r in p.runs:
                 set_run_font(r, size=S["caption_size"], bold=False,
                              color=S["caption_gray"], italic=False)
