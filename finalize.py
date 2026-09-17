@@ -21,6 +21,8 @@ pythoncom.CoInitialize()
 word = win32.DispatchEx("Word.Application")
 word.Visible = False
 word.DisplayAlerts = 0
+# 记录验收引擎身份：换机器/装了 WPS 时，"Word 能打开"这句话的分量不一样
+print("Engine    :", word.Name, word.Version, "|", word.Path)
 try:
     doc = word.Documents.Open(os.path.abspath(SRC), False, False, False)
     for i in range(1, doc.TablesOfContents.Count + 1):

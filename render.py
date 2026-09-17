@@ -28,9 +28,7 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(errors="replace")
 
-# Word COM 的 CurVer 版本号 -> 实际版本（11 常为 WPS 伪装）
-_WORD_VER = {"11": "2003（或 WPS 伪装）", "12": "2007", "14": "2010",
-             "15": "2013", "16": "2016/2019/365"}
+
 
 
 def run(cmd, cwd=None):
@@ -58,15 +56,31 @@ def _pandoc():
     return exe, m.group(1) if m else "?"
 
 
-def _word_progid():
-    """探测系统注册的 Word COM 版本，用于识别 WPS 伪装。"""
+def _word_engine():
+    """实测验收引擎身份。
+
+    不要用注册表 CurVer 猜：那可能是旧 Office 卸载后残留的键值
+    （本机 CurVer 写着 Word.Application.11，实际却是 Microsoft Word 16.0）。
+    直接起 COM 问它自己是谁。
+    """
     try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"Word.Application\CurVer") as k:
-            progid = winreg.QueryValue(k, "").rsplit(".", 1)[-1]
-        return "%s -> Word %s" % (progid, _WORD_VER.get(progid, "未知版本"))
+        import pythoncom
+        import win32com.client as win32
+    except ImportError:
+        return "未安装 pywin32，跳过探测（--pdf 需要它）"
+    try:
+        pythoncom.CoInitialize()
+        try:
+            w = win32.DispatchEx("Word.Application")
+            name = "%s %s" % (w.Name, w.Version)
+            path = w.Path
+            w.Quit()
+        finally:
+            pythoncom.CoUninitialize()
     except Exception as e:
-        return "未探测到（%s）" % type(e).__name__
+        return "启动失败（%s：%s）" % (type(e).__name__, e)
+    tag = "" if "Microsoft" in name else "  [非 Microsoft Word，验收结果仅供参考]"
+    return "%s  %s%s" % (name, path, tag)
 
 
 def doctor():
@@ -85,7 +99,7 @@ def doctor():
         except Exception:
             rows.append((label, "缺失" + ("（核心）" if core else "（可选）"), not core))
 
-    rows.append(("Word COM", _word_progid(), True))
+    rows.append(("Word 引擎", _word_engine(), True))
 
     def dw(s):  # 中文按 2 列宽计算
         return len(s) + sum(1 for c in s if ord(c) > 127)
