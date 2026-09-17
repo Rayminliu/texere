@@ -35,7 +35,6 @@ S = {
     "latin_font": LATIN,      # 西文字体
     "caption_gray": GRAY,     # 题注灰
     "caption_size": 10.5,     # 题注字号 pt
-    "table_shade": "EDEDED",  # 表头底纹
     "table_size": 10.5,       # 表格字号 pt
     "toc_depth": "1-2",       # 目录收录层级
     "page_number": "— {n} —",  # 页码模板，{n} 处插入页码域
@@ -53,6 +52,10 @@ S = {
     "toc_placeholder": "【目录将在打开文档时自动生成；若未显示请全选后按 F9】",
     "toc_placeholder_size": 12.0,
     # --- 表格 ---
+    "table_shade": "EDEDED",  # 表头底纹（配深色底时用 table_header_color 给白字）
+    "table_header_color": None,   # 表头文字颜色；None = 不指定（继承黑色）
+    "table_zebra": False,         # 斑马纹：表体隔行浅底
+    "table_zebra_fill": "F7F7F7",
     "cell_margin_v": 40,      # 单元格上下边距 twips
     "cell_margin_h": 80,      # 单元格左右边距 twips
     "table_para_space": 1.0,  # 单元格内段前后 pt
@@ -325,13 +328,14 @@ def to_rgb(v):
 
 # style 段各键的类型（决定怎么解析），见 apply_style_cfg
 _STYLE_STR = ("east_font", "latin_font", "toc_depth", "page_number", "table_border",
-              "toc_placeholder", "table_shade", "header_rule_color", "border_color")
+              "toc_placeholder", "table_shade", "table_zebra_fill",
+              "header_rule_color", "border_color")
 _STYLE_FLOAT = ("caption_size", "table_size", "header_size", "page_number_size",
                 "toc_title_size", "toc_placeholder_size", "table_para_space",
                 "caption_space_before", "caption_space_after")
 _STYLE_INT = ("cell_margin_v", "cell_margin_h", "border_size", "three_line_size",
               "header_rule_size")
-_STYLE_COLOR = ("caption_gray", "header_gray", "toc_title_color")
+_STYLE_COLOR = ("caption_gray", "header_gray", "toc_title_color", "table_header_color")
 
 
 def apply_style_cfg(cfg):
@@ -347,13 +351,15 @@ def apply_style_cfg(cfg):
         if k in st:
             S[k] = int(st[k])
     for k in _STYLE_COLOR:
-        if k in st:
+        if st.get(k) is not None:      # 允许显式写 null = 恢复默认（不指定）
             S[k] = to_rgb(st[k])
     if "header_rows" in st:
         # 允许显式写 0 = 这张表没有表头（表单/附件类表格），不要灰底、不要重复表头
         S["header_rows"] = max(0, int(st["header_rows"]))
     if "caption_keep_with_next" in st:
         S["caption_keep_with_next"] = bool(st["caption_keep_with_next"])
+    if "table_zebra" in st:
+        S["table_zebra"] = bool(st["table_zebra"])
     # caption_words 是顶层键（它不是"样式"，是语义），也兼容写在 style 里
     cw = cfg.get("caption_words") or st.get("caption_words")
     if cw:
@@ -522,12 +528,17 @@ def main(body_path, out_path, cfg_path):
         set_table_borders(tbl, S["table_border"], header_rows)
         for ri, row in enumerate(tbl.rows):
             is_head = ri < header_rows          # 多级表头时前 N 行都算表头
+            # 斑马纹：表体从第一条数据行起隔行浅底（首条数据行保持白底）
+            zebra = bool(S["table_zebra"]) and not is_head \
+                and (ri - header_rows) % 2 == 1
             if is_head:
                 set_repeat_header(row)
             for cell in row.cells:
                 cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
                 if is_head:
                     shade(cell)
+                elif zebra:
+                    shade(cell, S["table_zebra_fill"])
                 for p in cell.paragraphs:
                     pf = p.paragraph_format
                     pf.first_line_indent = Pt(0)
@@ -538,7 +549,8 @@ def main(body_path, out_path, cfg_path):
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     for r in p.runs:
                         set_run_font(r, size=S["table_size"],
-                                     bold=True if is_head else None)
+                                     bold=True if is_head else None,
+                                     color=S["table_header_color"] if is_head else None)
 
     # 5. 表题 / 图注 居中、灰色、去斜体
     n_cap = 0

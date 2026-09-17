@@ -280,6 +280,50 @@ def test_header_rows_override(tmp_path):
     assert not _shaded(rows[1].cells[0]), "显式设为 1 时第二行不该有灰底"
 
 
+def test_table_zebra_and_header_color(tmp_path):
+    """表头可换深色底配白字，表体可加斑马纹（借用通用 docx 技能的表格规范）。
+
+    默认（浅灰底 + 黑字 + 无斑马纹）走的是中文正式文档惯例，保持不动。
+    """
+    from docx import Document
+    from docx.shared import RGBColor
+    from docx.oxml.ns import qn
+    md = ("# 第一章\n\n表 1-1 清单\n\n"
+          "| 序号 | 名称 |\n|:--|:--|\n| 1 | a |\n| 2 | b |\n| 3 | c |\n")
+    out = _build_md(tmp_path, md, {"style": {
+        "table_shade": "4472C4", "table_header_color": "FFFFFF",
+        "table_zebra": True, "table_zebra_fill": "F7F7F7"}})
+    tbl = Document(out).tables[0]
+
+    def fill(ri):
+        tcPr = tbl.rows[ri].cells[0]._tc.find(qn("w:tcPr"))
+        shd = tcPr.find(qn("w:shd")) if tcPr is not None else None
+        return shd.get(qn("w:fill")) if shd is not None else None
+
+    assert fill(0) == "4472C4", "表头底纹未生效"
+    run = tbl.rows[0].cells[0].paragraphs[0].runs[0]
+    assert run.font.color.rgb == RGBColor(0xFF, 0xFF, 0xFF), "表头白字未生效"
+    assert fill(1) is None, "首条数据行不该有斑马纹底"
+    assert fill(2) == "F7F7F7", "第 2 条数据行应有斑马纹底"
+    assert fill(3) is None, "斑马纹应隔行"
+
+
+def test_table_style_defaults_unchanged(tmp_path):
+    """不配 style 时保持中文惯例：浅灰表头、无斑马纹。"""
+    from docx import Document
+    from docx.oxml.ns import qn
+    md = "# 第一章\n\n表 1-1 清单\n\n| 序号 | 名称 |\n|:--|:--|\n| 1 | a |\n| 2 | b |\n"
+    tbl = Document(_build_md(tmp_path, md, {})).tables[0]
+
+    def fill(ri):
+        tcPr = tbl.rows[ri].cells[0]._tc.find(qn("w:tcPr"))
+        shd = tcPr.find(qn("w:shd")) if tcPr is not None else None
+        return shd.get(qn("w:fill")) if shd is not None else None
+
+    assert fill(0) == "EDEDED", "默认表头应为浅灰"
+    assert fill(1) is None, "默认不该有斑马纹"
+
+
 def test_three_line_table(tmp_path):
     """三线表：内部无框线，顶底线加粗，表头行有下边框。"""
     from docx import Document

@@ -117,6 +117,7 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 | 表格 | `header_rows` / `table_border` / `table_shade` / `table_size` | 自动 / `full` / `EDEDED` / `10.5` |
 | 表格 | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
 | 表格 | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |
+| 表格 | `table_header_color` / `table_zebra` / `table_zebra_fill` | 不指定 / `false` / `F7F7F7` |
 | 字体 | `east_font` / `latin_font` | `宋体` / `Times New Roman`（**只作用于表格与题注**） |
 
 > 颜色写 6 位十六进制（`404040`），粗细单位 1/8 pt，间距单位 pt，单元格边距单位 twips。
@@ -162,6 +163,8 @@ python snapshot.py 标书.pdf                    # 回归比对，漂移即 exit
 | `header_rows` | 自动 | 前 N 行做**视觉**表头（灰底加粗居中）。默认**按表自动识别**（读 pandoc 打的 `w:tblHeader`）；想强制才填数字；**填 `0` = 该表没有表头**（表格首行不是列标题，如表单/附件类），此时连「跨页重复表头」也一并去掉 |
 | `table_border` | `full` | `full` 全框线 / `three` 三线表 / `none` 无框线 |
 | `table_shade` | `EDEDED` | 表头底纹 |
+| `table_header_color` | 不指定 | 表头文字颜色；**深色底时配 `FFFFFF` 白字** |
+| `table_zebra` / `table_zebra_fill` | `false` / `F7F7F7` | 表体隔行浅底（斑马纹），首条数据行保持白底 |
 | `table_size` | `10.5` | 表格字号 pt |
 
 > 跨页重复表头**不用配**：pandoc 原生就给表头行设了 `w:tblHeader`
