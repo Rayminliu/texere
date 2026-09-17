@@ -359,7 +359,7 @@ def find_h1(paras):
 
 
 def main(body_path, out_path, cfg_path):
-    cfg = json.load(open(cfg_path, encoding="utf-8")) if cfg_path else {}
+    cfg = json.load(open(cfg_path, encoding="utf-8-sig")) if cfg_path else {}
     apply_style_cfg(cfg)
     doc = Document(body_path)
     body = doc.element.body
@@ -385,6 +385,16 @@ def main(body_path, out_path, cfg_path):
             break
     first_h1 = doc.paragraphs[find_h1(doc.paragraphs)]
     first_h1.paragraph_format.page_break_before = False
+
+    # 源文件在第一个 # 之前还写了东西时，那些段落会落在目录之后。
+    # 只提示、不删除——本工具的契约是不改内容。
+    leftover = [p.text.strip() for p in doc.paragraphs[:find_h1(doc.paragraphs)]
+                if p.text.strip()]
+    if leftover:
+        print("[warn] 第一个一级标题之前还有 %d 段内容，会排在目录之后：" % len(leftover))
+        for t in leftover[:3]:
+            print("       " + t[:60])
+        print("       建议：从源文件删掉，或写进 config 的 cover 由封面承载")
 
 
     # 2. 封面 + 目录 + 分节段（先追加到末尾再整体前移）
@@ -415,7 +425,10 @@ def main(body_path, out_path, cfg_path):
     sect_para = np("")
     sect_para.paragraph_format.first_line_indent = Pt(0)
 
-    anchor = first_h1._p
+    # 封面必须是文档第一页：插到 body 最前面，而不是「第一个标题之前」。
+    # 否则源文件在第一个 # 之前写的内容会排到封面之前，单独占一页（实测踩过）。
+    anchor = next((c for c in body.iterchildren()
+                   if c.tag in (qn("w:p"), qn("w:tbl"))), None)
     for p in created:
         anchor.addprevious(p._p)
 
@@ -508,13 +521,18 @@ def main(body_path, out_path, cfg_path):
     for p in doc.paragraphs:
         txt = p.text.strip()
         if style_id(p) in CAPTION_STYLE_IDS or (not strict and CAPTION_RE.match(txt)):
+            sid = style_id(p)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             pf = p.paragraph_format
             pf.first_line_indent = Pt(0); pf.left_indent = Pt(0)
             pf.space_before = Pt(S["caption_space_before"])
             pf.space_after = Pt(S["caption_space_after"])
-            # 表题必须与表格同页，否则会孤零零留在页尾
-            pf.keep_with_next = bool(S["caption_keep_with_next"])
+            # 「与下一段同页」只对**位于表格之前**的表题、和**载有图片**的段落有意义。
+            # 图注本身在图片之后，粘住它会把后面的内容整块推走：实测 47 图文档多出 4 页。
+            keep = bool(S["caption_keep_with_next"]) and (
+                sid in ("TableCaption", "CaptionedFigure")
+                or bool(re.match(r"^\s*(表|表格|Table)", txt, re.IGNORECASE)))
+            pf.keep_with_next = keep
             for r in p.runs:
                 set_run_font(r, size=S["caption_size"], bold=False,
                              color=S["caption_gray"], italic=False)

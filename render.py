@@ -59,7 +59,7 @@ def _extract_py_list(path, name="CONTENT_FIXES"):
     用 ast 解析而不是 import/exec——只读值，不执行用户的代码。
     """
     import ast
-    tree = ast.parse(open(path, encoding="utf-8").read())
+    tree = ast.parse(open(path, encoding="utf-8-sig").read())
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for tgt in node.targets:
@@ -85,7 +85,7 @@ def load_content_fixes(cfg, cfg_dir):
     if not os.path.exists(p):
         sys.exit("content_fixes_file 不存在: " + p)
     if p.lower().endswith(".json"):
-        data = json.load(open(p, encoding="utf-8"))
+        data = json.load(open(p, encoding="utf-8-sig"))
     else:
         data = _extract_py_list(p)
     fixes += list(data.items()) if isinstance(data, dict) else [tuple(x) for x in data]
@@ -200,14 +200,15 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     preflight(want_pdf, want_check)
     cfg = {}
     if config_path and os.path.exists(config_path):
-        cfg = json.load(open(config_path, encoding="utf-8"))
+        cfg = json.load(open(config_path, encoding="utf-8-sig"))
     ref = cfg.get("reference_doc") or os.path.join(KIT, "ref.docx")
 
     tmp = tempfile.mkdtemp(prefix="docxkit_")
     all_md = os.path.join(tmp, "all.md")
     parts = []
     for f in sorted(glob.glob(os.path.join(src_dir, "*.md"))):
-        parts.append(open(f, encoding="utf-8").read().rstrip() + "\n")
+        # utf-8-sig：源 md 带 BOM 时不至于让第一个字符变成乱码（记事本默认写 BOM）
+        parts.append(open(f, encoding="utf-8-sig").read().rstrip() + "\n")
     if not parts:
         sys.exit("src 目录下没有 .md 文件: " + src_dir)
     merged = "\n".join(parts)

@@ -395,6 +395,28 @@ def test_caption_words_configurable(tmp_path):
         "自定义关键字未生效（应被识别为图注并居中）"
 
 
+def test_config_with_bom(tmp_path):
+    """带 UTF-8 BOM 的 config.json 必须能读。
+
+    Windows 记事本 / PowerShell 写出来的 json 默认带 BOM，真实用户高频踩到。
+    """
+    from docx import Document
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    (src / "01.md").write_text("# 第一章\n\n正文。\n", encoding="utf-8")
+    cfg = tmp_path / "cfg.json"
+    cfg.write_bytes(b"\xef\xbb\xbf" + '{"header": "带 BOM 的页眉"}'.encode("utf-8"))
+
+    body, out = str(tmp_path / "body.docx"), str(tmp_path / "out.docx")
+    subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)),
+                   check=True, capture_output=True)
+    r = subprocess.run(
+        [sys.executable, os.path.join(KIT, "post.py"), body, out, str(cfg)],
+        capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    assert r.returncode == 0, "带 BOM 的 config 读不了：" + r.stderr.decode("utf-8", "replace")
+    assert "带 BOM 的页眉" in Document(out).sections[-1].header.paragraphs[0].text
+
+
 def test_to_rgb_accepts_common_forms():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
