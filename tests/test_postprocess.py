@@ -184,6 +184,104 @@ def test_figure_caption_auto_number(tmp_path):
     assert "图 1-1" in ref, "图注引用未替换：%s" % ref
 
 
+GRID_MD = (
+    "# 第一章 测试\n\n"
+    "表 1-1 多级表头 @tab:t1\n\n"
+    "+------------------+------------------+\n"
+    "| 商务部分         | 技术部分         |\n"
+    "+--------+---------+--------+---------+\n"
+    "| 条款   | 响应    | 模块   | 说明   |\n"
+    "+========+=========+========+=========+\n"
+    "| 工期   | 完全响应| 接入层 | 设备   |\n"
+    "+--------+---------+--------+---------+\n"
+    "| 质保   | 优于要求| 平台层 | 治理   |\n"
+    "+--------+---------+--------+---------+\n"
+)
+
+
+def _has_tbl_header(row):
+    from docx.oxml.ns import qn
+    trPr = row._tr.find(qn("w:trPr"))
+    return trPr is not None and trPr.find(qn("w:tblHeader")) is not None
+
+
+def test_grid_table_colspan_preserved(tmp_path):
+    """grid table 的合并单元格要原样带过来。"""
+    from docx import Document
+    from docx.oxml.ns import qn
+    out = _build_md(tmp_path, GRID_MD, {})
+    row0 = Document(out).tables[0].rows[0]._tr.findall(qn("w:tc"))
+    spans = []
+    for tc in row0:
+        tcPr = tc.find(qn("w:tcPr"))
+        gs = tcPr.find(qn("w:gridSpan")) if tcPr is not None else None
+        spans.append(gs.get(qn("w:val")) if gs is not None else None)
+    assert spans == ["2", "2"], "合并单元格丢失：%s" % spans
+
+
+def _shaded(cell):
+    from docx.oxml.ns import qn
+    tcPr = cell._tc.find(qn("w:tcPr"))
+    sh = tcPr.find(qn("w:shd")) if tcPr is not None else None
+    return sh is not None and sh.get(qn("w:fill")) == "EDEDED"
+
+
+def test_pandoc_sets_tblheader_natively(tmp_path):
+    """记录事实：tblHeader 是 pandoc 原生就给的（+===+ 以上全是表头行）。
+
+    post.py 里的 set_repeat_header 只是幂等加固，不是这个功能的实现者。
+    """
+    from docx import Document
+    out = _build_md(tmp_path, GRID_MD, {})
+    rows = Document(out).tables[0].rows
+    assert _has_tbl_header(rows[0]) and _has_tbl_header(rows[1])
+    assert not _has_tbl_header(rows[2])
+
+
+def test_multilevel_header_rows(tmp_path):
+    """style.header_rows=2 时前两行都要灰底加粗（视觉表头）。"""
+    from docx import Document
+    out = _build_md(tmp_path, GRID_MD, {"style": {"header_rows": 2}})
+    rows = Document(out).tables[0].rows
+    assert _shaded(rows[0].cells[0]) and _shaded(rows[1].cells[0]), "多级表头未全部灰底"
+    assert not _shaded(rows[2].cells[0]), "数据行被误当成表头"
+
+
+def test_header_rows_default_is_one(tmp_path):
+    """默认只有第一行做视觉表头（灰底）；第二行虽然 pandoc 给了重复表头，但不上灰底。"""
+    from docx import Document
+    out = _build_md(tmp_path, GRID_MD, {})
+    rows = Document(out).tables[0].rows
+    assert _shaded(rows[0].cells[0])
+    assert not _shaded(rows[1].cells[0]), "默认不该给第二行上灰底"
+
+
+def test_three_line_table(tmp_path):
+    """三线表：内部无框线，顶底线加粗，表头行有下边框。"""
+    from docx import Document
+    from docx.oxml.ns import qn
+    out = _build_md(tmp_path, GRID_MD, {"style": {"table_border": "three"}})
+    tbl = Document(out).tables[0]
+    borders = tbl._tbl.tblPr.find(qn("w:tblBorders"))
+
+    def val(edge):
+        el = borders.find(qn("w:" + edge))
+        return el.get(qn("w:val")) if el is not None else None
+
+    assert val("insideH") == "nil" and val("insideV") == "nil", "三线表内部不应有框线"
+    assert val("top") == "single" and borders.find(qn("w:top")).get(qn("w:sz")) == "12"
+    cell = tbl.rows[0].cells[0]._tc.find(qn("w:tcPr")).find(qn("w:tcBorders"))
+    assert cell is not None and cell.find(qn("w:bottom")) is not None, "缺表头下线"
+
+
+def test_caption_keeps_with_table(tmp_path):
+    """表题不能与表格分家（keep_with_next）。"""
+    from docx import Document
+    out = _build_md(tmp_path, "# 第一章\n\n表 1-1 清单\n\n| a |\n|:--|\n| 1 |\n", {})
+    cap = next(p for p in Document(out).paragraphs if p.text.strip().startswith("表 1-1"))
+    assert cap.paragraph_format.keep_with_next, "表题未设 keep_with_next，可能与表格分页"
+
+
 def test_page_number_default(tmp_path):
     """默认页码样式 — N —。"""
     from docx import Document

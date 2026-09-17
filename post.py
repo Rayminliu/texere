@@ -39,6 +39,8 @@ S = {
     "table_size": 10.5,       # 表格字号 pt
     "toc_depth": "1-2",       # 目录收录层级
     "page_number": "— {n} —",  # 页码模板，{n} 处插入页码域
+    "header_rows": 1,         # 表头行数（多级表头设 2 或更多）
+    "table_border": "full",   # 表格边框：full 全框线 / three 三线表 / none 无框线
 }
 # 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
 H1_STYLES = {"Heading 1", "标题 1"}
@@ -147,6 +149,58 @@ def shade(cell, fill=None):
     sh.set(qn("w:fill"), fill)
 
 
+def set_cell_border(cell, edge, sz="6", color="000000"):
+    tcPr = cell._tc.get_or_add_tcPr()
+    tb = tcPr.find(qn("w:tcBorders"))
+    if tb is None:
+        tb = insert_ordered(tcPr, OxmlElement("w:tcBorders"), TCPR_ORDER)
+    el = tb.find(qn("w:" + edge))
+    if el is None:
+        el = OxmlElement("w:" + edge)
+        tb.append(el)
+    el.set(qn("w:val"), "single")
+    el.set(qn("w:sz"), sz)
+    el.set(qn("w:space"), "0")
+    el.set(qn("w:color"), color)
+
+
+def set_table_borders(tbl, mode, header_rows):
+    """表格边框：full 全框线 / three 三线表 / none 无框线。
+
+    三线表 = 顶线 + 表头下线 + 底线，内部无竖线无横线（论文/申报书常用）。
+    """
+    if mode not in ("full", "three", "none"):
+        raise ValueError('table_border 只能是 "full" / "three" / "none"，收到：%r' % mode)
+    tblPr = tbl._tbl.tblPr
+    borders = tblPr.find(qn("w:tblBorders"))
+    if borders is None:
+        borders = insert_ordered(tblPr, OxmlElement("w:tblBorders"), TBLPR_ORDER)
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        el = borders.find(qn("w:" + edge))
+        if el is None:
+            el = OxmlElement("w:" + edge)
+            borders.append(el)          # CT_TblBorders 有固定子元素顺序
+        if mode == "none":
+            el.set(qn("w:val"), "nil")
+        elif mode == "three":
+            if edge in ("top", "bottom"):
+                el.set(qn("w:val"), "single")
+                el.set(qn("w:sz"), "12")     # 1.5pt，三线表的顶底线要粗
+                el.set(qn("w:space"), "0")
+                el.set(qn("w:color"), "000000")
+            else:
+                el.set(qn("w:val"), "nil")
+        else:
+            el.set(qn("w:val"), "single")
+            el.set(qn("w:sz"), "6")
+            el.set(qn("w:space"), "0")
+            el.set(qn("w:color"), "808080")
+    if mode == "three":
+        # 表头最后一行的下边框 = 三线表的中间那条线
+        for cell in tbl.rows[min(header_rows, len(tbl.rows)) - 1].cells:
+            set_cell_border(cell, "bottom")
+
+
 def set_pgnum_start(sectPr, start=1):
     pg = sectPr.find(qn("w:pgNumType"))
     if pg is None:
@@ -160,7 +214,11 @@ def set_pgnum_start(sectPr, start=1):
 
 
 def set_repeat_header(row):
-    """表头行跨页重复（w:tblHeader）。缺失时表格跨页后第 2 页起没有表头。"""
+    """确保表头行跨页重复（w:tblHeader）。
+
+    注意：pandoc 通常**已经**给表头行设了（grid table 里 `+===+` 以上的行都算表头），
+    本函数只是幂等加固——若上游没设，表格跨页后第 2 页起就没有表头。
+    """
     trPr = row._tr.find(qn("w:trPr"))
     if trPr is None:
         trPr = OxmlElement("w:trPr")
@@ -202,12 +260,15 @@ def to_rgb(v):
 def apply_style_cfg(cfg):
     """把 config.json 的 "style" 段套到全局设置 S 上；没写的保持默认。"""
     st = cfg.get("style") or {}
-    for k in ("east_font", "latin_font", "table_shade", "toc_depth", "page_number"):
+    for k in ("east_font", "latin_font", "table_shade", "toc_depth", "page_number",
+              "table_border"):
         if k in st:
             S[k] = st[k]
     for k in ("caption_size", "table_size"):
         if k in st:
             S[k] = float(st[k])
+    if "header_rows" in st:
+        S["header_rows"] = max(1, int(st["header_rows"]))
     if "caption_gray" in st:
         S["caption_gray"] = to_rgb(st["caption_gray"])
     return S
@@ -419,23 +480,26 @@ def main(body_path, out_path, cfg_path):
             if el is None:
                 el = OxmlElement("w:" + side); mar.append(el)
             el.set(qn("w:w"), val); el.set(qn("w:type"), "dxa")
+        header_rows = min(int(S["header_rows"]), len(tbl.rows))
+        set_table_borders(tbl, S["table_border"], header_rows)
         for ri, row in enumerate(tbl.rows):
-            if ri == 0:
+            is_head = ri < header_rows          # 多级表头时前 N 行都算表头
+            if is_head:
                 set_repeat_header(row)
             for cell in row.cells:
                 cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-                if ri == 0:
+                if is_head:
                     shade(cell)
                 for p in cell.paragraphs:
                     pf = p.paragraph_format
                     pf.first_line_indent = Pt(0)
                     pf.space_before = Pt(1); pf.space_after = Pt(1)
                     pf.line_spacing = 1.0
-                    if ri == 0:
+                    if is_head:
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     for r in p.runs:
                         set_run_font(r, size=S["table_size"],
-                                     bold=True if ri == 0 else None)
+                                     bold=True if is_head else None)
 
     # 5. 表题 / 图注 居中、灰色、去斜体
     n_cap = 0
@@ -446,6 +510,8 @@ def main(body_path, out_path, cfg_path):
             pf = p.paragraph_format
             pf.first_line_indent = Pt(0); pf.left_indent = Pt(0)
             pf.space_before = Pt(6); pf.space_after = Pt(4)
+            # 表题必须与表格同页，否则会孤零零留在页尾
+            pf.keep_with_next = True
             for r in p.runs:
                 set_run_font(r, size=S["caption_size"], bold=False,
                              color=S["caption_gray"], italic=False)
