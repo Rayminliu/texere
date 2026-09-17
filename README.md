@@ -1,0 +1,67 @@
+# docx-kit —— 中文正式文档渲染工具包
+
+把 Markdown 变成**排版合格的中文正式 docx**（标书 / 计划书 / 申报书 / 结题报告 / 白皮书）。
+从"农域多视图"参赛计划书管线抽离，2026-09-13 独立成包；总体积约 40KB，零新依赖。
+
+## 文件
+
+| 文件 | 职责 |
+|---|---|
+| `ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面自定义样式（CoverTop/CoverTitle/CoverSub/CoverInfo/CoverDate）、提示框样式（Lead/SmallNote） |
+| `make_ref.py` | 重新生成 ref.docx（改字体/字号/间距时用它） |
+| `render.py` | 入口：合并 md → pandoc → post.py →（可选）finalize/check |
+| `post.py` | 后处理：封面注入、目录域、分节页码、页眉页脚、表格规则、表题图注居中；OOXML 按 schema 顺序插入 |
+| `finalize.py` | Word COM：打开验收（打不开=结构错）、刷目录域、导 PDF、存回 |
+| `check_pdf.py` | PyMuPDF：空白页检测 + 渲染页面 PNG 供目视 |
+| `sample.md` / `sample_config.json` | 冒烟测试样例（投标文件风格） |
+
+## 依赖
+
+依赖声明以 `pyproject.toml` 为唯一事实来源，`uv.lock` 锁定精确版本，
+`requirements.txt` 由 `uv export` 生成、供纯 pip 环境使用。
+
+| 依赖 | 用途 | 安装 |
+|---|---|---|
+| pandoc >= 3.1 | **必需**，md → docx | `winget install --id JohnMacFarlane.Pandoc` |
+| python-docx、lxml | **必需**，docx 读写与 OOXML 处理 | `pip install .` |
+| pywin32 | 仅 `--pdf`（Word 验收 + 导 PDF） | `pip install ".[pdf]"` |
+| PyMuPDF | 仅 `--check`（PDF 目视验收） | `pip install ".[check]"` |
+| Microsoft Word | 仅 `--pdf` | 系统级，pip/uv 都装不了 |
+
+**不需要 Quarto/LibreOffice/商业库。** 换机器后先跑 `python render.py --doctor`，
+它会报告 pandoc 版本、缺失的依赖，以及系统注册的 Word 版本（用于识别 WPS 伪装）。
+
+## 用法
+
+```
+python render.py --doctor                          # 环境自检（pandoc / 依赖 / Word 版本）
+python render.py --sample                          # 冒烟测试，产出 sample_out.docx/.pdf
+python render.py --src 章节目录 --out 标书.docx --config config.json --pdf --check
+```
+
+- `章节目录` 内放 `01_xxx.md … 0N_xxx.md`，按文件名排序合并；`#` 为章、`##` 为节；
+- 表格用 pipe table，表题写成独立一行 `表 1-1 标题`（会自动居中灰字）；
+- 图用 `![图 1-1 标题](path.jpg){width=13cm}`（自动居中灰字题注）；
+- 封面与页眉在 config.json 里配（见 sample_config.json）；不配 cover 则只注入目录；
+- 强调用 `**加粗**`，灰底提示框用 `::: {custom-style="Lead"} … :::`。
+
+## 标书场景三条注意
+
+1. **招标方给了强制格式模板时，以对方为准**：把它的 docx 路径写进 config 的 `"reference_doc"`，正文样式即继承对方模板；封面/密封/签字页/页码规则仍按招标文件手工核对，本工具不替代合规审查。
+2. 标书常见结构（投标函/商务标/技术标/报价/资质业绩）直接对应 `#` 章即可；报价表建议保留 pipe table，便于后期整体替换为招标方表格。
+3. 交付前跑 `--pdf --check` 并肉眼过一遍渲染图：Word 能打开、无空白页、表头灰底、题注居中，四条都过再封包。
+
+## 排版六条军规（改模板或手写内容时遵守）
+
+1. 样式表驱动：视觉规则只写在 ref.docx，源文本只写语义；
+2. 中文四件套：宋体正文 + 黑体标题 + eastAsia 字体属性 + 首行缩进 2 字符；
+3. 表格三件套：100% 宽 + 灰底加粗居中表头 + 跨页重复表头；
+4. 题注居中、小一号、灰色、**去斜体**；
+5. 中西混排：中文宋体、数字西文 Times New Roman；
+6. 交付前真 Word 打开 + 渲染目视，不信任何"读回正常"。
+
+## 已知边界
+
+- 目录为 Word 域，首次打开若未刷新请全选按 F9（已设 updateFields，通常自动）；
+- 图表编号为手写（pandoc 3.8 无原生交叉引用）：插删图表后需人工对号；
+- 不使用 Quarto：其 1.10.x 的 docx 对带自动编号题注的表格会丢失表体。

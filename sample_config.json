@@ -1,0 +1,15 @@
+{
+  "cover": [
+    ["CoverTop", "示例智慧园区平台建设项目"],
+    ["CoverTitle", "投 标 文 件"],
+    ["CoverSub", "（商务标 · 技术标）"],
+    ["CoverInfo", "投标人名称：示例科技有限公司"],
+    ["CoverInfo", "法定代表人或授权代表：（签字）"],
+    ["CoverDate", "二〇二六年九月"]
+  ],
+  "header": "示例智慧园区平台建设项目 · 投标文件",
+  "title": "示例投标文件",
+  "author": "示例科技有限公司",
+  "subject": "投标文件",
+  "comments": "由 docx-kit 渲染"
+}

@@ -1,0 +1,37 @@
+[project]
+name = "docx-kit"
+version = "0.1.0"
+description = "把 Markdown 渲染成排版合格的中文正式 docx / PDF（标书 / 申报书 / 结题报告）"
+readme = "README.md"
+# 下限 3.10 由可选依赖 PyMuPDF 决定（pymupdf 1.24+ 要求 >=3.10）；
+# 核心链路（只出 docx）在 3.9 也能跑，实测环境为 Python 3.11 / Windows。
+requires-python = ">=3.10"
+dependencies = [
+    # post.py 大量使用 python-docx 的 OOXML 底层 API（OxmlElement / qn / schema 顺序），
+    # 故锁主版本：升到 2.x 前必须先跑 --sample 回归。
+    "python-docx>=1.1,<2.0",
+    # python-docx 的底层依赖，显式声明防止被其他包降级导致难懂的报错。
+    "lxml>=5.2,<7",
+]
+
+# 可选依赖：按需安装，非 Windows / 无 Word 的机器不必装 pywin32。
+#   pip install ".[pdf]"     仅 Word 验收 + 导 PDF
+#   pip install ".[check]"   仅 PDF 目视验收
+#   uv sync --all-extras     全装
+[project.optional-dependencies]
+pdf = ["pywin32>=306,<400"]
+check = ["PyMuPDF>=1.24,<2"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+# 本仓库是一组独立脚本（render/post/finalize/check_pdf 之间用 subprocess 调用），
+# 不是可导入的包，因此不要打包成 wheel，uv 只作为依赖解析器与虚拟环境管理器。
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# 注意：pandoc 与 Microsoft Word 是系统级依赖，pip/uv 都无法安装。
+# 用 `python render.py --doctor` 检查。

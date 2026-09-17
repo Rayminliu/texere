@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+
+# 渲染产物（每次 --sample 重新生成）
+check_pages/
+sample_out.docx
+sample_out.pdf
+
+# 基准模板由 pandoc 生成：pandoc --print-default-data-file reference.docx > ref_default.docx
+ref_default.docx
