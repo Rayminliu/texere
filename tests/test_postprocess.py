@@ -225,6 +225,29 @@ def test_pandoc_sets_tblheader_natively(tmp_path):
     assert not _has_tbl_header(rows[2])
 
 
+HEADERLESS_MD = (
+    "# 第一章\n\n表 1-1 表单式表格\n\n"
+    "+-----------+-----------+\n"
+    "| 项目名称  | 某某项目  |\n"
+    "+-----------+-----------+\n"
+    "| 负责人    | 张三      |\n"
+    "+-----------+-----------+\n"
+)
+
+
+def test_header_rows_zero_for_form_tables(tmp_path):
+    """表单类表格：显式 header_rows=0 时首行不上灰底、也不跨页重复。
+
+    （外部 docx 转 md 后 pandoc 会给首行加 tblHeader，表单的「项目名称」行
+    看起来就成了列标题，视觉上不对。）
+    """
+    from docx import Document
+    out = _build_md(tmp_path, HEADERLESS_MD, {"style": {"header_rows": 0}})
+    tbl = Document(out).tables[0]
+    assert not _shaded(tbl.rows[0].cells[0]), "header_rows=0 时首行不该有灰底"
+    assert not _has_tbl_header(tbl.rows[0]), "header_rows=0 时不该跨页重复表头"
+
+
 def test_auto_header_rows_from_pandoc(tmp_path):
     """默认自动识别：pandoc 标了几行表头，就给几行上灰底。"""
     from docx import Document
@@ -438,16 +461,22 @@ def test_render_version_flag():
     assert b"docx-kit" in r.stdout, r.stdout
 
 
-def test_missing_h1_exits_with_hint(tmp_path):
-    """缺一级标题时要给可诊断提示，而不是抛 StopIteration。"""
+def test_no_h1_is_processed(tmp_path):
+    """表单/附件类文档没有一级标题也要能处理：跳过目录，且不产生空白首页。"""
+    from docx import Document
     src = tmp_path / "src"
     src.mkdir()
-    (src / "01.md").write_text("## 只有二级标题\n\n正文。\n", encoding="utf-8")
+    (src / "01.md").write_text("项目名称：某某项目\n\n| a | b |\n|:--|:--|\n| 1 | 2 |\n",
+                               encoding="utf-8")
     body, out = str(tmp_path / "body.docx"), str(tmp_path / "out.docx")
     subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)),
                    check=True, capture_output=True)
     r = subprocess.run(
         [sys.executable, os.path.join(KIT, "post.py"), body, out, ""],
         capture_output=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-    assert r.returncode != 0, "缺一级标题时必须失败"
-    assert "一级标题" in r.stderr.decode("utf-8", "replace")
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    doc = Document(out)
+    assert len(doc.sections) == 1, "无封面无标题时不该分节（跳转符会变成空白首页）"
+    assert "项目名称：某某项目" in [p.text.strip() for p in doc.paragraphs], "正文被丢了"
+    assert not any(p.text.strip().startswith("目") and "录" in p.text
+                   for p in doc.paragraphs), "没有标题就不该插目录"

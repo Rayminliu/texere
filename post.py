@@ -206,8 +206,8 @@ def set_table_borders(tbl, mode, header_rows):
             el.set(qn("w:sz"), str(S["border_size"]))
             el.set(qn("w:space"), "0")
             el.set(qn("w:color"), S["border_color"])
-    if mode == "three":
-        # 表头最后一行的下边框 = 三线表的中间那条线
+    if mode == "three" and header_rows >= 1:
+        # 表头最后一行的下边框 = 三线表的中间那条线（没有表头行就不画）
         for cell in tbl.rows[min(header_rows, len(tbl.rows)) - 1].cells:
             set_cell_border(cell, "bottom")
 
@@ -238,6 +238,16 @@ def set_repeat_header(row):
     if el is None:
         el = insert_ordered(trPr, OxmlElement("w:tblHeader"), TRPR_ORDER)
     el.set(qn("w:val"), "true")
+
+
+def clear_repeat_header(row):
+    """去掉表头行的「跨页重复」标记（header_rows 显式设为 0 时用）。"""
+    trPr = row._tr.find(qn("w:trPr"))
+    if trPr is None:
+        return
+    el = trPr.find(qn("w:tblHeader"))
+    if el is not None:
+        trPr.remove(el)
 
 
 def style_name(p):
@@ -340,7 +350,8 @@ def apply_style_cfg(cfg):
         if k in st:
             S[k] = to_rgb(st[k])
     if "header_rows" in st:
-        S["header_rows"] = max(1, int(st["header_rows"]))
+        # 允许显式写 0 = 这张表没有表头（表单/附件类表格），不要灰底、不要重复表头
+        S["header_rows"] = max(0, int(st["header_rows"]))
     if "caption_keep_with_next" in st:
         S["caption_keep_with_next"] = bool(st["caption_keep_with_next"])
     # caption_words 是顶层键（它不是"样式"，是语义），也兼容写在 style 里
@@ -365,36 +376,37 @@ def main(body_path, out_path, cfg_path):
     body = doc.element.body
 
     # 1. 定位第一章标题；删除前置书名页与空段
+    #    表单/附件类文档没有一级标题也应当能处理：跳过目录（没有标题可索引），
+    #    封面照样插到最前面，表格与题注排版照做。
     h1_idx = find_h1(doc.paragraphs)
     if h1_idx is None:
-        sys.exit("未找到任何一级标题（Markdown 的 # 标题）。post.py 靠它定位正文起点"
-                 "以插入封面与目录；请检查源 md 是否含 # 标题，或 reference_doc 的"
-                 "一级标题样式是否为 Heading 1 / 标题 1。")
-    for p in list(doc.paragraphs[:h1_idx]):
-        if style_name(p) in TITLE_STYLES:
-            p._element.getparent().remove(p._element)
-    while True:
-        paras = doc.paragraphs
-        h1_idx = find_h1(paras)
-        if h1_idx == 0:
-            break
-        prev = paras[h1_idx - 1]
-        if prev.text.strip() == "" and not prev._p.findall(".//" + qn("w:drawing")):
-            prev._element.getparent().remove(prev._element)
-        else:
-            break
-    first_h1 = doc.paragraphs[find_h1(doc.paragraphs)]
-    first_h1.paragraph_format.page_break_before = False
+        print("[warn] 未找到一级标题（表单/附件类文档常见）：")
+        print("       将跳过目录注入，只做封面与表格/题注排版。")
+    else:
+        for p in list(doc.paragraphs[:h1_idx]):
+            if style_name(p) in TITLE_STYLES:
+                p._element.getparent().remove(p._element)
+        while True:
+            paras = doc.paragraphs
+            h1_idx = find_h1(paras)
+            if h1_idx == 0:
+                break
+            prev = paras[h1_idx - 1]
+            if prev.text.strip() == "" and not prev._p.findall(".//" + qn("w:drawing")):
+                prev._element.getparent().remove(prev._element)
+            else:
+                break
+        h1_idx = find_h1(doc.paragraphs)
+        doc.paragraphs[h1_idx].paragraph_format.page_break_before = False
 
-    # 源文件在第一个 # 之前还写了东西时，那些段落会落在目录之后。
-    # 只提示、不删除——本工具的契约是不改内容。
-    leftover = [p.text.strip() for p in doc.paragraphs[:find_h1(doc.paragraphs)]
-                if p.text.strip()]
-    if leftover:
-        print("[warn] 第一个一级标题之前还有 %d 段内容，会排在目录之后：" % len(leftover))
-        for t in leftover[:3]:
-            print("       " + t[:60])
-        print("       建议：从源文件删掉，或写进 config 的 cover 由封面承载")
+        # 源文件在第一个 # 之前还写了东西时，那些段落会落在目录之后。
+        # 只提示、不删除——本工具的契约是不改内容。
+        leftover = [p.text.strip() for p in doc.paragraphs[:h1_idx] if p.text.strip()]
+        if leftover:
+            print("[warn] 第一个一级标题之前还有 %d 段内容，会排在目录之后：" % len(leftover))
+            for t in leftover[:3]:
+                print("       " + t[:60])
+            print("       建议：从源文件删掉，或写进 config 的 cover 由封面承载")
 
 
     # 2. 封面 + 目录 + 分节段（先追加到末尾再整体前移）
@@ -413,17 +425,23 @@ def main(body_path, out_path, cfg_path):
         np(text, style)
     if cfg.get("cover"):
         np("", "CoverInfo")
-    toc_head = np(cfg.get("toc_heading", "目　　录"), "TOC Heading",
-                  align=WD_ALIGN_PARAGRAPH.CENTER, page_break=True)
-    for r in toc_head.runs:
-        set_run_font(r, size=S["toc_title_size"], bold=True,
-                     color=S["toc_title_color"])
-    toc_para = np("")
-    toc_para.paragraph_format.first_line_indent = Pt(0)
-    add_field(toc_para, 'TOC \\o "%s" \\h \\z \\u' % S["toc_depth"],
-              S["toc_placeholder"], size=S["toc_placeholder_size"])
-    sect_para = np("")
-    sect_para.paragraph_format.first_line_indent = Pt(0)
+    if h1_idx is not None:      # 没有一级标题就不插目录（无处可索引）
+        toc_head = np(cfg.get("toc_heading", "目　　录"), "TOC Heading",
+                      align=WD_ALIGN_PARAGRAPH.CENTER, page_break=True)
+        for r in toc_head.runs:
+            set_run_font(r, size=S["toc_title_size"], bold=True,
+                         color=S["toc_title_color"])
+        toc_para = np("")
+        toc_para.paragraph_format.first_line_indent = Pt(0)
+        add_field(toc_para, 'TOC \\o "%s" \\h \\z \\u' % S["toc_depth"],
+                  S["toc_placeholder"], size=S["toc_placeholder_size"])
+    # 只有真的往第 1 节里放了东西（封面或目录）才分节；否则那个空的分节段
+    # 会变成一张完全空白的首页（表单类文档实测踩过）。
+    create_sec1 = bool(cfg.get("cover")) or h1_idx is not None
+    sect_para = None
+    if create_sec1:
+        sect_para = np("")
+        sect_para.paragraph_format.first_line_indent = Pt(0)
 
     # 封面必须是文档第一页：插到 body 最前面，而不是「第一个标题之前」。
     # 否则源文件在第一个 # 之前写的内容会排到封面之前，单独占一页（实测踩过）。
@@ -434,12 +452,13 @@ def main(body_path, out_path, cfg_path):
 
     # 3. 分节与页码：封面+目录为第 1 节（无页眉页脚），正文为第 2 节
     body_sectPr = body.find(qn("w:sectPr"))
-    sec1 = copy.deepcopy(body_sectPr)
-    for tag in ("w:headerReference", "w:footerReference"):
-        for el in sec1.findall(qn(tag)):
-            sec1.remove(el)
-    set_pgnum_start(sec1, 1)
-    insert_ordered(sect_para._p.get_or_add_pPr(), sec1, PPR_ORDER)
+    if create_sec1:
+        sec1 = copy.deepcopy(body_sectPr)
+        for tag in ("w:headerReference", "w:footerReference"):
+            for el in sec1.findall(qn(tag)):
+                sec1.remove(el)
+        set_pgnum_start(sec1, 1)
+        insert_ordered(sect_para._p.get_or_add_pPr(), sec1, PPR_ORDER)
     set_pgnum_start(body_sectPr, 1)
 
     sec_body = doc.sections[-1]
@@ -492,8 +511,14 @@ def main(body_path, out_path, cfg_path):
             if el is None:
                 el = OxmlElement("w:" + side); mar.append(el)
             el.set(qn("w:w"), str(val)); el.set(qn("w:type"), "dxa")
-        n_head = S["header_rows"] or detect_header_rows(tbl)
-        header_rows = max(1, min(int(n_head), len(tbl.rows)))
+        # 表头行数：显式配置优先，否则读 pandoc 打的 tblHeader；
+        # 都为 0（表单类表格没有表头）时就是 0——绝不能强设成 1，否则首行会被误上灰底
+        n_head = S["header_rows"] if S["header_rows"] is not None \
+            else detect_header_rows(tbl)
+        header_rows = max(0, min(int(n_head), len(tbl.rows)))
+        if S["header_rows"] == 0:      # 显式声明无表头：连「跨页重复」也去掉
+            for row in tbl.rows:
+                clear_repeat_header(row)
         set_table_borders(tbl, S["table_border"], header_rows)
         for ri, row in enumerate(tbl.rows):
             is_head = ri < header_rows          # 多级表头时前 N 行都算表头
