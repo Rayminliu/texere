@@ -29,7 +29,8 @@
 | Microsoft Word | 仅 `--pdf` | 系统级，pip/uv 都装不了 |
 
 **不需要 Quarto/LibreOffice/商业库。** 换机器后先跑 `python render.py --doctor`，
-它会报告 pandoc 版本、缺失的依赖，以及系统注册的 Word 版本（用于识别 WPS 伪装）。
+它会报告 pandoc 版本、缺失的依赖，并**实测 Word 引擎身份**（走 COM 直接问，
+不读注册表——注册表里的 `CurVer` 可能是旧 Office 卸载后的残留值，会误报）。
 
 ## 用法
 
@@ -44,6 +45,17 @@ python render.py --src 章节目录 --out 标书.docx --config config.json --pdf
 - 图用 `![图 1-1 标题](path.jpg){width=13cm}`（自动居中灰字题注）；
 - 封面与页眉在 config.json 里配（见 sample_config.json）；不配 cover 则只注入目录；
 - 强调用 `**加粗**`，灰底提示框用 `::: {custom-style="Lead"} … :::`。
+
+**图表自动编号与交叉引用（可选）**：config 里加 `"auto_number": true` 后——
+
+| 场景 | 写法 | 结果 |
+|---|---|---|
+| 表题 | `表 商务条款响应表 @tab:clause` | `表 1-1 商务条款响应表` |
+| 图注 | `![图 架构示意](a.png) @fig:arch` | `图 1-2 架构示意` |
+| 引用 | `详见 @tab:clause` | `详见 表 1-1` |
+
+编号按「章-序」自动生成；**已手写的编号会被重排**（比如写成 `表 9-9` 也会被纠正），
+所以插入或删除图表后不用再人工对号。不开这个开关则完全不动原文。
 
 ## 标书场景三条注意
 
@@ -63,5 +75,6 @@ python render.py --src 章节目录 --out 标书.docx --config config.json --pdf
 ## 已知边界
 
 - 目录为 Word 域，首次打开若未刷新请全选按 F9（已设 updateFields，通常自动）；
-- 图表编号为手写（pandoc 3.8 无原生交叉引用）：插删图表后需人工对号；
+- 图表编号：默认手写；开启 `auto_number` 后可自动按章编号并交叉引用（见「用法」）。
+  未开启时插删图表仍需人工对号；
 - 不使用 Quarto：其 1.10.x 的 docx 对带自动编号题注的表格会丢失表体。

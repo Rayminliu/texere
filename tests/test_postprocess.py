@@ -7,6 +7,7 @@
 跨页重复表头、题注居中、封面与目录注入、分节页码。
 """
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,26 @@ def _build(tmp_path):
     subprocess.run(
         [sys.executable, os.path.join(KIT, "post.py"), body, out,
          os.path.join(KIT, "sample_config.json")],
+        check=True, capture_output=True)
+    return out
+
+
+def _build_md(tmp_path, md_text, cfg):
+    """用自定义 md 与 config 走一遍 pandoc + post.py，返回输出 docx 路径。"""
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    (src / "01.md").write_text(md_text, encoding="utf-8")
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    body, out = str(tmp_path / "body.docx"), str(tmp_path / "out.docx")
+    subprocess.run(
+        ["pandoc", str(src / "01.md"), "-o", body,
+         "--reference-doc=" + os.path.join(KIT, "ref.docx"),
+         "--resource-path=" + str(src),
+         "-f", "markdown+pipe_tables+raw_html", "--wrap=none"],
+        check=True, capture_output=True)
+    subprocess.run(
+        [sys.executable, os.path.join(KIT, "post.py"), body, out, str(cfg_path)],
         check=True, capture_output=True)
     return out
 
@@ -79,6 +100,41 @@ def test_cover_and_toc_injected(docx_path):
     body_idx = next((i for i, t in enumerate(texts) if "投标函" in t), None)
     assert body_idx is not None, "未找到正文第一章"
     assert toc_idx < body_idx, "目录必须排在正文之前"
+
+
+def test_auto_number_and_crossref(tmp_path):
+    """P1：表/图按章自动编号（含已手写编号的重排）+ @tab:/@fig: 交叉引用。"""
+    from docx import Document
+    md = (
+        "# 第一章 概述\n\n"
+        "表 9-9 商务条款响应表 @tab:clause\n\n"      # 故意写错编号，应被重排
+        "| 条款 | 响应 |\n|:---|:---|\n| 工期 | 完全响应 |\n\n"
+        "详见 @tab:clause 与 @tab:mod。\n\n"
+        "# 第二章 方案\n\n"
+        "表 模块清单 @tab:mod\n\n"                    # 不写编号，应自动插入
+        "| 模块 | 说明 |\n|:---|:---|\n| 接入层 | 设备接入 |\n"
+    )
+    out = _build_md(tmp_path, md, {"auto_number": True})
+    texts = [p.text.strip() for p in Document(out).paragraphs]
+
+    cap1 = next(t for t in texts if "商务条款响应表" in t)
+    cap2 = next(t for t in texts if "模块清单" in t)
+    assert cap1.startswith("表 1-1"), "章内首个表题应为 表 1-1，实际：%s" % cap1
+    assert cap2.startswith("表 2-1"), "第二章表题应为 表 2-1，实际：%s" % cap2
+    assert "@tab" not in cap1 and "@tab" not in cap2, "标签标记应从题注里剥掉"
+
+    ref = next(t for t in texts if "详见" in t)
+    assert "表 1-1" in ref and "表 2-1" in ref, "交叉引用未替换：%s" % ref
+    assert "@tab" not in ref, "引用标记未替换干净：%s" % ref
+
+
+def test_auto_number_off_by_default(tmp_path):
+    """未开启时不得改动原文。"""
+    from docx import Document
+    md = "# 第一章\n\n表 9-9 商务条款响应表\n\n| a |\n|:--|\n| 1 |\n"
+    out = _build_md(tmp_path, md, {})
+    texts = [p.text.strip() for p in Document(out).paragraphs]
+    assert "表 9-9 商务条款响应表" in texts, "默认应保持手写编号不变"
 
 
 def test_two_sections_with_page_number(docx_path):
