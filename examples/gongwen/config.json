@@ -1,0 +1,20 @@
+{
+  "reference_doc": "profiles/gongwen-v1.json",
+  "header": "示例科技有限公司 · 请示",
+  "title": "关于推进数字化转型工作的请示",
+  "author": "示例科技有限公司",
+  "subject": "请示",
+  "toc_heading": "目  录",
+  "style": {
+    "page_number": "—— {n} ——",
+    "page_number_size": 9,
+    "header_size": 9,
+    "table_border": "full",
+    "caption_gray": "000000",
+    "east_font": "仿宋"
+  },
+  "caption_words": {
+    "table": ["表"],
+    "figure": ["图"]
+  }
+}

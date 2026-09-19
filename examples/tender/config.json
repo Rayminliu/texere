@@ -1,0 +1,25 @@
+{
+  "cover": [
+    ["CoverTitle", "投 标 文 件"],
+    ["CoverSub", "智慧园区平台建设项目"],
+    ["CoverInfo", "投标人：示例科技有限公司"],
+    ["CoverDate", "2026 年 9 月 19 日"]
+  ],
+  "header": "智慧园区平台 · 投标文件",
+  "title": "智慧园区平台建设投标文件",
+  "author": "示例科技有限公司",
+  "subject": "投标文件",
+  "toc_heading": "目  录",
+  "style": {
+    "page_number": "— {n} —",
+    "page_number_size": 9,
+    "header_size": 9,
+    "table_border": "full",
+    "table_shade": "EDEDED",
+    "caption_gray": "404040"
+  },
+  "caption_words": {
+    "table": ["表"],
+    "figure": ["图"]
+  }
+}

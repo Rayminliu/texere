@@ -1,0 +1,8 @@
+# Core dependencies (cross-platform)
+lxml>=5.2,<7
+pymupdf>=1.24,<2
+python-docx>=1.1,<2.0
+typing-extensions>=4.16.0
+
+# Optional: pywin32 is only for Windows (Word PDF export)
+# Install separately on Windows: pip install pywin32

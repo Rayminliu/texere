@@ -1,0 +1,15 @@
+{
+  "id": "patch-example-001",
+  "description": "替换工期天数，从 90 天改为 120 天",
+  "preconditions": {
+    "must_contain": ["90 日历天"]
+  },
+  "operations": [
+    {
+      "op": "replace_text",
+      "target": {"paragraph": 10},
+      "expected_old_text": "90 日历天",
+      "new_text": "120 日历天"
+    }
+  ]
+}

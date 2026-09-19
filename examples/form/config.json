@@ -1,0 +1,16 @@
+{
+  "cover": [
+    ["CoverTop", "示例市科技计划项目"],
+    ["CoverTitle", "项 目 申 报 书"],
+    ["CoverSub", "（示例文本，仅用于演示排版）"],
+    ["CoverInfo", "申报单位：示例科技有限公司"],
+    ["CoverDate", "二〇二六年九月"]
+  ],
+  "title": "项目申报书（示例）",
+  "author": "示例科技有限公司",
+  "subject": "项目申报",
+  "comments": "由 texere 渲染",
+  "style": {
+    "header_rows": 0
+  }
+}

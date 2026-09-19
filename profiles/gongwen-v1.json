@@ -1,0 +1,103 @@
+{
+  "version": "1.0",
+  "name": "Chinese Official Document Profile",
+  "description": "Specialized profile for Chinese government official documents (公文) - GB/T 9704-2012 standard",
+  "page": {
+    "width": 21,
+    "height": 29.7,
+    "unit": "cm",
+    "margin_top": 3.7,
+    "margin_bottom": 3.5,
+    "margin_left": 2.8,
+    "margin_right": 2.6
+  },
+  "styles": {
+    "body": {
+      "font_eastAsia": "仿宋",
+      "font_latin": "Times New Roman",
+      "size": 10.5,
+      "line_spacing": 28,
+      "first_line_indent": 0,
+      "space_before": 0,
+      "space_after": 0
+    },
+    "h1": {
+      "font_eastAsia": "小标宋",
+      "font_latin": "Arial",
+      "size": 16,
+      "bold": true,
+      "page_break_before": true,
+      "space_before": 12,
+      "space_after": 6
+    },
+    "h2": {
+      "font_eastAsia": "黑体",
+      "font_latin": "Arial",
+      "size": 14,
+      "bold": true,
+      "page_break_before": false,
+      "space_before": 10,
+      "space_after": 5
+    },
+    "h3": {
+      "font_eastAsia": "楷体",
+      "font_latin": "Arial",
+      "size": 12,
+      "bold": true,
+      "page_break_before": false,
+      "space_before": 8,
+      "space_after": 4
+    }
+  },
+  "caption": {
+    "alignment": "left",
+    "keep_with_next": false,
+    "color": "#000000",
+    "size": 10.5,
+    "space_before": 4,
+    "space_after": 2,
+    "italic": false
+  },
+  "table": {
+    "border": "full",
+    "border_size": 6,
+    "border_color": "#000000",
+    "header_shade": null,
+    "header_bold": false,
+    "header_center": false,
+    "repeat_header": true,
+    "cell_margin_v": 40,
+    "cell_margin_h": 80,
+    "size": 10.5,
+    "zebra": false,
+    "zebra_fill": "#FFFFFF"
+  },
+  "header": {
+    "size": 9,
+    "color": "#000000",
+    "rule_color": null,
+    "rule_size": 0
+  },
+  "footer": {
+    "page_number_template": "—— {n} ——",
+    "page_number_size": 9,
+    "alignment": "center"
+  },
+  "toc": {
+    "depth": "1-3",
+    "title": "目  录",
+    "title_size": 16,
+    "title_color": "#000000",
+    "placeholder": null,
+    "placeholder_size": 10.5
+  },
+  "official_specific": {
+    "document_number_required": true,
+    "secret_level": null,
+    "emergency_level": null,
+    "issuer_required": true,
+    "date_format": "阿拉伯数字",
+    "signature_block": true,
+    "seal_position": "骑缝章"
+  }
+}
