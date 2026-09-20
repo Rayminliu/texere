@@ -57,6 +57,21 @@ python scripts/render.py --sample            # 冒烟测试，产出 sample_out.
 ![样例封面](baselines/p001.png)
 ![样例正文](baselines/p003.png)
 
+### 示例画廊
+
+以下均为 [`examples/`](examples/README.md) 的真实渲染结果——每个目录自带 Markdown + config，
+一条命令即可跑通；重跑 `python scripts/make_previews.py` 可刷新这些图。
+
+| 投标文件（`tender/`） | 公文请示（`gongwen/`） |
+|---|---|
+| ![tender](assets/previews/tender.png) | ![gongwen](assets/previews/gongwen.png) |
+| 项目申报书（`form/`）——无标题无目录，首行是字段名 | 会议纪要（`minutes/`）——封面承载会议信息 |
+| ![form](assets/previews/form.png) | ![minutes](assets/previews/minutes.png) |
+| 经营分析报告（`report/`）——多文件合并、Lead 提示框、grid 表头 | 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 |
+| ![report](assets/previews/report.png) | ![contract](assets/previews/contract.png) |
+| 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 | |
+| ![tables](assets/previews/tables.png) | |
+
 **规模实测**（含 Word 验收 + 导 PDF + 空白页检查）：
 
 | 规模 | 耗时 |
@@ -333,7 +348,9 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 - 图表编号为**手写**：插删图表后需要人工对号（见「契约」）；
 - **正文与标题的字体 / 字号在模板层**，改它是 `python scripts/make_ref.py --body-font 楷体 --body-size 14`
   （`style` 段的字体只管表格与题注，管不到正文）；
-- **grid table 对空格敏感**：每行竖线必须严格对齐，否则会解析错乱（实测过末尾多出一个 `|`）；
+- **grid table 对空格敏感**：每行竖线必须严格对齐，否则会解析错乱（实测过末尾多出一个 `|`）。
+  注意 pandoc 按**显示宽度**对齐——中文占 2 列，「等宽编辑器里看着齐」仍可能解析成单列坏表；
+  改完务必渲染验证，或用脚本按显示宽度对齐；
 - **Windows + Word 绑定**：`--pdf` 需要本机 Word（COM）。Linux / macOS 只能出 docx
   （核心解析与排版逻辑不依赖 Word，但验收链条缺一半）；
 - `--check` 会把「内容稀疏但合法的页面」也算作近空白页：表单尾页的签字盖章区、
@@ -355,6 +372,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 | `scripts/finalize.py` | Word COM：打开验收（打不开 = 结构错）、刷目录域、导 PDF、存回 |
 | `scripts/check_pdf.py` | PyMuPDF：空白页检测（超阈值 exit 1）+ 渲染页面 PNG 供目视 |
 | `scripts/snapshot.py` | PDF 版式快照回归：逐像素比对 `baselines/`，漂移即 exit 1 |
+| `scripts/make_previews.py` | 重生示例画廊图（逐个渲染示例，挑选代表页） |
 | `scripts/make_ref.py` | 重新生成 `assets/ref.docx`（改字体 / 字号 / 间距时用它） |
 | `scripts/edit.py` | 编辑已有 docx：改文字 / 增删段落 / 改单元格 / 改页眉页脚 |
 | `scripts/distill.py` | 蒸馏模板 docx，输出建议 config（页面设置 / 字体 / 页眉页脚） |

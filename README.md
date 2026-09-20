@@ -95,6 +95,21 @@ Output of `python scripts/render.py --sample` (a 4-page tender-style sample):
 ![sample cover](baselines/p001.png)
 ![sample body page](baselines/p003.png)
 
+### Examples gallery
+
+Real rendering results from [`examples/`](examples/README.md) — every directory ships its Markdown +
+config and runs with one command; regenerate these images with `python scripts/make_previews.py`.
+
+| Tender (`tender/`) | Official document (`gongwen/`) |
+|---|---|
+| ![tender](assets/previews/tender.png) | ![gongwen](assets/previews/gongwen.png) |
+| Application form (`form/`) — no headings, no TOC, field-name first rows | Meeting minutes (`minutes/`) — cover carries the meeting metadata |
+| ![form](assets/previews/form.png) | ![minutes](assets/previews/minutes.png) |
+| Business analysis report (`report/`) — multi-file merge, Lead callout, grid header | Contract (`contract/`) — clause sections, in-cell line breaks, signature block |
+| ![report](assets/previews/report.png) | ![contract](assets/previews/contract.png) |
+| Table styling (`tables/`) — multi-level headers, merged cells, column widths | |
+| ![tables](assets/previews/tables.png) | |
+
 **Measured throughput** (Word acceptance + PDF export + blank-page check included):
 
 | Size | Time |
@@ -461,7 +476,9 @@ Want a narrow "No." column? Write it narrow.
   `python scripts/make_ref.py --body-font 楷体 --body-size 14`. The fonts in the `style` section cover tables and
   captions only.
 - **Grid tables are whitespace-sensitive**: the pipe characters must line up exactly, or parsing goes wrong
-  (we have hit a stray trailing `|`).
+  (we have hit a stray trailing `|`). Note that pandoc aligns columns by **display width** — a CJK
+  character counts as two columns, so "looks aligned in a monospace editor" can still produce a broken
+  (single-column) table. Verify by rendering, or align programmatically.
 - **Windows + Word bound**: `--pdf` needs a local Word (COM). On Linux/macOS only the docx half works
   (the parsing and typesetting logic does not depend on Word, but half the acceptance chain is missing).
 - `--check` also flags pages that are legitimately sparse: the signature block at the end of a form, a
@@ -482,6 +499,7 @@ Want a narrow "No." column? Write it narrow.
 | `scripts/finalize.py` | Word COM: open for acceptance (failure to open = structural error), refresh TOC field, export PDF, save back |
 | `scripts/check_pdf.py` | PyMuPDF: blank-page detection (exits 1 over threshold) + renders page PNGs for review |
 | `scripts/snapshot.py` | PDF layout snapshot regression: pixel comparison against `baselines/`, exits 1 on drift |
+| `scripts/make_previews.py` | Regenerate the examples gallery images (renders each example, picks a representative page) |
 | `scripts/validate.py` | **New**: unified validation entry — 9 automated checks, structured report, evidence package |
 | `scripts/patch.py` | **New**: Agent-friendly Patch API — declarative operations, dry-run, hash precondition, assessment |
 | `scripts/make_ref.py` | Rebuild `assets/ref.docx` (use when changing fonts / sizes / spacing) |

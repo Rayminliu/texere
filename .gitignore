@@ -12,6 +12,9 @@ sample_out.pdf
 evidence/
 tmp_test.docx
 
+# make_previews.py 的渲染中间产物
+_previews_tmp/
+
 # examples/ 下的渲染产物
 examples/**/*.docx
 examples/**/*.pdf
