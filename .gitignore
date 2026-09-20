@@ -8,6 +8,10 @@ check_pages/
 sample_out.docx
 sample_out.pdf
 
+# validate.py 的证据包输出（临时验证产物）
+evidence/
+tmp_test.docx
+
 # examples/ 下的渲染产物
 examples/**/*.docx
 examples/**/*.pdf

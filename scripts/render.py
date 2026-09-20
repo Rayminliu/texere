@@ -20,21 +20,64 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-__version__ = "0.4.0"  # 与 pyproject.toml 的 version 保持一致
+
+
+def _read_version() -> str:
+    """版本号单一来源：scripts/_version.py（与 pyproject.toml 保持一致）。"""
+    vp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_version.py")
+    with open(vp, encoding="utf-8") as f:
+        m = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", f.read())
+    return m.group(1) if m else "0.0.0"
+
+
+__version__ = _read_version()
 
 # Windows 控制台默认 GBK，子进程输出里若出现 GBK 无法编码的字符（如 PyMuPDF 解出的
 # U+FFFD），print 会抛 UnicodeEncodeError 让验收环节崩掉。这里保持控制台原编码不变
-# （改成 utf-8 反而会让控制台显示乱码），只把无法编码的字符降级为 ?。
+# （改成 utf-8 反而会让控制台显示乱码），只把无法编码的字符降级为？。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(errors="replace")
 
 
-def run(cmd, cwd=None):
+def cleanup_old_temp(prefix="texere_"):
+    """清理超过 24 小时的旧临时目录，防止磁盘空间泄漏"""
+    temp_base = tempfile.gettempdir()
+    cutoff = datetime.now().timestamp() - 86400  # 24 小时前
+
+    cleaned = 0
+    for name in os.listdir(temp_base):
+        if name.startswith(prefix):
+            path = os.path.join(temp_base, name)
+            try:
+                if os.path.isdir(path):
+                    mtime = os.stat(path).st_mtime
+                    if mtime < cutoff:
+                        shutil.rmtree(path, ignore_errors=True)
+                        cleaned += 1
+            except OSError:
+                pass
+
+    if cleaned > 0:
+        print(f"[cleanup] 删除 {cleaned} 个旧临时目录")
+
+
+# 启动时清理旧临时目录
+cleanup_old_temp()
+
+
+def run(cmd, cwd=None, timeout=300):
     r = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
     )
     if r.stdout.strip():
         print(r.stdout.strip()[:1200])

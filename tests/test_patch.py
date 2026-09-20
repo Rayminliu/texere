@@ -82,7 +82,7 @@ class TestSchemaValidation:
             text=True,
         )
 
-        assert "缺少必需字段" in result.stdout or "id" in result.stdout.lower()
+        assert "缺少必需字段" in result.stderr or "id" in result.stderr.lower()
 
     def test_missing_operations_exits(self, tmp_path):
         """Missing operations should fail."""
@@ -102,7 +102,7 @@ class TestSchemaValidation:
             text=True,
         )
 
-        assert "operations" in result.stdout.lower()
+        assert "operations" in result.stderr.lower()
 
     def test_invalid_operation_type_exits(self, tmp_path):
         """Invalid operation type should fail."""
@@ -122,7 +122,7 @@ class TestSchemaValidation:
             text=True,
         )
 
-        assert "未实现的 operation" in result.stdout or "invalid" in result.stdout.lower()
+        assert "未实现的 operation" in result.stderr or "invalid" in result.stderr.lower()
 
 
 class TestReplaceTextOperation:
@@ -193,7 +193,7 @@ class TestReplaceTextOperation:
         )
 
         # Should report that expected text not found
-        assert "预期旧文本不存在" in result.stdout or "not found" in result.stdout.lower()
+        assert "预期旧文本不存在" in result.stderr or "not found" in result.stderr.lower()
 
 
 class TestInsertOperations:

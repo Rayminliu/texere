@@ -29,16 +29,22 @@
 如果默认 profile 不满足需求，可以：
 
 ```bash
-# 1. 蒸馏现有模板
-python scripts/distill.py 甲方模板.docx --out my-profile.json
+# 1. 蒸馏现有模板，得到 config.json
+python scripts/distill.py 甲方模板.docx --out my-config.json
 
 # 2. 微调配置
-# 编辑 my-profile.json，调整字体/间距等参数
+# 编辑 my-config.json，在 style 段调整字体/间距等参数
 
-# 3. 使用自定义 profile
+# 3. 使用自定义配置渲染（渲染链路只认 --config）
 python scripts/render.py --src . --out result.docx \
-  --config config.json --profile my-profile.json
+  --config my-config.json --pdf --check
+
+# 4. 验收时可用 --profile 把设计契约附进证据包
+python scripts/validate.py result.docx --profile profiles/formal-cn-v1.json
 ```
+
+> **注意**：`profiles/*.json` 是设计契约文档（供人审阅和 validate 报告引用），
+> 渲染参数请直接写进 `--config` 的 `style` 段；`render.py` 不支持 `--profile` 参数。
 
 ---
 
@@ -302,7 +308,7 @@ python scripts/finalize.py input.docx output.pdf
 ### 案例 1: 投标文件编制
 
 **步骤**:
-1. 使用 `tender-v1.json` profile
+1. 用 distill 或手写生成投标 config.json（可参考 `profiles/tender-v1.json` 的设计约定）
 2. 编写 Markdown 章节（投标函、技术方案、报价等）
 3. 渲染并验证
 4. 生成证据包供审计
@@ -318,7 +324,7 @@ python scripts/validate.py bid.docx --out bid-evidence/
 ### 案例 2: 公文起草
 
 **步骤**:
-1. 使用 `gongwen-v1.json` profile
+1. 用 distill 或手写生成公文 config.json（可参考 `profiles/gongwen-v1.json` 的 GB/T 9704-2012 约定）
 2. 按 GB/T 9704-2012 标准写作
 3. 验证版式合规性
 

@@ -44,12 +44,24 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
 from docx import Document
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _read_version() -> str:
+    """版本号单一来源：scripts/_version.py（与 pyproject.toml 保持一致）。"""
+    vp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_version.py")
+    with open(vp, encoding="utf-8") as f:
+        m = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", f.read())
+    return m.group(1) if m else "0.0.0"
+
+
+__version__ = _read_version()
 
 # Windows 控制台编码处理
 for _stream in (sys.stdout, sys.stderr):
@@ -103,7 +115,12 @@ def validate_patch_schema(patch: dict) -> tuple[bool, list[str]]:
         if "must_contain" in pc and not isinstance(pc["must_contain"], list):
             errors.append("preconditions.must_contain 必须是数组")
 
-    return len(errors) == 0, errors
+    if errors:
+        print("Patch schema validation failed:", file=sys.stderr)
+        for error in errors:
+            print(f"  - {error}", file=sys.stderr)
+        return False, errors
+    return True, []
 
 
 # =============================================================================
@@ -172,7 +189,9 @@ def replace_text_op(doc: Document, op: dict) -> tuple[bool, str]:
             return False, f"预期旧文本不存在：{expected_old} (实际：{old_text[:50]})"
 
         # 使用 edit.py 的跨 run 替换逻辑
-        from scripts import edit
+        import importlib
+
+        edit = importlib.import_module("edit")
 
         # 构造 pairs
         pairs = [(expected_old or old_text, new_text)]
@@ -406,9 +425,10 @@ def dry_run_patch(patch: dict, doc: Document) -> tuple[bool, str]:
             failed_ops.append((i, op_name, "异常：%s" % e))
 
     if failed_ops:
-        return False, "Dry run 失败：%d 个操作失败\n" % len(failed_ops) + "\n".join(
-            "  [%d] %s: %s" % (i, op, msg) for i, op, msg in failed_ops
-        )
+        print(f"Dry run 失败：{len(failed_ops)}个操作失败", file=sys.stderr)
+        for i, op, msg in failed_ops:
+            print(f"  [{i}] {op}: {msg}", file=sys.stderr)
+        sys.exit(1)
     else:
         return True, "Dry run 成功：%d 个操作将通过\n" % len(successful_ops) + "\n".join(
             "  [%d] %s: %s" % (i, op, msg) for i, op, msg in successful_ops
@@ -474,13 +494,16 @@ def validate_patch_result(doc: Document, patch: dict) -> tuple[bool, list[str]]:
 
 def generate_patch_evidence(doc: Document, patch: dict, out_dir: str):
     """生成 Patch 证据包。"""
-    os.makedirs(out_dir, exist_ok=True)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    elif not os.path.isdir(out_dir):
+        raise NotADirectoryError(f"{out_dir} exists but is not a directory")
 
     # 1. 保存 Patch 执行报告
     report = {
         "metadata": {
             "timestamp": datetime.now().isoformat(),
-            "tool_version": "0.4.0",
+            "tool_version": __version__,
             "patch_id": patch.get("id", "unknown"),
         },
         "operations": [],
@@ -524,6 +547,7 @@ def main():
     ap.add_argument("--apply", action="store_true", help="Apply the patch")
     ap.add_argument("--validate", action="store_true", help="Validate after applying")
     ap.add_argument("--out", help="Output directory for evidence package")
+    ap.add_argument("--no-backup", action="store_true", help="Skip creating backup file")
     a = ap.parse_args()
 
     # 加载文档
@@ -543,7 +567,7 @@ def main():
     # 验证 Patch schema
     valid, errors = validate_patch_schema(patch)
     if not valid:
-        sys.exit("Patch schema validation failed:\n" + "\n".join(errors))
+        sys.exit(1)
 
     # 检查 preconditions
     if "preconditions" in patch:
@@ -552,13 +576,15 @@ def main():
         if "hash" in pc:
             success, msg = check_hash_precondition(a.docx, pc["hash"])
             if not success:
-                sys.exit(f"Hash precondition failed: {msg}")
+                print(f"Hash precondition failed: {msg}", file=sys.stderr)
+                sys.exit(1)
             print(f"✓ {msg}")
 
         if "must_contain" in pc:
             success, msg = check_must_contain_precondition(doc, pc["must_contain"])
             if not success:
-                sys.exit(f"Must-contain precondition failed: {msg}")
+                print(f"Must-contain precondition failed: {msg}", file=sys.stderr)
+                sys.exit(1)
             print(f"✓ {msg}")
 
     # Dry run
@@ -574,7 +600,10 @@ def main():
         success, errors = apply_patch(patch, doc)
 
         if not success:
-            sys.exit("Patch application failed:\n" + "\n".join(errors))
+            print("Patch application failed:", file=sys.stderr)
+            for error in errors:
+                print(f"  - {error}", file=sys.stderr)
+            sys.exit(1)
 
         print("✓ Patch applied successfully")
 
@@ -583,18 +612,45 @@ def main():
             print("\n[Validate]")
             valid, issues = validate_patch_result(doc, patch)
             if not valid:
-                sys.exit("Validation failed:\n" + "\n".join(issues))
+                print("Validation failed:", file=sys.stderr)
+                for issue in issues:
+                    print(f"  - {issue}", file=sys.stderr)
+                sys.exit(1)
             print("✓ All operations verified")
 
         # Save
-        out = a.out or a.docx
-        doc.save(out)
-        print(f"Saved: {out}")
-
-        # Generate evidence
         if a.out:
-            generate_patch_evidence(doc, patch, a.out)
-            print(f"Evidence package saved to: {a.out}")
+            # --out 指定输出目录或文件
+            # 如果路径不存在或明确是目录，保存到该目录下的 document.patched.docx
+            if not os.path.exists(a.out) or os.path.isdir(a.out):
+                evidence_dir = a.out
+                out_file = os.path.join(evidence_dir, "document.patched.docx")
+            else:
+                # 已存在的文件路径
+                out_file = a.out
+                evidence_dir = os.path.dirname(out_file) or "."
+
+            # 确保目录存在
+            if not os.path.exists(evidence_dir):
+                os.makedirs(evidence_dir)
+
+            doc.save(out_file)
+            print(f"Saved: {out_file}")
+
+            # Generate evidence
+            generate_patch_evidence(doc, patch, evidence_dir)
+            print(f"Evidence package saved to: {evidence_dir}")
+        else:
+            # 无 --out 时写回原文件并创建备份
+            if not getattr(a, "no_backup", False):
+                import shutil
+
+                bak = os.path.splitext(a.docx)[0] + ".bak.docx"
+                shutil.copy2(a.docx, bak)
+                print(f"backup -> {bak}")
+
+            doc.save(a.docx)
+            print(f"Saved: {a.docx}")
 
         print("\n✅ Patch completed successfully")
 
