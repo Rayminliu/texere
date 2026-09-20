@@ -77,7 +77,7 @@ python scripts/render.py --sample                                    # 冒烟测
 # 正式渲染（--check 会自动补 --pdf）
 python scripts/render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check
 
-python -m pytest -q                        # 74 项断言，不需要 Word，约 22 秒
+python -m pytest -q                        # 137 项断言，约 6-7 分钟（验收器相关用例需本机 Word）
 python scripts/snapshot.py 标书.pdf --update  # 录版式基线（确认版式无误后执行）
 python scripts/snapshot.py 标书.pdf           # 回归比对，漂移即 exit 1
 python scripts/make_ref.py --body-font 楷体    # 重建排版模板（改字体/字号时）
@@ -360,9 +360,10 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 | `scripts/distill.py` | 蒸馏模板 docx，输出建议 config（页面设置 / 字体 / 页眉页脚） |
 | `assets/ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
 | `assets/sample.md` / `assets/sample_config.json` | 冒烟测试样例（投标文件风格） |
-| `examples/` | 可运行示例：表单式文档、表格排版（见 `examples/README.md`） |
+| `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
+| `docs/` | `CONFIG_SCHEMA.md`（统一配置字段参考）与 `SCRIPT_HELP.md`（各脚本 CLI 帮助） |
 | `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 74 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`） |
+| `tests/` | 137 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

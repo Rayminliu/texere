@@ -125,7 +125,7 @@ python scripts/patch.py bid.docx patch.json --dry-run    # simulate first
 python scripts/patch.py bid.docx patch.json --apply --out result.docx
 python scripts/patch.py bid.docx patch.json --apply --validate
 
-python -m pytest -q                        # 74 assertions, no Word needed, ~22 s
+python -m pytest -q                        # 137 assertions, ~6-7 min (validator tests need local Word)
 python scripts/snapshot.py bid.pdf --update  # record layout baseline (after confirming the layout)
 python scripts/snapshot.py bid.pdf           # regression compare; exits 1 on drift
 python scripts/make_ref.py --body-font 楷体   # rebuild the typesetting template
@@ -490,9 +490,10 @@ Want a narrow "No." column? Write it narrow.
 | `profiles/formal-cn-v1.json` | **New**: Design contract for Chinese formal documents (fonts, spacing, borders, headers, footers) |
 | `assets/ref.docx` | The Chinese typesetting template: 宋体 body, 黑体 heading ladder, table borders, caption styles, cover styles (CoverTop/…), callout styles (Lead/SmallNote) |
 | `assets/sample.md` / `assets/sample_config.json` | Smoke-test sample (tender-document style) |
-| `examples/` | Runnable examples: form-style document, table styling (see `examples/README.md`) |
+| `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
+| `docs/` | `CONFIG_SCHEMA.md` (unified config field reference) and `SCRIPT_HELP.md` (per-script CLI help) |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 74 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`) |
+| `tests/` | 137 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

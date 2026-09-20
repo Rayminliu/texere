@@ -82,7 +82,8 @@ python scripts/validate.py bid.docx --quiet
 ### 参数说明
 - `<document.docx>`: 待验证的文档（必需）
 - `--out <dir>`: 证据包输出目录（默认：evidence）
-- `--profile <file>`: Profile JSON 用于视觉基线比对
+- `--profile <file>`: Profile JSON，附进证据包报告（可声明 baseline_dir）
+- `--baseline <dir>`: 视觉基线目录（页图 p001.png…，与 snapshot.py 同口径 dpi=100 比对）
 - `--expected-hash <hash>`: 期望的文件 SHA256 hash
 - `--max-empty <n>`: 允许的最大空白页数（默认：0）
 - `--quiet`: 静默模式
@@ -110,17 +111,25 @@ python scripts/patch.py <document.docx> <patch.json> [OPTIONS]
 ### 示例
 ```bash
 # Dry run 模拟执行
-python scripts/patch.py doc.pdf patch.json --dry-run
+python scripts/patch.py doc.docx patch.json --dry-run
 
-# 应用 Patch
-python scripts/patch.py doc.pdf patch.json --apply
+# 应用 Patch（写回原文件，自动备份 .bak.docx）
+python scripts/patch.py doc.docx patch.json --apply
 
 # 应用并验证结果
-python scripts/patch.py doc.pdf patch.json --apply --validate
+python scripts/patch.py doc.docx patch.json --apply --validate
 
-# 应用并生成证据包
-python scripts/patch.py doc.pdf patch.json --apply --out evidence/
+# 应用并另存 + 生成证据包
+python scripts/patch.py doc.docx patch.json --apply --out result.docx
+python scripts/patch.py doc.docx patch.json --apply --out evidence/
 ```
+
+### 参数说明
+- `--dry-run`: 模拟执行不写盘（深拷贝文档跑一遍全部操作）
+- `--apply`: 实际执行
+- `--validate`: 应用后逐项验证结果
+- `--out <路径>`: 另存为文件或证据包输出目录（缺省写回原文件）
+- `--no-backup`: 写回原文件时不创建 `.bak.docx` 备份
 
 ### Patch Schema
 ```json
@@ -265,22 +274,21 @@ python scripts/snapshot.py <document.pdf> [OPTIONS]
 
 ### 示例
 ```bash
-# 首次记录基线
+# 首次记录基线（写入 <PDF 同目录>/baselines/）
 python scripts/snapshot.py output.pdf --update
 
-# 回归比对
+# 回归比对（漂移 exit 1）
 python scripts/snapshot.py output.pdf
 
-# 静默模式
-python scripts/snapshot.py output.pdf --quiet
+# 更高精度比对（更慢更敏感）
+python scripts/snapshot.py output.pdf --dpi 150 --max-diff 0.0005
 ```
 
 ### 参数说明
-- `<document.pdf>`: PDF 文件（必需）
-- `--update`: 更新基线图片
-- `--baseline <dir>`: 基线目录（默认：baselines/）
-- `--quiet`: 静默模式
-- `--threshold <n>`: 漂移阈值（默认：0.001 = 0.1%）
+- `<document.pdf>`: PDF 文件（必需）；基线目录固定为其同级的 `baselines/`，无命令行参数可改
+- `--update`: 录制/更新基线图片与 meta.json
+- `--dpi <n>`: 渲染精度（默认 100；与基线 meta 不一致时拒比对）
+- `--max-diff <r>`: 差异比例阈值（默认 0.001 = 0.1%；实测同文档重复导出 0.00%，改一处页眉 0.16%）
 
 ---
 

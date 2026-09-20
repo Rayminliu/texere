@@ -4,6 +4,50 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 0.5.1 — 2026-09-20
+
+**全面代码审查修复 + validate 性能重构 + 示例扩充**
+
+### 修复
+- `patch.py`: 错误信息统一输出到 stderr；补 apply 时的备份与另存逻辑；
+  修复 dry-run 在空 operations 时的 `UnboundLocalError`；修复跨模块 import
+- `validate.py`: 修复 `expected_hash` / `max_empty` / `baseline_dir` 未传入检查函数的
+  `NameError`（`--max-empty` 此前实际无效）；补丢失的 `re` / `glob` 导入；
+  异常捕获按类型细化；`--quiet` 不再隐藏检查项列表（调用方可从 stdout 判断哪一项失败）
+- 页码连续性检查重写：只从页脚区域（按版面位置 `sort=True` 排序后的页尾三行）提取
+  页码，避免把正文数字（日期、金额）误当页码；校验缺口序列
+- 视觉漂移比对与 `snapshot.py` 统一口径（dpi=100 + 全量 `diff_ratio`）；
+  旧实现的 2x 矩阵与 `baselines/` 尺寸对不上，会把「没漂移」误判成漂移
+- `fitz` 改惰性导入：未装 PyMuPDF 时基础检查（包结构/分节/TOC）仍可运行
+- 所有 `subprocess.run` 加超时；所有 fitz 文档显式 `close()`（防 Windows 文件句柄泄漏）
+- `examples/gongwen/config.json`: 移除指向 JSON 的 `reference_doc`（pandoc 要求 docx，
+  该示例此前无法渲染）；`tender/` / `gongwen/` 补占位图（md 引用了不存在的 png）
+- `render.py`: 启动时清理超过 24h 的旧临时目录（实测一天可积累 12 个）
+
+### 性能
+- validate 的 4 项 PDF 检查 + 证据截图从「各自启动一次 Word」收敛为一次导出共享，
+  完整测试套件耗时 800s → 394s
+
+### 新增
+- 示例从 4 个增至 7 个：`minutes/`（会议纪要）、`report/`（经营分析报告：多文件合并、
+  Lead 提示框、grid 二级表头、图注）、`contract/`（技术服务合同：grid 单元格内换行、签署栏）
+- `scripts/_version.py`: 版本号单一来源，`tests/test_version.py` 校验与 pyproject 一致
+- `tests/test_validate_units.py`: 16 项纯函数单测（页码识别/基线比对），不启动 Word
+- `docs/CONFIG_SCHEMA.md`、`docs/SCRIPT_HELP.md`
+- `validate.py` 新增 `--baseline <dir>` 参数；patch.py 新增 `--no-backup`
+- 依赖升级：lxml 6.1 / PyMuPDF 1.28 / python-docx 1.2 / pywin32 312；pandoc 3.11 实测兼容
+
+### 文档
+- 修正 README / README.zh-CN / SKILL / BEST_PRACTICES 中过时的测试数（74→137）、
+  「no Word needed」表述、不存在的 `render.py --profile` 用法
+- 删除 `PLUGIN_README.md`：其描述的两个插件目录已在上一提交中移除，全文指向不存在的路径
+
+### 版本说明
+上一版 0.5.0 发布时漏 bump pyproject/_version（停在 0.4.0），本版一并拉齐。
+
+### 测试
+- 137 项断言全过（含新增 validate/patch/version/纯函数用例）
+
 ## 0.5.0 — 2026-09-19
 
 **Productize texere as document compiler + verification layer**

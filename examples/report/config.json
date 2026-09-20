@@ -1,0 +1,24 @@
+{
+  "cover": [
+    ["CoverTop", "示例科技有限公司"],
+    ["CoverTitle", "经营分析报告"],
+    ["CoverSub", "2026 年第三季度"],
+    ["CoverInfo", "编制部门：经营管理部"],
+    ["CoverDate", "二〇二六年十月"]
+  ],
+  "header": "经营分析报告 · 2026 Q3",
+  "title": "2026 年第三季度经营分析报告",
+  "author": "经营管理部",
+  "subject": "经营分析",
+  "comments": "由 texere 渲染",
+  "style": {
+    "table_zebra": true,
+    "table_border": "full",
+    "table_shade": "E8EEF7",
+    "caption_gray": "404040"
+  },
+  "caption_words": {
+    "table": ["表"],
+    "figure": ["图"]
+  }
+}

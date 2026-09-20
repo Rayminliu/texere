@@ -6,4 +6,4 @@
 render.py / validate.py / patch.py 都从这里读取版本，不再各自硬编码。
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.1"

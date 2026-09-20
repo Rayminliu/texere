@@ -38,7 +38,7 @@ python scripts/validate.py bid.docx --out evidence/  # save report + screenshots
 python scripts/patch.py bid.docx patch.json --dry-run    # simulate first
 python scripts/patch.py bid.docx patch.json --apply --out result.docx
 
-python -m pytest -q                          # 74 assertions, no Word needed
+python -m pytest -q                          # 137 assertions; validator tests need local Word
 python scripts/snapshot.py bid.pdf           # layout regression; exit 1 on drift
 python scripts/snapshot.py bid.pdf --update  # re-record baseline after an intended change
 python scripts/make_ref.py --body-font 楷体   # rebuild the typesetting template
@@ -345,7 +345,7 @@ If any check fails, exit code is 1 and you get a detailed error message.
 | `scripts/filters/captions.lua` | pandoc Lua filter: marks captions at the AST level, so `post.py` never guesses with regexes |
 | `assets/ref.docx` | Chinese typesetting template (SimSun body, SimHei headings, cover and callout styles) |
 | `assets/sample.md`, `assets/sample_config.json` | Smoke-test sample |
-| `examples/` | Runnable examples: form-style document, table styling |
+| `examples/` | Runnable examples: tender, gongwen, application form, meeting minutes, business analysis report, contract, table styling |
 
 Every `config.json` field and `style` key is listed in `README.md`; this file intentionally does not
 duplicate those tables.

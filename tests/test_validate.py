@@ -602,4 +602,10 @@ class TestReportStructure:
         report = json.load(open(evidence_dir / "report.json", encoding="utf-8"))
 
         assert "tool_version" in report["metadata"]
-        assert report["metadata"]["tool_version"] == "0.4.0"
+        # 版本从 scripts/_version.py 单一来源读取，发版升号时不必再改本测试
+        import re
+
+        with open(os.path.join(KIT, "scripts", "_version.py"), encoding="utf-8") as f:
+            m = re.search(r'__version__\s*=\s*"([^"]+)"', f.read())
+        assert m, "scripts/_version.py 里找不到 __version__"
+        assert report["metadata"]["tool_version"] == m.group(1)

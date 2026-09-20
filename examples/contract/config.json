@@ -1,0 +1,19 @@
+{
+  "cover": [
+    ["CoverTop", "合同编号：HT-2026-018"],
+    ["CoverTitle", "技术服务合同"],
+    ["CoverSub", "示例智慧园区平台二期开发服务"],
+    ["CoverInfo", "委托方（甲方）：示例单位"],
+    ["CoverInfo", "受托方（乙方）：示例科技有限公司"],
+    ["CoverDate", "二〇二六年九月"]
+  ],
+  "header": "技术服务合同 · HT-2026-018",
+  "title": "技术服务合同（示例）",
+  "author": "示例科技有限公司",
+  "subject": "合同",
+  "comments": "由 texere 渲染",
+  "style": {
+    "table_border": "full",
+    "caption_gray": "404040"
+  }
+}

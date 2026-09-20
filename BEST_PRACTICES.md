@@ -196,6 +196,9 @@ python scripts/render.py --src . --out output.docx \
 # 3. 全面验证
 python scripts/validate.py output.docx --out evidence/
 
+# 3b. 带视觉基线的验证（比对 baselines/ 页图，dpi=100 同 snapshot.py）
+python scripts/validate.py output.docx --baseline baselines/ --out evidence/
+
 # 4. 查看报告
 cat evidence/report.json
 
@@ -344,4 +347,4 @@ python scripts/render.py --src gongwen-md/ --out document.docx \
 
 ---
 
-*最后更新：2026-09-19*
+*最后更新：2026-09-20*

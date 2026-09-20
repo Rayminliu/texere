@@ -1,0 +1,20 @@
+{
+  "cover": [
+    ["CoverTop", "示例科技有限公司"],
+    ["CoverTitle", "会 议 纪 要"],
+    ["CoverSub", "2026 年第三季度数字化项目推进会"],
+    ["CoverInfo", "会议时间：2026 年 9 月 18 日 14:00—16:30"],
+    ["CoverInfo", "会议地点：公司会议中心第二会议室"],
+    ["CoverInfo", "主 持 人：信息化部门负责人"],
+    ["CoverDate", "示例科技有限公司　印发"]
+  ],
+  "header": "会议纪要 · 2026 年第 3 期",
+  "title": "2026 年第三季度数字化项目推进会纪要",
+  "author": "示例科技有限公司",
+  "subject": "会议纪要",
+  "comments": "由 texere 渲染",
+  "style": {
+    "table_border": "full",
+    "caption_gray": "404040"
+  }
+}
