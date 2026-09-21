@@ -4,6 +4,37 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 0.6.2 — 2026-09-21
+
+**文档体验优化 + 把 0.6.1 的单一来源约定补全**（对 README 逐条核验代码/仓库实况后修的都是实账）
+
+- 删掉 README 里「GitHub Actions - CI/CD with multi-platform testing」这条：0.2.1 已主动移除 CI
+  （见下方「移除」条目，理由就写着「留着一个从未跑过的配置反而会造成『有保障』的错觉」），这句是删除后
+  漏改的残留，且「multi-platform」与「Windows + Word 绑定」自相矛盾。新增「开发」一节如实说明：
+  本仓库靠 pre-commit 本地检查，没有托管 CI，并解释为什么
+- 中英 README 重新对齐：中文版此前整段没有「验证与证据包」（9 项检查、report.json、证据包目录、
+  示例输出），三条支柱也还停在 0.5 的旧表述；英文版的「人工门槛」四检查项此前中文版独占。
+  现在两份标题层级序列完全一致，并由 `test_readme_mirrors_share_structure` 把守
+- `test_docs_sync.py` 新增 5 项守卫（共 7 条用例）：
+  - `test_no_key_defined_twice_in_manual`：同一个配置键不得在手册里定义两次。0.6.1 的守卫只拦
+    SKILL/BEST_PRACTICES，README 自己在「style 段」与「表格视觉控制」两张表里各写了一份
+    `header_rows` 等 7 个键的默认值（对 0.6.1 的 README 跑这条守卫，7 个键全部命中）
+  - `test_internal_anchors_resolve`：README 顶部锚点导航必须指向真存在的标题——新增的 23 个锚点
+    没测试兜着的话，下次改标题就会默默断链
+  - `test_readme_mirrors_share_structure` / `test_readme_mirrors_cover_same_scripts`：中英镜像结构与脚本覆盖对齐
+  - `test_stated_test_count_is_current`：文档里写死的断言数必须等于 pytest 实际收集数——治自己
+- README 结构体验：加顶部锚点导航；Windows + Word 前置到第一屏（原来埋在 500 行后的「已知限制」）；
+  Does/Doesn't 从两个 300 字巨型表格拆成清单；「三条支柱」升为 h2
+- README 复述收敛：§Usage 与 §编辑已有 docx 的 CLI 全量转投不再手抄，改为「真要跑的五条流程 +
+  指向 SCRIPT_HELP」，与文档地图那条约定一致；`style` 键表声明为默认值唯一来源，「视觉控制」只讲何时该动
+- 清理状态性措词：repository map 里 validate.py / patch.py / profiles 上的「**New**」（已三个版本不新了），
+  并补齐 4 个 profile
+- 修复中文 README 「文件地图」的坏表格（表头重复了一行，多出一个 `| 路径 | 职责 |` 数据行）
+- 修复英文 README 开篇标语的破损斜体（`*From Latin* texere*, …*` 星号配对错乱）
+- `SKILL.md`：孤儿段落 `"toc": false` 从「硬契约与陷阱」移到「Minimal config shape」，并补上表单类
+  `header_rows: 0` 的同类提示；测试时长口径与 README 对齐
+- 测试 154 → 161 项，全部绿；版本号 0.6.2（纯文档与守卫，不动任何渲染逻辑，模板未变）
+
 ## 0.6.1 — 2026-09-21
 
 **文档信息分层治理**（使用反馈："同一件事在 SKILL/README/BEST_PRACTICES 各有一份，

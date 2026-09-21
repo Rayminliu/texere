@@ -2,8 +2,8 @@ English | [简体中文](README.zh-CN.md)
 
 # texere — the Chinese formal document compiler
 
-*From Latin* texere*, "to weave" — the shared root of* text *and* textile*. Typesetting is the same act:
-body text, tables, captions and page numbers woven into an ordered page.
+> From Latin **texere**, "to weave" — the shared root of *text* and *textile*. Typesetting is the same act:
+> body text, tables, captions and page numbers woven into an ordered page.
 
 **Reference/Spec → Deterministic Document → Evidence**
 
@@ -12,7 +12,18 @@ official reports). Given a Markdown source and a reference template (`ref.docx` 
 a Microsoft Word document that has been **verified in real Word**, exported to PDF, and checked for layout drift —
 with an evidence package proving it's delivery-ready.
 
-### Three pillars
+> **Platform**: Windows + a local Microsoft Word install. Everything past the docx — Word acceptance, PDF export,
+> the 9-check validator — runs through Word COM. On Linux/macOS only the docx half works (see
+> [Known limitations](#known-limitations)).
+
+**Contents** · [Three pillars](#three-pillars) · [Scope](#what-it-does-and-doesnt-do) ·
+[Documentation map](#documentation-map) · [Quick start](#quick-start) · [Result](#result) ·
+[Usage](#usage) · [Validation](#validation-and-evidence-package) · [Editing a docx](#editing-an-existing-docx) ·
+[Reusing a template](#reusing-an-existing-template) · [Configuration](#configuration) · [Tables](#tables) ·
+[Bid notes](#tenderbid-notes) · [Design principles](#design-principles) ·
+[Known limitations](#known-limitations) · [Development](#development) · [Repository map](#repository-map)
+
+## Three pillars
 
 1. **Compiler, not converter** — Markdown → Semantic IR → Layout Spec → DOCX. Every visual rule is explicit
    in a design contract (`ref.docx` + `profile.json`), not magic.
@@ -21,24 +32,39 @@ with an evidence package proving it's delivery-ready.
 3. **Evidence, not hope** — One command validates everything: package integrity, image embedding, TOC fields,
    page numbering, blank pages, Word acceptance, visual drift. Output: `report.json` + screenshots + signature.
 
-## What it does / doesn't do
+## What it does and doesn't do
 
-| | |
-|---|---|
-| **Does** | Markdown → docx / PDF; cover page, TOC field, per-section page numbers, headers; table typesetting (borders / header rows / repeating headers / zebra stripes); caption conventions for tables and figures; one-command pre-delivery acceptance (does Word open it, are there blank pages, did the layout drift); **targeted edits to an existing docx** (replace text, insert/delete paragraphs, table cells, headers/footers) without re-typesetting the rest |
-| **Doesn't** | Comments, tracked changes, redaction, accessibility and watermarks on an existing docx — use a general-purpose docx skill for those; automatic figure numbering (numbers are hand-written, see *Contract*); thesis features such as bibliography, equation numbering, odd/even page headers |
+**Does**
+
+- Markdown → docx / PDF, with cover page, TOC field, per-section page numbers and headers
+- Table typesetting — borders, header rows, repeating headers, zebra stripes
+- Caption conventions for tables and figures
+- One-command pre-delivery acceptance: does Word open it, are there blank pages, did the layout drift
+- **Targeted edits to an existing docx** — text, paragraphs, table cells, headers/footers — without
+  re-typesetting the rest
+
+**Doesn't**
+
+- Comments, tracked changes, redaction, accessibility work, watermarks on an existing docx —
+  use a general-purpose docx skill for those
+- Automatic figure numbering — numbers are hand-written (see [Contract](#contract-layout-only-never-content))
+- Thesis features: bibliography, equation numbering, odd/even page headers
 
 ## Documentation map
 
 Every piece of information lives in exactly **one** place; the other files link instead of duplicating
-(drift has bitten us before, and `tests/test_docs_sync.py` now guards the CLI surface):
+(drift has bitten us before, so the parts that can be machine-checked are enforced by `tests/test_docs_sync.py`):
 
 | File | Owns |
 |---|---|
 | `README.md` (+ `.zh-CN` mirror) | The human manual: config fields, `style` keys, table syntax, input rules, known limitations |
 | `SKILL.md` | Agent entry: when to use / not, hard contract, acceptance gate, Patch schema, pitfalls |
 | `BEST_PRACTICES.md` | Scenario experience: profile choice, styling recipes, debugging cases, FAQ |
-| `docs/SCRIPT_HELP.md` | Per-script CLI reference (single source for options; guarded against the code) |
+| `docs/SCRIPT_HELP.md` | Per-script CLI reference (**the** single source for every option; guarded against the code by `tests/test_docs_sync.py`) |
+
+So: **this manual never lists a CLI flag table** — it shows the commands you'll actually run and points at
+SCRIPT_HELP for the rest. `test_docs_sync.py` fails the commit if a script grows an option that isn't
+documented there, or if SCRIPT_HELP invents one that doesn't exist.
 
 > **Scope note.** This tool is opinionated about *Chinese* formal documents: A4 paper, 宋体 (SimSun) body text,
 > 黑体 (SimHei) headings, 2-character first-line indent, full-width punctuation. It is not a general
@@ -47,7 +73,7 @@ Every piece of information lives in exactly **one** place; the other files link 
 
 ## Quick start
 
-External dependencies: `pandoc` is required; `--pdf` needs a local Microsoft Word.
+External dependencies: `pandoc` is required; `--pdf` and the validator need a local Microsoft Word.
 
 | Dependency | Purpose | Install |
 |---|---|---|
@@ -69,36 +95,13 @@ winget install --id JohnMacFarlane.Pandoc
 pip install -r requirements.txt      # plain pip; versions are exported from uv.lock
                                      # (uv users: `uv sync --all-extras`)
 
-# Development tools (optional, for code quality):
-pip install ruff                       # Fast Python linter + formatter (replaces flake8 + black)
-
 python scripts/render.py --doctor            # environment self-check
 python scripts/render.py --sample            # smoke test -> sample_out.docx/.pdf
 ```
 
-### Code Quality Tools
-
-This project uses **Ruff** (Rust-based) as a modern replacement for traditional Python tooling:
-
-- ✅ **Ruff** - Replaces Flake8 + Black + isort in one ultra-fast tool
-- ✅ **pre-commit hooks** - Automatic linting and formatting on commit
-- ✅ **GitHub Actions** - CI/CD with multi-platform testing
-
-```bash
-# Manual checks:
-ruff check scripts/ tests/    # Lint
-ruff format --check scripts/ tests/  # Format
-
-# Install pre-commit hooks:
-pip install pre-commit
-pre-commit install
-
-# Run all checks:
-pre-commit run --all-files
-```
-
 `--doctor` **identifies the Word engine by actually launching it via COM**. It does not read the registry:
 a stale `CurVer` key left over from an uninstalled Office can make that report lie.
+Contributor tooling (ruff, pre-commit, the test suite) is in [Development](#development).
 
 ## Result
 
@@ -134,37 +137,41 @@ and sampled page pixels), with no orphaned Word processes.
 
 ## Usage
 
-```bash
-python scripts/render.py --doctor                                    # environment self-check
-python scripts/render.py --version                                   # version
-python scripts/render.py --sample                                    # smoke test
+The five flows you'll actually run; every flag for every script lives in
+[`docs/SCRIPT_HELP.md`](docs/SCRIPT_HELP.md).
 
-# Render Markdown → DOCX + PDF
+```bash
+# 0. Environment
+python scripts/render.py --doctor                                # self-check: pandoc / deps / Word engine
+python scripts/render.py --sample                                # smoke test -> sample_out.docx/.pdf
+
+# 1. Render Markdown → DOCX + PDF + visual check (--check implies --pdf)
 python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
 
-# Validate a document (Compiler + Contract + Evidence)
-python scripts/validate.py bid.docx                                  # full validation
-python scripts/validate.py bid.docx --out evidence/                  # save report + screenshots
-python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json
+# 2. Accept before delivery (9 checks → report.json + screenshots + signature)
+python scripts/validate.py bid.docx --out evidence/
+python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json   # + visual drift vs baseline
 
-# Edit with declarative Patch (Agent-friendly)
-python scripts/patch.py bid.docx patch.json --dry-run    # simulate first
-python scripts/patch.py bid.docx patch.json --apply --out result.docx
+# 3. Edit an existing docx (targeted; the editing chain, opposite contract)
+python scripts/edit.py bid.docx --replace "工期=进度" --verify
+python scripts/edit.py bid.docx --fill data.json                 # batch table filling
+
+# 4. Declarative Patch (Agent-friendly: dry-run, hash preconditions)
+python scripts/patch.py bid.docx patch.json --dry-run
 python scripts/patch.py bid.docx patch.json --apply --validate
 
-python -m pytest -q                        # 154 assertions, ~6-7 min (validator tests need local Word)
-python scripts/snapshot.py bid.pdf --update  # record layout baseline (after confirming the layout)
-python scripts/snapshot.py bid.pdf           # regression compare; exits 1 on drift
-python scripts/make_ref.py --body-font 楷体   # rebuild the typesetting template
+# Supporting cast
+python scripts/distill.py 甲方模板.docx --out cfg.json           # template → suggested config
+python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
+python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
+python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
+python -m pytest -q                                              # 161 assertions, ~6-7 min (needs local Word)
+```
 
-# Distill a template into a design contract
-python scripts/distill.py 甲方模板.docx                  # report + suggested config
-python scripts/distill.py 甲方模板.docx --out cfg.json    # also write the config
+Runnable examples — each directory ships its Markdown + config and runs with one command
+(see [examples/README.md](examples/README.md)):
 
-# Edit an existing docx (targeted changes, not re-typesetting)
-python scripts/edit.py 标书.docx --replace "90 日历天=120 日历天" --verify
-
-# Runnable examples (see examples/README.md)
+```bash
 python scripts/render.py --src examples/tables --out examples/tables/tables.docx \
        --config examples/tables/config.json --pdf --check
 ```
@@ -201,9 +208,9 @@ Version 0.2.0 briefly shipped an "automatic figure numbering + `@tab:` cross-ref
 hand-written in-text references out of sync. If numbering is ever revisited, the right implementation is
 Word's native `SEQ` / `REF` fields (updatable, no text rewriting) — not rewriting caption text.
 
-## Validation: Compiler + Contract + Evidence
+## Validation and evidence package
 
-After rendering, run the validator to get a delivery-ready guarantee:
+After rendering, one command turns "I think it's fine" into an auditable artifact:
 
 ```bash
 python scripts/validate.py bid.docx --out evidence/
@@ -261,7 +268,18 @@ Evidence package saved to: evidence/
   - signature (SHA256 signature)
 ```
 
-If any check fails, exit code is 1 and you get a detailed error message.
+If any check fails, exit code is 1 and you get a detailed error message. Flags
+(`--profile`, `--max-empty`, `--quiet`, …): `docs/SCRIPT_HELP.md` §validate.py.
+
+### Manual gate
+
+The 9 checks cover structure; four things stay human, on the first pass over any new document:
+
+1. `images: n/m ok` in the render log with **n == m** (m = count of `![` in the source)
+2. `near-empty pages: 0`
+3. `OK` — Word opened it and exported the PDF
+4. **Look at the rendered pages.** Machines count pages, images and blanks; they can't tell you the figure is
+   wrong or the header row got clipped
 
 ## Editing an existing docx
 
@@ -273,21 +291,17 @@ If any check fails, exit code is 1 and you get a detailed error message.
 | Contract | layout only, never content | **change only what is asked; leave every other byte alone** |
 | Never | rewrite text | inject a cover, TOC, page numbers, or re-typeset styles |
 
+The shapes of the operations (full option list: `docs/SCRIPT_HELP.md` §edit.py):
+
 ```bash
-python scripts/edit.py 标书.docx --list                        # structure: sections / tables / paragraphs
-python scripts/edit.py 标书.docx --replace "旧=新" [--replace "旧2=新2"]
-python scripts/edit.py 标书.docx --replace "A=B" --scope body,tables,header,footer
-python scripts/edit.py 标书.docx --after  "锚点文字" --text "新段落"       # \n = another paragraph
-python scripts/edit.py 标书.docx --before "锚点文字" --text "新段落"
-python scripts/edit.py 标书.docx --delete "段落所含文字"
-python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"        # table row column value
-python scripts/edit.py 标书.docx --add-row 0 "接入层" "设备" "320,000"
-python scripts/edit.py 标书.docx --add-rows 0 3 --template-row 2  # batch blank rows, copying row format
-python scripts/edit.py 标书.docx --fill data.json                 # batch fill from JSON/CSV (null = skip)
-python scripts/edit.py 标书.docx --del-row 0 2
-python scripts/edit.py 标书.docx --header "新版页眉"              # default: body section only
-python scripts/edit.py 标书.docx --footer "— X —" --section all
-python scripts/edit.py 标书.docx --replace "A=B" --verify        # open in Word afterwards
+python scripts/edit.py 标书.docx --list                      # structure: sections / tables / paragraphs
+python scripts/edit.py 标书.docx --replace "旧=新" --scope body,tables,header,footer
+python scripts/edit.py 标书.docx --after "锚点文字" --text "新段落"   # also --before / --delete
+python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"            # table / row / col / value
+python scripts/edit.py 标书.docx --add-rows 0 3 --template-row 2     # also --add-row / --del-row
+python scripts/edit.py 标书.docx --fill data.json                    # batch fill, JSON or CSV
+python scripts/edit.py 标书.docx --header "新版页眉" --footer "— X —" --section all
+python scripts/edit.py 标书.docx --replace "A=B" --verify            # let Word open the result
 ```
 
 Backups go to `<name>.bak.docx` by default (`--no-backup` disables, `--out` writes elsewhere).
@@ -394,7 +408,8 @@ kept in sync):
 
 ### The `style` section
 
-Everything is optional; the defaults are the Chinese formal-document conventions:
+**This table is the single source for `style` keys and their defaults** — other sections link here instead of
+restating them. Everything is optional; the defaults are the Chinese formal-document conventions:
 
 | Group | Keys | Default |
 |---|---|---|
@@ -403,10 +418,11 @@ Everything is optional; the defaults are the Chinese formal-document conventions
 | TOC | `toc_depth` / `toc_title_size` / `toc_title_color` / `toc_placeholder` / `toc_placeholder_size` | `1-2` / `16` / `000000` / see source / `12` |
 | Captions | `caption_gray` / `caption_size` / `caption_space_before` / `caption_space_after` | `404040` / `10.5` / `6` / `4` |
 | Captions | `caption_keep_with_next` | `true` (keeps a table caption with its table; turning it off saves a page in testing, but the caption may strand at a page foot) |
-| Tables | `header_rows` / `table_border` / `table_shade` / `table_size` | auto / `full` / `EDEDED` / `10.5` |
+| Tables | `header_rows` | auto — **per table**, by reading the `w:tblHeader` pandoc emits; a number forces it; `0` = this table has no header (forms / appendix tables whose first row is a field name), which also drops the repeating-header flag. See [Visual control](#visual-control) |
+| Tables | `table_border` / `table_shade` / `table_size` | `full` / `EDEDED` / `10.5` |
+| Tables | `table_header_color` / `table_zebra` / `table_zebra_fill` | unset / `false` / `F7F7F7` |
 | Tables | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
 | Tables | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |
-| Tables | `table_header_color` / `table_zebra` / `table_zebra_fill` | unset / `false` / `F7F7F7` |
 | Fonts | `east_font` / `latin_font` | `宋体` / `Times New Roman` (**tables and captions only**) |
 
 > Colours are 6-digit hex (`404040`); border weights are in 1/8 pt; spacing is in pt; cell margins are in twips.
@@ -450,30 +466,34 @@ Want a narrow "No." column? Write it narrow.
 
 ### Visual control
 
-| Key | Default | Meaning |
-|---|---|---|
-| `header_rows` | auto | First N rows get the **visual** header treatment (shaded, bold, centred). By default this is **detected per table** (reading the `w:tblHeader` pandoc emits), so tables in one document can differ; set a number to force it; **`0` means the table has no header** (forms/appendix tables whose first row is a field name) and also drops the repeating-header flag |
-| `table_border` | `full` | `full` all rules / `three` three-line (booktabs) / `none` |
-| `table_shade` | `EDEDED` | Header fill |
-| `table_header_color` | unset | Header text colour; **pair with `FFFFFF` on a dark fill** |
-| `table_zebra` / `table_zebra_fill` | `false` / `F7F7F7` | Alternate row shading; the first data row stays white |
-| `table_size` | `10.5` | Table font size, pt |
+Defaults live in [The `style` section](#the-style-section); this is the *when do I reach for it* half.
 
-> Repeating headers across pages need no configuration: pandoc already sets `w:tblHeader` on header rows
-> (everything above `+===+` in a grid table counts as header). The line in `post.py` is just idempotent hardening.
+- **`header_rows`** — the only key you're likely to set per document. Leave it alone and each table's header is
+  detected from the source (everything above `+===+` in a grid table). Set `0` for form-style tables whose first
+  row is a field name, not a column title — that also stops the header from repeating across pages.
+- **`table_border: "three"`** — three-line (booktabs) look for analytical tables; `none` for layout tables that
+  shouldn't read as data. Rule weight comes from `border_size` / `three_line_size`.
+- **`table_shade` + `table_header_color`** — on a dark fill, pair them (`table_header_color: "FFFFFF"`), or the
+  header text disappears against its own background.
+- **`table_zebra`** — alternate row shading for wide tables; the first data row stays white.
+- **Repeating headers need no configuration**: pandoc already sets `w:tblHeader` on header rows. The line in
+  `post.py` is just idempotent hardening.
 
 ## Tender/bid notes
 
-1. **When the client mandates a template, theirs wins**: point `reference_doc` at their docx and body styles
-   are inherited from it. Cover sheets, sealing, signature pages and page-number rules still need manual
-   checking against the tender document — this tool does not replace compliance review.
+1. **When the client mandates a template, theirs wins** — see
+   [Reusing an existing template](#reusing-an-existing-template) for what gets inherited. What that section
+   can't cover for you: cover sheets, sealing, signature pages and page-number rules still need a manual pass
+   against the tender document. This tool does not replace compliance review.
 2. The usual bid structure (bid letter / commercial / technical / pricing / credentials) maps directly onto
    `#` chapters. Keep price tables as pipe tables so they are easy to swap for the client's own table later;
    use grid tables for complex headers.
 3. Before delivery, run `--pdf --check` and look through the page images: Word opens it, no blank pages,
    header rows shaded, captions centred. Only then package it.
 
-## Design principles (follow these when editing the template or hand-writing content)
+## Design principles
+
+Follow these when editing the template or hand-writing content:
 
 1. Template-driven: visual rules live only in `assets/ref.docx`; the source text carries semantics.
 2. The Chinese quartet: 宋体 body + 黑体 headings + `eastAsia` font attributes + 2-character first-line indent.
@@ -487,7 +507,7 @@ Want a narrow "No." column? Write it narrow.
 - The TOC is a Word field; if it is not refreshed on first open, select all and press F9 (the document sets
   `updateFields`, so it usually refreshes itself).
 - Figure and table numbers are **hand-written**: after inserting or deleting a figure you must renumber
-  manually (see *Contract*).
+  manually (see [Contract](#contract-layout-only-never-content)).
 - **Body and heading font/size live in the template**; change them with
   `python scripts/make_ref.py --body-font 楷体 --body-size 14`. The fonts in the `style` section cover tables and
   captions only.
@@ -495,14 +515,34 @@ Want a narrow "No." column? Write it narrow.
   (we have hit a stray trailing `|`). Note that pandoc aligns columns by **display width** — a CJK
   character counts as two columns, so "looks aligned in a monospace editor" can still produce a broken
   (single-column) table. Verify by rendering, or align programmatically.
-- **Windows + Word bound**: `--pdf` needs a local Word (COM). On Linux/macOS only the docx half works
-  (the parsing and typesetting logic does not depend on Word, but half the acceptance chain is missing).
+- **Windows + Word bound**: see the Platform note at the top. Parsing and typesetting don't need Word;
+  the PDF export and half of the acceptance chain do.
 - `--check` also flags pages that are legitimately sparse: the signature block at the end of a form, a
   heading alone before a large table. Those are false positives — relax with `--max-empty N`.
 - Snapshot baselines depend on the local Word version and fonts. **After switching machines, re-record with
   `snapshot.py --update`**, or you will see drift everywhere. The threshold is 0.1 % (measured: exporting the
   same document twice gives 0.00 %, changing one header line gives 0.16 %).
 - Quarto is not used: its 1.10.x docx output drops table bodies when captions are auto-numbered.
+
+## Development
+
+```bash
+pip install ruff pre-commit      # ruff replaces flake8 + black + isort in one fast tool
+pre-commit install               # one-time
+
+ruff check scripts/ tests/              # lint
+ruff format --check scripts/ tests/     # format
+pre-commit run --all-files              # everything below, at once
+python -m pytest -q                     # full suite: 161 assertions, ~6-7 min (needs local Word)
+```
+
+The pre-commit hook runs the lint/format checks plus a **fast test subset** (`test_version`, `test_docs_sync`,
+`test_validate_units`, `test_edit`, `test_snapshot`) that never launches Word, so commits stay quick while the
+docs-vs-code guards still bite. Run the full suite manually before pushing.
+
+> **There is no hosted CI.** The suite's acceptance tests drive a real Microsoft Word over COM, which no
+> GitHub-hosted runner provides — so this repository is checked locally, by pre-commit, not by a pipeline.
+> If you add CI, it can only cover the Word-free subset above.
 
 ## Repository map
 
@@ -514,20 +554,20 @@ Want a narrow "No." column? Write it narrow.
 | `scripts/filters/captions.lua` | pandoc Lua filter: marks table/figure captions as `TableCaption` / `FigureCaption` **at the AST level**, so `post.py` never has to guess with regexes |
 | `scripts/finalize.py` | Word COM: open for acceptance (failure to open = structural error), refresh TOC field, export PDF, save back |
 | `scripts/check_pdf.py` | PyMuPDF: blank-page detection (exits 1 over threshold) + renders page PNGs for review |
+| `scripts/validate.py` | Unified validation entry — 9 automated checks, structured report, evidence package |
 | `scripts/snapshot.py` | PDF layout snapshot regression: pixel comparison against `baselines/`, exits 1 on drift |
 | `scripts/make_previews.py` | Regenerate the examples gallery images (renders each example, picks a representative page) |
-| `scripts/validate.py` | **New**: unified validation entry — 9 automated checks, structured report, evidence package |
-| `scripts/patch.py` | **New**: Agent-friendly Patch API — declarative operations, dry-run, hash precondition, assessment |
-| `scripts/make_ref.py` | Rebuild `assets/ref.docx` (use when changing fonts / sizes / spacing) |
+| `scripts/patch.py` | Agent-friendly Patch API — declarative operations, dry-run, hash precondition, assessment |
 | `scripts/edit.py` | Edit an existing docx: replace / insert / delete / table cells / headers and footers |
 | `scripts/distill.py` | Distill a template docx into a suggested `config.json` (page setup, fonts, headers, footers) |
-| `profiles/formal-cn-v1.json` | **New**: Design contract for Chinese formal documents (fonts, spacing, borders, headers, footers) |
+| `scripts/make_ref.py` | Rebuild `assets/ref.docx` (use when changing fonts / sizes / spacing) |
+| `profiles/*.json` | Design contracts: `formal-cn-v1` (general formal), `gongwen-v1`, `tender-v1`, `application-v1` |
 | `assets/ref.docx` | The Chinese typesetting template: 宋体 body, 黑体 heading ladder, table borders, caption styles, cover styles (CoverTop/…), callout styles (Lead/SmallNote) |
 | `assets/sample.md` / `assets/sample_config.json` | Smoke-test sample (tender-document style) |
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` — per-script CLI reference (see the Documentation map above) |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 154 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), CLI-docs sync guard (`test_docs_sync.py`) |
+| `tests/` | 161 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

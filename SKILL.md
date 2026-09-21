@@ -16,7 +16,7 @@ Three pillars: **compiler, not converter** (every visual rule is explicit in `re
 > **Documentation map**: this file is the agent entry point — decisions, contracts, pitfalls, commands.
 > Field-level detail (every config key, `style` table, table syntax, known limitations) lives **only**
 > in `README.md` / `README.zh-CN.md`; per-script CLI options live **only** in `docs/SCRIPT_HELP.md`.
-> Do not restate those tables here.
+> Do not restate those tables here — `tests/test_docs_sync.py` fails the commit if you do.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ python scripts/patch.py bid.docx patch.json --apply --validate
 # Edit an existing docx (targeted, opposite contract — see "Two chains")
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
 
-python -m pytest -q                   # 154 assertions (~7 min; validator tests need local Word)
+python -m pytest -q                   # 161 assertions (~6-7 min; validator tests need local Word; no hosted CI)
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 
@@ -92,9 +92,6 @@ Do **not** use it for:
 9. **After editing an existing docx, always `--verify`** (or open in Word) — the only reliable proof
    the OOXML survived is that Word still opens the file.
 
-Short documents (notices/announcements) that need headings but no table of contents:
-`"toc": false` in config — heading styles stay intact, no TOC page.
-
 ## Minimal config shape
 
 ```json
@@ -105,6 +102,10 @@ Short documents (notices/announcements) that need headings but no table of conte
   "style": {"table_zebra": true}
 }
 ```
+
+Short documents (notices/announcements) that need headings but no table of contents: `"toc": false` —
+heading styles stay intact, no TOC page. Form-style documents (no `#` headings) need
+`"style": {"header_rows": 0}` so the field-name first row isn't shaded as a header.
 
 Every field and `style` key: README §Configuration. Table syntax (pipe vs grid, multi-level headers,
 merged cells, column widths): README §Tables.
