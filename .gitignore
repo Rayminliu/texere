@@ -15,6 +15,11 @@ tmp_test.docx
 # make_previews.py 的渲染中间产物
 _previews_tmp/
 
+# 仓库根目录的调试产物（_ 前缀约定）
+/_*.docx
+/_*.pdf
+/_*.md
+
 # examples/ 下的渲染产物
 examples/**/*.docx
 examples/**/*.pdf
