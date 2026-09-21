@@ -1,7 +1,25 @@
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]   # 拦误提交的 docx/pdf/大图；assets/previews 单图约 100KB 不受影响
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.5.0
+    rev: v0.16.8
     hooks:
       - id: ruff
-        args: [--fix, --select=E,F,I,N,W]
+        args: [--fix]          # 规则以 pyproject.toml [tool.ruff] 为准，不在这里重复
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      # 秒级测试子集（不启动 Word）：版本一致性 / 纯函数 / 编辑链 / 快照
+      # 完整套件（约 6-7 分钟，含 Word 验收）在推送前手动跑 python -m pytest
+      - id: pytest-fast
+        name: pytest (fast subset, no Word)
+        entry: python -m pytest tests/test_version.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q -x
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -27,7 +27,7 @@ pdf = ["pywin32>=312,<400"]
 check = ["PyMuPDF>=1.28,<2"]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.9.0"]
+dev = ["pytest>=8.3", "ruff>=0.9.0", "pre-commit>=4"]
 
 # 代码质量工具：Ruff（替代 Flake8+Black+isort）
 [tool.ruff]

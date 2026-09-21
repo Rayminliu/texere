@@ -25,9 +25,22 @@ def render_pdf(name):
     docx = os.path.join(TMP, name + ".docx")
     cfg = os.path.join(src, "config.json")
     r = subprocess.run(
-        [sys.executable, os.path.join(KIT, "scripts", "render.py"),
-         "--src", src, "--out", docx, "--config", cfg, "--pdf"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            src,
+            "--out",
+            docx,
+            "--config",
+            cfg,
+            "--pdf",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
     )
     if r.returncode != 0:
         print("[FAIL] %s: %s" % (name, (r.stderr or r.stdout)[-300:]))
@@ -57,7 +70,10 @@ def save_preview(pdf, page_idx, out_png, zoom=1.4):
     try:
         pix = doc[page_idx].get_pixmap(matrix=pymupdf.Matrix(zoom, zoom))
         pix.save(out_png)
-        print("preview: %s (p%d, %dx%d)" % (os.path.basename(out_png), page_idx + 1, pix.width, pix.height))
+        print(
+            "preview: %s (p%d, %dx%d)"
+            % (os.path.basename(out_png), page_idx + 1, pix.width, pix.height)
+        )
     finally:
         doc.close()
 

@@ -383,9 +383,7 @@ def cmd_add_rows(doc, ti, n, template_row=None):
         sys.exit("表 %d 是空表，没有格式可复制" % ti)
     src_idx = template_row if template_row is not None else len(t.rows) - 1
     if not 0 <= src_idx < len(t.rows):
-        sys.exit(
-            "模板行越界：%d（表 %d 共 %d 行）" % (src_idx, ti, len(t.rows))
-        )
+        sys.exit("模板行越界：%d（表 %d 共 %d 行）" % (src_idx, ti, len(t.rows)))
     src_tr = t.rows[src_idx]._tr
     anchor = src_tr
     for _ in range(n):
