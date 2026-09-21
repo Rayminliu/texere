@@ -1,6 +1,6 @@
 ---
 name: texere
-description: The Chinese formal document compiler — Reference/Spec → Deterministic Document → Evidence. Renders Markdown into properly typeset Chinese formal documents (docx + PDF) with unified validation: 9 automated checks (package integrity, image embedding, TOC fields, page numbering, blank pages, Word acceptance, visual drift), structured report (report.json), and evidence package (screenshots + signature). Use when generating tenders, bids, grant applications, final reports, white papers from Markdown with explicit design contracts (profile.json or ref.docx). Also supports targeted edits to existing docx without re-typesetting. Should not be used for tracked changes, comments, watermarks, theses, or English documents.
+description: "The Chinese formal document compiler — Reference/Spec → Deterministic Document → Evidence. Renders Markdown into properly typeset Chinese formal documents (docx + PDF) with unified validation: 9 automated checks (package integrity, image embedding, TOC fields, page numbering, blank pages, Word acceptance, visual drift), structured report (report.json), and evidence package (screenshots + signature). Use when generating tenders, bids, grant applications, final reports, white papers from Markdown with explicit design contracts (profile.json or ref.docx). Also supports targeted edits to existing docx without re-typesetting. Should not be used for tracked changes, comments, watermarks, theses, or English documents."
 license: MIT
 compatibility: Requires Windows with a local Microsoft Word (COM), pandoc 3.1 or newer, Python 3.10 or newer, python-docx and lxml. On Linux and macOS only the docx half works — the Word acceptance and PDF export chain is unavailable.
 ---
@@ -37,7 +37,7 @@ python scripts/patch.py bid.docx patch.json --apply --validate
 # Edit an existing docx (targeted, opposite contract — see "Two chains")
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
 
-python -m pytest -q                   # 161 assertions (~6-7 min; validator tests need local Word; no hosted CI)
+python -m pytest -q                   # 162 assertions (~6-7 min; validator tests need local Word; no hosted CI)
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 

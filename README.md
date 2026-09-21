@@ -165,7 +165,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 161 assertions, ~6-7 min (needs local Word)
+python -m pytest -q                                              # 162 assertions, ~6-7 min (needs local Word)
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -533,7 +533,7 @@ pre-commit install               # one-time
 ruff check scripts/ tests/              # lint
 ruff format --check scripts/ tests/     # format
 pre-commit run --all-files              # everything below, at once
-python -m pytest -q                     # full suite: 161 assertions, ~6-7 min (needs local Word)
+python -m pytest -q                     # full suite: 162 assertions, ~6-7 min (needs local Word)
 ```
 
 The pre-commit hook runs the lint/format checks plus a **fast test subset** (`test_version`, `test_docs_sync`,
@@ -567,7 +567,7 @@ docs-vs-code guards still bite. Run the full suite manually before pushing.
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` — per-script CLI reference (see the Documentation map above) |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 161 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors) |
+| `tests/` | 162 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

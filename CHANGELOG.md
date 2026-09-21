@@ -4,6 +4,18 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 0.6.3 — 未发布
+
+### 修复
+- **`SKILL.md` 的 front matter 不是合法 YAML，导致技能加载报错**：
+  `description:` 的值未加引号，而值中间含 `: `（`… with unified validation: 9 automated checks …`），
+  严格解析器报 `mapping values are not allowed in this context (line 2, column 205)`。
+  现用双引号包住整个值（文本一字未改），并顺手把 `compatibility` 保持原样（它不含 `: `）。
+  仓库内副本与已安装副本 `~/.qoder-cn/skills/texere/SKILL.md` 同步修正。
+- `test_docs_sync.py` 新增 `test_skill_frontmatter_is_valid_yaml`：front matter 里出现
+  「未引用且值内含 `: `」的键即红。不依赖 PyYAML（它不是项目依赖），用结构检查查这一类错型。
+- 测试 161 → 162 项。
+
 ## 0.6.2 — 2026-09-21
 
 **文档体验优化 + 把 0.6.1 的单一来源约定补全**（对 README 逐条核验代码/仓库实况后修的都是实账）

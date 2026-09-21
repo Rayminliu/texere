@@ -144,6 +144,39 @@ def test_no_key_defined_twice_in_manual(doc):
     assert not dup, "%s 里这些配置键被定义了两次，默认值会各说各话: %s" % (doc, dup)
 
 
+FRONTMATTER_UNQUOTED_KV = re.compile(r"^([A-Za-z_][\w-]*):\s+(?!['\"])(.*\S.*)$")
+
+
+def test_skill_frontmatter_is_valid_yaml():
+    """SKILL.md 的 front matter 必须能被严格 YAML 解析器读。
+
+    踩过：`description: ... with unified validation: 9 automated checks ...`
+    —— 未加引号的值里出现 `: `，PyYAML 直接报
+    “mapping values are not allowed in this context”，技能加载失败。
+    不依赖 PyYAML（它不是项目依赖），用结构检查兼容这个单一错型。
+    """
+    with open(os.path.join(KIT, "SKILL.md"), encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    assert lines and lines[0].strip() == "---", "SKILL.md 首行必须是 front matter 分隔符"
+    fm = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        fm.append(line)
+    else:
+        raise AssertionError("SKILL.md 的 front matter 没有闭合")
+    assert fm, "front matter 为空"
+    bad = []
+    for line in fm:
+        m = FRONTMATTER_UNQUOTED_KV.match(line)
+        if m and ": " in m.group(2):
+            bad.append((m.group(1), m.group(2)[max(0, m.group(2).find(": ") - 20) :][:60]))
+    assert not bad, (
+        "front matter 里这些值含未引用的 `: `，会被 YAML 当成嵌套映射而解析失败，"
+        "请用双引号包裹整个值: %s" % (bad,)
+    )
+
+
 def _headings(path):
     """标题层级序列（跳过代码块），用于比对中英 README 的结构。"""
     with open(path, encoding="utf-8") as f:
