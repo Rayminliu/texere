@@ -16,6 +16,52 @@
   「未引用且值内含 `: `」的键即红。不依赖 PyYAML（它不是项目依赖），用结构检查查这一类错型。
 - 测试 161 → 162 项。
 
+### 验收器：把「听起来很严」改成「真的严」
+
+一轮外部 code review 后做的收敛，全部针对同一类问题——**指标比实际保障能力更强**。
+
+- **「查不了就算过」**：9 项检查此前都返回 `(bool, str)`，前置条件缺失时也
+  `return True, "跳过…"`，于是 `Passed: 9/9` 里可能塞着 3 项根本没跑的检查。现改为
+  `PASS / FAIL / SKIP / ERROR` 四态：`SKIP` 不计入 passed，`summary` 增 `skipped`、
+  `signature` 增 `checks_skipped`，摘要行写成 `Passed: 6/9 (skipped: 3)`。退出码仍只由
+  FAIL / ERROR 决定。转为 SKIP 的是：source_content（两个参数都不给）、image_embedding
+  （无 Markdown 引用数）、page_numbering / blank_pages（无 PDF 或缺 PyMuPDF）、
+  toc_field（文档本就没有目录）、visual_drift（无基线）。
+- **`toc_field` 是死检查**：靠 `hasattr(doc, "tables_of_contents")` 短路，而 python-docx
+  （1.2.0 实测）根本没有这个属性，于是这一项恒定「跳过」，其后三行是永不执行的代码。
+  现下到 OOXML 数 `w:instrText` / `w:fldSimple` 里的 `TOC` 域，与 `post.py` 注入目录域的
+  写法对齐。
+- **视觉漂移两套口径**：`snapshot.py` 逐页全量，`validate.py` 却只比首 / 中 / 尾三页——
+  272 页文档第 137 页表格溢出时，抽样的三页可能全都干净；而 validate 的注释还写着
+  「逐字节全量比对」。现默认全量，页数双向卡齐（变多同样 FAIL），`--sample-visual` 才退回抽样。
+- **页码检查的 fail-open**：识别不出页脚页码格式时旧实现返回 PASS，且文案里写「连续」，
+  把一个没验证的结论说成了通过。现返回 SKIP。
+- **`source_content` 名不副实**：它 hash 的是 docx 文件本身，只证明字节未变，证明不了
+  内容与源一致。新增 `--source-md <file>`：Markdown 归一化后逐段比对 docx 正文，跳过代码块 /
+  pandoc fenced div / 表格分隔行 / 列表符号 / 行尾硬换行，并统一直引号与弯引号（前两版在真实
+  样例上分别误报 7 处和 1 处，都是这些噪声）。只给 `--expected-hash` 时消息里写明是产件级 hash。
+
+### Patch：schema 声明的能力必须真的能用
+
+- **`add_row` 的 `after_row` 只是预留参数**（源码里写着 `# 预留参数`）：schema 收下、实现忽略，
+  Agent 按文档写了会被静默追加到表尾。现按声明语义落地：deepcopy 锚点行的 `<w:tr>` 继承边框 /
+  底纹 / 字号，清空文字后插到该行之后；`assess_patch` 校验越界，`--validate` 回验新行位置。
+- **`from scripts import edit` 是坏导入**：以 `python scripts/patch.py` 运行时 `sys.path[0]`
+  是 `scripts/`，`scripts` 会被解析成空的命名空间包，于是 `set_cell` / `insert_after` /
+  `insert_before` / `add_row` 全部抛 `cannot import name 'edit' from 'scripts'`，又被
+  `except Exception` 兜成「操作失败」，长期被误当成「目标不存在」。改为显式把脚本目录放进
+  `sys.path` 后按模块名导入。
+
+### 契约措辞收窄
+
+- `SKILL.md` 的「output text comes from the source, character by character」在任何配了
+  `content_fixes` 的项目里都是假的。契约作用域明确为 `post.py`（后处理阶段），并写清
+  `content_fixes` 发生在渲染管线更早处、是一张用户自己写的显式替换表而非静默改写。
+  中英 README 同步。
+
+- 测试 162 → 195 项：新增 PASS/SKIP 分级与反 fail-open、TOC 域真检查、`--source-md`
+  正文比对与 Markdown 归一化、`after_row` 插入位置与坏导入回归。
+
 ## 0.6.2 — 2026-09-21
 
 **文档体验优化 + 把 0.6.1 的单一来源约定补全**（对 README 逐条核验代码/仓库实况后修的都是实账）

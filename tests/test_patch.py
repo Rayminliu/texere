@@ -633,6 +633,129 @@ class TestExitCodes:
         assert "not found" in result.stderr.lower() or "找不到" in result.stderr
 
 
+class TestPatchUnits:
+    """Fast in-process tests for schema↔implementation consistency (no Word)."""
+
+    @staticmethod
+    def _module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "patch_under_test", os.path.join(KIT, "scripts", "patch.py")
+        )
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_no_broken_scripts_import_left(self):
+        """`from scripts import edit` 在以 `python scripts/patch.py` 运行时解析成空的
+        命名空间包，于是 set_cell / insert_* / add_row 全部抛 ImportError，又被
+        except Exception 兜成「操作失败」。这里按 AST 守住不再回退
+        （不用字符串匹配，免得注释里提一句就被误判）。"""
+        import ast
+
+        tree = ast.parse(open(os.path.join(KIT, "scripts", "patch.py"), encoding="utf-8").read())
+        bad = [
+            n.module
+            for n in ast.walk(tree)
+            if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "scripts"
+        ]
+        assert not bad, "patch.py 又出现了坏导入（scripts 不是可导入的包）: %s" % bad
+
+    def test_edit_module_imports(self):
+        p = self._module()
+        assert callable(p._edit_module()._set_cell_text)
+
+    @staticmethod
+    def _table_doc():
+        from docx import Document
+
+        doc = Document()
+        t = doc.add_table(rows=3, cols=2)
+        for r in range(3):
+            for c in range(2):
+                t.rows[r].cells[c].text = "r%d-c%d" % (r, c)
+        return doc, t
+
+    def test_after_row_inserts_in_place(self):
+        """schema 里声明了 after_row 就必须真的插在那一行之后，不能追加到表尾。"""
+        p = self._module()
+        doc, t = self._table_doc()
+        ok, msg = p.add_row_op(
+            doc,
+            {"op": "add_row", "target": {"table": 0, "after_row": 0}, "values": ["NEW-A", "NEW-B"]},
+        )
+        assert ok, msg
+        assert len(t.rows) == 4
+        assert t.rows[1].cells[0].text == "NEW-A"
+        assert t.rows[0].cells[0].text == "r0-c0"
+
+    def test_after_row_second_position(self):
+        p = self._module()
+        doc, t = self._table_doc()
+        ok, msg = p.add_row_op(
+            doc,
+            {"op": "add_row", "target": {"table": 0, "after_row": 1}, "values": ["NEW-C", "NEW-D"]},
+        )
+        assert ok, msg
+        assert t.rows[2].cells[0].text == "NEW-C"
+
+    def test_omitted_after_row_appends(self):
+        p = self._module()
+        doc, t = self._table_doc()
+        ok, msg = p.add_row_op(doc, {"op": "add_row", "target": {"table": 0}, "values": ["NEW-E"]})
+        assert ok, msg
+        assert t.rows[-1].cells[0].text == "NEW-E"
+
+    def test_after_row_out_of_range_reports_error(self):
+        p = self._module()
+        doc, _ = self._table_doc()
+        ok, msg = p.add_row_op(
+            doc, {"op": "add_row", "target": {"table": 0, "after_row": 99}, "values": ["X"]}
+        )
+        assert not ok
+        assert "越界" in msg
+
+    def test_assess_flags_out_of_range_after_row(self):
+        p = self._module()
+        doc, _ = self._table_doc()
+        ok, issues = p.assess_patch(
+            {"id": "x", "operations": [{"op": "add_row", "target": {"table": 0, "after_row": 99}}]},
+            doc,
+        )
+        assert not ok
+        assert any("after_row" in i for i in issues)
+
+    def test_validate_result_checks_inserted_position(self):
+        """新增行的位置也要被 --validate 验到，否则 schema 与验证又不闭环。"""
+        p = self._module()
+        doc, _ = self._table_doc()
+        p.add_row_op(
+            doc,
+            {"op": "add_row", "target": {"table": 0, "after_row": 0}, "values": ["NEW-A", "NEW-B"]},
+        )
+        ok, issues = p.validate_patch_result(
+            doc,
+            {
+                "id": "x",
+                "operations": [
+                    {"op": "add_row", "target": {"table": 0, "after_row": 0}, "values": ["NEW-A"]}
+                ],
+            },
+        )
+        assert ok, issues
+        ok_bad, issues_bad = p.validate_patch_result(
+            doc,
+            {
+                "id": "x",
+                "operations": [
+                    {"op": "add_row", "target": {"table": 0, "after_row": 0}, "values": ["NOPE"]}
+                ],
+            },
+        )
+        assert not ok_bad and issues_bad
+
+
 class TestAssessment:
     """Test patch assessment."""
 

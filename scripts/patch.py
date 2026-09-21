@@ -35,9 +35,18 @@ Patch schema (JSON):
       "op": "set_cell",
       "target": {"table": 0, "row": 5, "column": 2},
       "value": "1,060,000"
+    },
+    {
+      "op": "add_row",
+      "target": {"table": 0, "after_row": 3},
+      "values": ["接入层", "设备", "320,000"]
     }
   ]
 }
+
+`add_row` 的 `target.after_row` 是 0 基行号，新行插在该行之后；
+省略或取 -1 表示追加到表尾。这个字段此前只是「预留参数」——schema 收下、
+实现忽略，Agent 按文档写了会被静默追加到表尾，现在按声明语义落地。
 """
 
 import argparse
@@ -171,6 +180,24 @@ def check_must_contain_precondition(doc: Document, must_contain: list[str]) -> t
 # =============================================================================
 
 
+def _edit_module():
+    """取同目录的 edit 模块（跨 run 替换、单元格写入等都复用它）。
+
+    不能写 `from scripts import edit`：以 `python scripts/patch.py` 运行时
+    sys.path[0] 是 scripts/ 而不是仓库根，Python 会把 scripts 解析成一个空的
+    命名空间包，于是 set_cell / insert_after / insert_before / add_row 全部抛
+    "cannot import name 'edit' from 'scripts'" —— 而这四个 op 又把它兜进
+    `except Exception`，表现是「操作失败」而不是「导入失败」，长期被当成
+    目标不存在。这里显式把脚本目录放进 sys.path 再按模块名导入。
+    """
+    import importlib
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    return importlib.import_module("edit")
+
+
 def replace_text_op(doc: Document, op: dict) -> tuple[bool, str]:
     """替换文本操作。"""
     target = op["target"]
@@ -189,9 +216,7 @@ def replace_text_op(doc: Document, op: dict) -> tuple[bool, str]:
             return False, f"预期旧文本不存在：{expected_old} (实际：{old_text[:50]})"
 
         # 使用 edit.py 的跨 run 替换逻辑
-        import importlib
-
-        edit = importlib.import_module("edit")
+        edit = _edit_module()
 
         # 构造 pairs
         pairs = [(expected_old or old_text, new_text)]
@@ -218,7 +243,7 @@ def insert_after_op(doc: Document, op: dict) -> tuple[bool, str]:
         return False, "target.anchor 是必需的"
 
     try:
-        from scripts import edit
+        edit = _edit_module()
 
         hits = edit._anchors(doc, anchor_text, all_mode=True)
         if not hits:
@@ -244,15 +269,15 @@ def insert_before_op(doc: Document, op: dict) -> tuple[bool, str]:
         return False, "target.anchor 是必需的"
 
     try:
-        from scripts.edit import _anchors, _clone_paragraph
+        edit = _edit_module()
 
-        hits = _anchors(doc, anchor_text, all_mode=True)
+        hits = edit._anchors(doc, anchor_text, all_mode=True)
         if not hits:
             return False, f"找不到锚点：{anchor_text}"
 
         for para_idx, anchor_para in hits:
             for line in reversed(content):  # 逆序插入保证顺序正确
-                _clone_paragraph(anchor_para, line, style, doc, before=True)
+                edit._clone_paragraph(anchor_para, line, style, doc, before=True)
 
         return True, f"在 {len(hits)} 个位置插入 {len(content)} 段"
     except Exception as e:
@@ -283,7 +308,7 @@ def set_cell_op(doc: Document, op: dict) -> tuple[bool, str]:
     value = op["value"]
 
     try:
-        from scripts import edit
+        edit = _edit_module()
 
         ti = target.get("table")
         ri = target.get("row")
@@ -301,30 +326,60 @@ def set_cell_op(doc: Document, op: dict) -> tuple[bool, str]:
         return False, f"设置单元格失败：{e}"
 
 
+def _insert_row(table, after_row):
+    """在 after_row（0 基）之后插入一行并返回它；after_row 为 None/负数时追加到表尾。
+
+    python-docx 的 add_row() 只会追加，且产出的是裸行（丢边框/底纹/字号）。
+    要让 after_row 真正生效，走 edit.py cmd_add_rows 的路子：deepcopy 锚点行的
+    <w:tr> 继承全部格式，清掉文字，再 addnext 插到锚点之后。
+    """
+    import copy
+
+    from docx.table import _Row
+
+    edit = _edit_module()
+
+    rows = table.rows
+    n = len(rows)
+    if after_row is None or after_row < 0:
+        return table.add_row()
+    if after_row >= n:
+        raise IndexError("after_row %d 越界（表共 %d 行）" % (after_row, n))
+
+    src_tr = rows[after_row]._tr
+    new_tr = copy.deepcopy(src_tr)
+    edit._clear_row_text(new_tr)
+    src_tr.addnext(new_tr)
+    return _Row(new_tr, table)
+
+
 def add_row_op(doc: Document, op: dict) -> tuple[bool, str]:
-    """添加行操作。"""
+    """添加行操作：插在 target.after_row（0 基）之后，缺省追加到表尾。
+
+    新行克隆锚点行的格式，文字先清空再按 values 写入；未给值的单元格留空，
+    不会残留锚点行的旧文字。
+    """
     target = op["target"]
-    values = op["values"]
+    values = op.get("values", [])
 
     try:
-        from scripts import edit
-
         ti = target.get("table")
         if ti is None:
             return False, "target.table 是必需的"
+        if not 0 <= ti < len(doc.tables):
+            return False, f"表格索引越界：{ti}（共 {len(doc.tables)} 个表）"
 
-        # 插入到指定行之后（如果指定）
-        _ = target.get("after_row", -1)  # 预留参数
-
-        # 手动实现：先获取表格，再添加行
+        edit = _edit_module()
         table = doc.tables[ti]
-        row = table.add_row()
+        after_row = target.get("after_row")
+        row = _insert_row(table, after_row)
 
         for i, v in enumerate(values):
             if i < len(row.cells):
                 edit._set_cell_text(row.cells[i], v, table)
 
-        return True, f"表{ti}: 新增 1 行（{len(values)}列）"
+        where = "表尾" if (after_row is None or after_row < 0) else f"第{after_row}行之后"
+        return True, f"表{ti}: 在{where}新增 1 行（{len(values)}列）"
     except Exception as e:
         return False, f"添加行失败：{e}"
 
@@ -395,6 +450,13 @@ def assess_patch(patch: dict, doc: Document) -> tuple[bool, list[str]]:
             elif ti is not None:
                 if ri is not None and ri >= len(doc.tables[ti].rows):
                     issues.append(f"operation[{i}]: 行索引越界")
+
+        elif op_name == "add_row":
+            ti, ar = target.get("table"), target.get("after_row")
+            if ti is not None and ti < len(doc.tables):
+                n_rows = len(doc.tables[ti].rows)
+                if ar is not None and ar >= n_rows:
+                    issues.append(f"operation[{i}]: after_row 越界：{ar}（表共 {n_rows} 行）")
 
     return len(issues) == 0, issues
 
@@ -483,6 +545,19 @@ def validate_patch_result(doc: Document, patch: dict) -> tuple[bool, list[str]]:
             if ti is not None and ri is not None and ci is not None:
                 if expected not in doc.tables[ti].rows[ri].cells[ci].text:
                     issues.append(f"operation[{i}]: 单元格值未更新")
+
+        elif op_name == "add_row":
+            # after_row 是新加的能力，验证也要跟上：新行必须落在声明的位置
+            target = op.get("target", {})
+            ti, ar = target.get("table"), target.get("after_row")
+            values = op.get("values") or []
+            if ti is not None and ti < len(doc.tables) and values:
+                rows = doc.tables[ti].rows
+                idx = (ar + 1) if (ar is not None and ar >= 0) else len(rows) - 1
+                if 0 <= idx < len(rows):
+                    row_text = "".join(c.text for c in rows[idx].cells)
+                    if values[0] not in row_text:
+                        issues.append(f"operation[{i}]: 第{idx}行未写入预期值：{values[0]}")
 
     return len(issues) == 0, issues
 

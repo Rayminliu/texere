@@ -9,6 +9,9 @@ import os
 import sys
 
 import pytest
+from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(KIT, "scripts")
@@ -104,6 +107,189 @@ class TestCollectPageNumbers:
 
 
 # ------------------------------------------------------------- 基线像素比对
+
+
+# ------------------------------------------------------- 状态分级 & 反 fail-open
+
+
+def _save_docx(tmp_path, name="a.docx"):
+    p = tmp_path / name
+    Document().save(str(p))
+    return str(p)
+
+
+class TestStatusConstants:
+    def test_four_statuses_exist(self):
+        assert (v.PASS, v.FAIL, v.SKIP, v.ERROR) == ("PASS", "FAIL", "SKIP", "ERROR")
+
+
+class TestNoFailOpen:
+    """「查不了」必须报 SKIP 或 ERROR，绝不能报 PASS。
+
+    这是验收器最容易失真的地方：前置条件缺失时旧实现一律 return True，
+    于是 9 项里塞着几项从没真跑过的检查，摘要却写 Passed: 9/9。
+    """
+
+    def test_page_numbering_without_pdf_is_skip(self):
+        assert v.check_page_numbering(None)[0] == v.SKIP
+
+    def test_blank_pages_without_pdf_is_skip(self):
+        assert v.check_blank_pages(None)[0] == v.SKIP
+
+    def test_visual_drift_without_baseline_is_skip(self):
+        assert v.check_visual_drift(None, None)[0] == v.SKIP
+
+    def test_source_content_without_any_evidence_is_skip(self, tmp_path):
+        assert v.check_source_content_integrity(_save_docx(tmp_path))[0] == v.SKIP
+
+    def test_image_embedding_without_reference_is_skip(self, tmp_path):
+        assert v.check_image_embedding(_save_docx(tmp_path))[0] == v.SKIP
+
+    def test_toc_field_without_toc_is_skip(self, tmp_path):
+        assert v.check_toc_field(_save_docx(tmp_path))[0] == v.SKIP
+
+
+class TestSamplePageIndices:
+    def test_single_page(self):
+        assert v.sample_page_indices(1) == [0]
+
+    def test_short_document(self):
+        assert v.sample_page_indices(3) == [0, 2]
+
+    def test_long_document(self):
+        assert v.sample_page_indices(20) == [0, 10, 19]
+
+
+# ------------------------------------------------------------- TOC 域真检查
+
+
+def _docx_with_toc(path, instr='TOC \\o "1-2" \\h \\z \\u'):
+    """按 post.py 注入目录域的写法造一个含 TOC 域的 docx。"""
+    doc = Document()
+    para = doc.add_paragraph()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    para.add_run()._r.append(begin)
+
+    it = OxmlElement("w:instrText")
+    it.set(qn("xml:space"), "preserve")
+    it.text = instr
+    para.add_run()._r.append(it)
+
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    para.add_run()._r.append(end)
+
+    doc.save(str(path))
+    return str(path)
+
+
+class TestTocField:
+    def test_detects_injected_toc(self, tmp_path):
+        """python-docx 没有 tables_of_contents 属性，旧实现靠 hasattr 短路后
+        这一项恒定跳过——这里守住「真能从 OOXML 里数出 TOC 域」。"""
+        f = _docx_with_toc(tmp_path / "toc.docx")
+        assert v.count_toc_fields(Document(f)) == 1
+        assert v.check_toc_field(f)[0] == v.PASS
+
+    def test_plain_document_is_skipped_not_passed(self, tmp_path):
+        status, _ = v.check_toc_field(_save_docx(tmp_path, "plain.docx"))
+        assert status == v.SKIP
+
+
+# ------------------------------------------------------------- 源内容契约
+
+
+def _docx_with_text(tmp_path, text, name="b.docx"):
+    p = tmp_path / name
+    doc = Document()
+    doc.add_paragraph(text)
+    doc.save(str(p))
+    return str(p)
+
+
+class TestMarkdownNormalization:
+    """这五条都是真实样例上踩出来的误报（曾一次报出 7 处假 FAIL），
+    改匹配器时必须一并守住，否则 --source-md 会变成噪音源。"""
+
+    def test_curly_and_straight_quotes_match(self):
+        assert v._normalize("采用“感知—平台—应用”架构") == v._normalize('采用"感知—平台—应用"架构')
+
+    def test_pandoc_fenced_div_is_not_body(self):
+        md = ':::: {custom-style="Lead"}\n正文内容足够长的这一句话\n::::\n'
+        assert v._source_md_segments(md) == ["正文内容足够长的这一句话"]
+
+    def test_hard_line_break_is_stripped(self):
+        assert v._source_md_segments("项目名称：示例智慧园区平台建设项目\\\n") == [
+            "项目名称：示例智慧园区平台建设项目"
+        ]
+
+    def test_list_marker_is_stripped(self):
+        assert v._source_md_segments("- 电子与智能化工程专业承包资质；\n") == [
+            "电子与智能化工程专业承包资质；"
+        ]
+
+    def test_table_separator_row_is_skipped(self):
+        assert v._source_md_segments("|:---|:---|:---|\n") == []
+
+    def test_code_fence_content_is_skipped(self):
+        assert v._source_md_segments("```python\n这段代码不该参与比对\n```\n") == []
+
+
+class TestSourceContentIntegrity:
+    def test_md_equivalence_passes(self, tmp_path):
+        text = "本项目的整体架构说明如下所述的完整段落"
+        f = _docx_with_text(tmp_path, text)
+        md = tmp_path / "a.md"
+        md.write_text("# 标题\n\n%s\n" % text, encoding="utf-8")
+        status, msg = v.check_source_content_integrity(f, source_md=str(md))
+        assert status == v.PASS, msg
+
+    def test_md_equivalence_detects_dropped_text(self, tmp_path):
+        f = _docx_with_text(tmp_path, "文档里只有这一句话")
+        md = tmp_path / "a.md"
+        md.write_text("源文档里这一段根本没有进到 docx 里\n", encoding="utf-8")
+        status, _ = v.check_source_content_integrity(f, source_md=str(md))
+        assert status == v.FAIL
+
+    def test_code_fence_is_not_checked_as_body(self, tmp_path):
+        """代码块里的内容不该被当成正文去比对。"""
+        f = _docx_with_text(tmp_path, "正文段落内容足够长度")
+        md = tmp_path / "a.md"
+        md.write_text(
+            "正文段落内容足够长度\n\n```python\n这段代码不该出现在docx里\n```\n", encoding="utf-8"
+        )
+        status, msg = v.check_source_content_integrity(f, source_md=str(md))
+        assert status == v.PASS, msg
+
+    def test_expected_hash_matches(self, tmp_path):
+        import hashlib
+
+        f = _save_docx(tmp_path, "h.docx")
+        h = hashlib.sha256(open(f, "rb").read()).hexdigest()
+        status, msg = v.check_source_content_integrity(f, expected_hash=h)
+        assert status == v.PASS, msg
+
+    def test_expected_hash_mismatch_fails(self, tmp_path):
+        status, _ = v.check_source_content_integrity(
+            _save_docx(tmp_path, "h.docx"), expected_hash="deadbeef"
+        )
+        assert status == v.FAIL
+
+
+# ------------------------------------------------------------- 图片计数
+
+
+class TestImageEmbedding:
+    def test_missing_image_fails(self, tmp_path):
+        status, msg = v.check_image_embedding(_save_docx(tmp_path, "img.docx"), "![a](a.png)")
+        assert status == v.FAIL, msg
+
+    def test_count_is_a_lower_bound_only(self, tmp_path):
+        """n_img >= n_ref 只证明数量够，不证明对应关系——这里把这条边界写死。"""
+        status, msg = v.check_image_embedding(_save_docx(tmp_path, "img.docx"))
+        assert status == v.SKIP
+        assert "inline shape" in msg
 
 
 class TestBaselinePageDiff:

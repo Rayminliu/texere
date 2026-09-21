@@ -84,20 +84,32 @@ python scripts/validate.py bid.docx --quiet
 - `--out <dir>`: 证据包输出目录（默认：evidence）
 - `--profile <file>`: Profile JSON，附进证据包报告（可声明 baseline_dir）
 - `--baseline <dir>`: 视觉基线目录（页图 p001.png…，与 snapshot.py 同口径 dpi=100 比对）
-- `--expected-hash <hash>`: 期望的文件 SHA256 hash
+- `--expected-hash <hash>`: 期望的 docx 文件 SHA256（产件级，只证明字节未变）
+- `--source-md <file>`: 源 Markdown，开启正文等价性比对（比 hash 强得多，见下）
+- `--sample-visual`: 视觉比对只比首 / 中 / 尾三页（默认逐页全量）
 - `--max-empty <n>`: 允许的最大空白页数（默认：0）
 - `--quiet`: 静默模式
 
 ### 验证项（9 项）
+
+每项返回 `PASS` / `FAIL` / `SKIP` / `ERROR` 之一：
+
+- `SKIP` = 前置条件缺失，这项**没查**，不计入通过数，也不单独让门禁失败。
+- 只有 `FAIL` / `ERROR` 会让退出码变成 1。
+- 摘要行形如 `Passed: 7/9 (skipped: 2)`，别把 skipped 当通过。
+
 1. ✅ Package integrity - DOCX 包结构完整性
-2. ✅ Source content - 内容完整性（可选 hash 校验）
-3. ✅ Image embedding - 图片嵌入检查
+2. ✅ Source content - 给了 `--source-md` 就做 Markdown↔docx 正文比对；只给
+   `--expected-hash` 就退化为产件文件级 hash；两者都无 → SKIP
+3. ✅ Image embedding - 嵌入数 ≥ 引用数（下限计数，不校验第几张图对应哪处引用）；
+   无 Markdown 引用数 → SKIP
 4. ✅ Section count - 分节数合理性
-5. ✅ TOC field - 目录域存在性
-6. ✅ Page numbering - 页码连续性
+5. ✅ TOC field - OOXML 里是否存在真实 `TOC` 域；文档本就没有目录 → SKIP
+6. ✅ Page numbering - 页码连续性；识别不出页脚页码格式 → SKIP
 7. ✅ Blank pages - 空白页数量
 8. ✅ Word acceptance - Word 真机验收
-9. ✅ Visual drift - 视觉基线比对
+9. ✅ Visual drift - 与基线逐页比对（默认全量；`--sample-visual` 才抽样）；
+   无基线目录 → SKIP
 
 ---
 
@@ -156,7 +168,8 @@ python scripts/patch.py doc.docx patch.json --apply --out evidence/
 - `insert_before` - 在锚点前插入
 - `delete_paragraph` - 删除段落
 - `set_cell` - 设置单元格值
-- `add_row` - 添加表格行
+- `add_row` - 添加表格行；`target.after_row`（0 基）指定插在哪一行之后，
+  省略或 `-1` 表示追加到表尾。新行克隆该行的边框/底纹/字号，文字清空后按 `values` 写入
 - `del_row` - 删除表格行
 
 ---

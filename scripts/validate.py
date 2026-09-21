@@ -5,14 +5,21 @@
 
 检查项:
   - Package integrity: DOCX 包结构完整
-  - Source content integrity: 内容未被篡改 (可选 hash 校验)
+  - Source content: 源内容完整性 (--source-md 正文比对 / --expected-hash 产件 hash)
   - Image embedding: 图片嵌入数量 vs 引用数量
   - Section count: 分节数合理性
-  - TOC field: 目录域存在且可更新
+  - TOC field: 目录域 (w:instrText / w:fldSimple) 是否存在
   - Page numbering: 页码连续无断档
   - Blank pages: 空白页数量在阈值内
   - Word open/export: 真机验收 (Word 打开 + 导 PDF)
-  - Visual baseline drift: 与基线比对 (可选)
+  - Visual baseline drift: 与基线逐页比对 (可选)
+
+状态分级 (tests/test_validate.py 守住):
+  PASS  检查跑通且判为合格
+  FAIL  判为不合格 (退出码 1)
+  SKIP  前置条件缺失，根本没检查 —— 不计入 passed
+  ERROR 检查自身抛异常 —— 按失败计
+「查不了就当通过」是这套验收器此前最大的失真来源，故一律降级为 SKIP/ERROR。
 
 输出:
   - report.json: 结构化验证报告
@@ -62,11 +69,13 @@ for _stream in (sys.stdout, sys.stderr):
 
 
 # =============================================================================
-# 检查项实现
+# 检查项实现 —— 统一返回 (status, message)，status ∈ PASS / FAIL / SKIP / ERROR
 # =============================================================================
 
+PASS, FAIL, SKIP, ERROR = "PASS", "FAIL", "SKIP", "ERROR"
 
-def check_package_integrity(docx_path: str) -> tuple[bool, str]:
+
+def check_package_integrity(docx_path: str) -> tuple[str, str]:
     """检查 DOCX 包结构完整性 (zip 格式 + 必要部分)。"""
     try:
         # 尝试以 zip 方式打开
@@ -87,21 +96,111 @@ def check_package_integrity(docx_path: str) -> tuple[bool, str]:
                 except Exception as e:
                     return False, f"部分 {name} 读取失败：{e}"
 
-        return True, "OK"
+        return PASS, "OK"
     except zipfile.BadZipFile as e:
-        return False, f"ZIP 格式错误：{e}"
+        return FAIL, f"ZIP 格式错误：{e}"
     except PermissionError as e:
-        return False, f"文件权限不足：{e}"
+        return FAIL, f"文件权限不足：{e}"
     except FileNotFoundError as e:
-        return False, f"文件不存在：{e}"
+        return FAIL, f"文件不存在：{e}"
     except Exception as e:
-        return False, f"未知错误：{type(e).__name__} - {e}"
+        return ERROR, f"未知错误：{type(e).__name__} - {e}"
 
 
-def check_source_content_integrity(docx_path: str, expected_hash: str = None) -> tuple[bool, str]:
-    """检查源内容完整性 (可选 hash 校验)。"""
+# ---------------------------------------------------------------- 源内容比对
+
+
+def _normalize(text: str) -> str:
+    """归一化：去掉 Markdown 记号与全部空白，用于「正文是否同源」比对。
+
+    去掉空白是因为 Word 会在中英文交界、断行处插入不可见字符，逐字符等价
+    在这里不成立；比对的是「去掉排版噪声后的可见文字序列」。
+    """
+    # pandoc/Word 会把直引号排成弯引号，正文比对前先统一回直引号
+    t = text.translate(str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"}))
+    t = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", t)  # 图片：连 alt 一起丢
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)  # 链接：只留文字
+    t = re.sub(r"[*_`>#|~]+", "", t)  # 强调 / 标题 / 引用 / 表格竖线
+    return re.sub(r"\s+", "", t)
+
+
+def _source_md_segments(md_text: str, min_len: int = 8) -> list[str]:
+    """抽出值得比对正文的 Markdown 片段。
+
+    跳过的都不是正文，留着只会误报（真实样例上这几条曾贡献 7 处假 FAIL）：
+      - ``` 代码块整体
+      - ::: / :::: pandoc fenced div 的栅栏行
+      - |:---|---| 表格分隔行
+      - 列表符号 `- ` / `* ` / `1. `（Word 里没有这个字符）
+      - 行尾硬换行的 `\\`
+      - 归一化后过短的片段（< 8 字符）
+    """
+    segs, in_fence = [], False
+    for line in md_text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        stripped = line.strip()
+        if not stripped or re.fullmatch(r"[-=:|\s]+", stripped):
+            continue
+        if stripped.startswith(":::"):  # pandoc fenced div
+            continue
+        stripped = re.sub(r"^([-*+]|\d+[.)])\s+", "", stripped)  # 列表符号
+        stripped = stripped.rstrip("\\").strip()  # Markdown 硬换行
+        norm = _normalize(stripped)
+        if len(norm) >= min_len:
+            segs.append(norm)
+    return segs
+
+
+def _docx_text(doc) -> str:
+    """docx 的可见文字：正文段落 + 表格单元格（页眉页脚不算正文）。"""
+    parts = [p.text for p in doc.paragraphs]
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                parts.append(cell.text)
+    return "\n".join(parts)
+
+
+def check_source_content_integrity(
+    docx_path: str, expected_hash: str = None, source_md: str = None
+) -> tuple[str, str]:
+    """检查源内容完整性。
+
+    两条路径，强度完全不同，报告里必须说清走的是哪条：
+      1. --source-md：正文等价性比对（Markdown 片段是否在 docx 里出现）——真契约。
+      2. --expected-hash：产件文件级 SHA256——只能证明「字节没变」，
+         证明不了「内容与源一致」，故措辞上是 artifact hash。
+      3. 两者都没有：SKIP。以前这一档返回 PASS，是 9 项里最大的水分。
+    """
+    if source_md:
+        if not os.path.exists(source_md):
+            return ERROR, f"源 Markdown 不存在：{source_md}"
+        try:
+            md_text = open(source_md, encoding="utf-8-sig").read()
+            doc_text = _normalize(_docx_text(Document(docx_path)))
+        except PermissionError as e:
+            return FAIL, f"文件权限不足：{e}"
+        except FileNotFoundError as e:
+            return FAIL, f"文件不存在：{e}"
+        except Exception as e:
+            return ERROR, f"未知错误：{type(e).__name__} - {e}"
+
+        segs = _source_md_segments(md_text)
+        missing = [s for s in segs if s not in doc_text]
+        if missing:
+            sample = " / ".join(m[:24] for m in missing[:3])
+            return (
+                FAIL,
+                f"源内容缺失：{len(missing)}/{len(segs)} 段未在 docx 中找到（例：{sample}）",
+            )
+        return PASS, f"正文等价性：{len(segs)} 段全部命中 docx"
+
     if not expected_hash:
-        return True, "跳过 (未提供 expected_hash)"
+        return SKIP, "跳过 (未提供 --source-md 或 --expected-hash)"
 
     try:
         sha256 = hashlib.sha256()
@@ -111,45 +210,42 @@ def check_source_content_integrity(docx_path: str, expected_hash: str = None) ->
 
         actual = sha256.hexdigest()
         if actual == expected_hash:
-            return True, "OK"
-        else:
-            return (
-                False,
-                f"Hash 不匹配 (期望:{expected_hash[:16]}..., 实际:{actual[:16]}...)",
-            )
+            return PASS, "产件 hash 一致 (仅证明字节未变，非正文等价性)"
+        return FAIL, f"Hash 不匹配 (期望:{expected_hash[:16]}..., 实际:{actual[:16]}...)"
     except PermissionError as e:
-        return False, f"文件权限不足：{e}"
+        return FAIL, f"文件权限不足：{e}"
     except FileNotFoundError as e:
-        return False, f"文件不存在：{e}"
+        return FAIL, f"文件不存在：{e}"
     except Exception as e:
-        return False, f"未知错误：{type(e).__name__} - {e}"
+        return ERROR, f"未知错误：{type(e).__name__} - {e}"
 
 
-def check_image_embedding(docx_path: str, md_ref_text: str = None) -> tuple[bool, str]:
-    """检查图片嵌入数量 vs 引用数量。"""
+def check_image_embedding(docx_path: str, md_ref_text: str = None) -> tuple[str, str]:
+    """检查图片嵌入数量 vs 引用数量。
+
+    注意强度：只做「下限计数」——数量够了就过，不校验第几张图对应哪一处的
+    引用、顺序、尺寸或锚点。它能抓住最常见的「pandoc 没找到图、整份标书缺图」，
+    抓不住「图串位 / 错图」。另外只数 inline_shapes，浮动型（anchor）图片不计入。
+    """
     try:
         doc = Document(docx_path)
         n_img = len(doc.inline_shapes)
 
         if md_ref_text:
-            import re
-
             n_ref = len(re.findall(r"!\[", md_ref_text))
             if n_img >= n_ref:
-                return True, f"图片嵌入：{n_img}/{n_ref} ok"
-            else:
-                return False, f"图片缺失：引用{n_ref}张，只嵌入{n_img}张"
-        else:
-            return True, f"图片嵌入：{n_img}张 (未提供 Markdown 引用数)"
+                return PASS, f"图片嵌入：{n_img}/{n_ref} ok (仅数量，不校验对应关系)"
+            return FAIL, f"图片缺失：引用{n_ref}张，只嵌入{n_img}张"
+        return SKIP, f"跳过 (未提供 Markdown 引用数；共 {n_img} 个 inline shape)"
     except PermissionError as e:
-        return False, f"文件权限不足：{e}"
+        return FAIL, f"文件权限不足：{e}"
     except FileNotFoundError as e:
-        return False, f"文件不存在：{e}"
+        return FAIL, f"文件不存在：{e}"
     except Exception as e:
-        return False, f"未知错误：{type(e).__name__} - {e}"
+        return ERROR, f"未知错误：{type(e).__name__} - {e}"
 
 
-def check_section_count(docx_path: str) -> tuple[bool, str]:
+def check_section_count(docx_path: str) -> tuple[str, str]:
     """检查分节数合理性。"""
     try:
         doc = Document(docx_path)
@@ -157,40 +253,54 @@ def check_section_count(docx_path: str) -> tuple[bool, str]:
 
         # 合理范围：至少 1 节，一般不超过 100 节
         if 1 <= n_sections <= 100:
-            return True, f"分节数：{n_sections} (合理)"
-        else:
-            return False, f"分节数异常：{n_sections}"
+            return PASS, f"分节数：{n_sections} (合理)"
+        return FAIL, f"分节数异常：{n_sections}"
     except PermissionError as e:
-        return False, f"文件权限不足：{e}"
+        return FAIL, f"文件权限不足：{e}"
     except FileNotFoundError as e:
-        return False, f"文件不存在：{e}"
+        return FAIL, f"文件不存在：{e}"
     except Exception as e:
-        return False, f"未知错误：{type(e).__name__} - {e}"
+        return ERROR, f"未知错误：{type(e).__name__} - {e}"
 
 
-def check_toc_field(docx_path: str) -> tuple[bool, str]:
-    """检查目录域存在且可更新。"""
+def count_toc_fields(doc) -> int:
+    """数正文里真实的 TOC 域：w:instrText 文本或 w:fldSimple 的 w:instr。
+
+    python-docx 没有 tables_of_contents 属性（1.2.0 实测 hasattr 为 False），
+    旧实现靠 hasattr 短路，于是这一项恒定「跳过」——9 项里有 1 项是死的。
+    这里下到 OOXML，与 post.py 注入 TOC 的写法（add_field → w:instrText）对齐。
+    """
+    from docx.oxml.ns import qn
+
+    body = doc.element.body
+    n = 0
+    for el in body.iter(qn("w:instrText")):
+        if re.search(r"(?i)\bTOC\b", el.text or ""):
+            n += 1
+    for el in body.iter(qn("w:fldSimple")):
+        if re.search(r"(?i)\bTOC\b", el.get(qn("w:instr")) or ""):
+            n += 1
+    return n
+
+
+def check_toc_field(docx_path: str) -> tuple[str, str]:
+    """检查目录域是否存在。
+
+    文档没有 TOC 域时返回 SKIP 而不是 PASS：不配目录是合法配置（toc:false、
+    表单类文档），但那意味着「这项没验证」，不该计进 passed。
+    """
     try:
         doc = Document(docx_path)
-
-        # 检查是否有目录 (tables_of_contents 是 python-docx 的属性名)
-        if not hasattr(doc, "tables_of_contents"):
-            return True, "目录域：跳过 (未检测到 tables_of_contents 属性)"
-
-        toc_count = len(doc.tables_of_contents)
-        if toc_count == 0:
-            # 没有 TOC 不一定失败，可能是表单类文档
-            return True, "目录域：无 TOC (表单/附录类文档常见)"
-
-        toc = doc.tables_of_contents[0]
-        return True, "目录域：存在 (%s)" % toc.style.name
+        n = count_toc_fields(doc)
+        if n == 0:
+            return SKIP, "跳过 (文档中没有 TOC 域；未要求目录的文档属正常)"
+        return PASS, f"目录域：{n} 个 TOC 域"
     except PermissionError as e:
-        return False, f"文件权限不足：{e}"
+        return FAIL, f"文件权限不足：{e}"
     except FileNotFoundError as e:
-        return False, f"文件不存在：{e}"
+        return FAIL, f"文件不存在：{e}"
     except Exception as e:
-        # 任何异常都视为通过，因为不是致命错误
-        return True, f"目录域：检查跳过 ({type(e).__name__}: {e})"
+        return ERROR, f"目录域检查异常：{type(e).__name__} - {e}"
 
 
 def export_pdf_once(docx_path: str, pdf_path: str, timeout: int = 300) -> tuple[bool, str]:
@@ -228,11 +338,11 @@ def export_pdf_once(docx_path: str, pdf_path: str, timeout: int = 300) -> tuple[
     return False, err[:300]
 
 
-def check_word_acceptance(export_ok: bool, export_err: str) -> tuple[bool, str]:
+def check_word_acceptance(export_ok: bool, export_err: str) -> tuple[str, str]:
     """真机验收：Word 打开 + 导出 PDF（基于步骤 1 的共享导出结果）。"""
     if export_ok:
-        return True, "Word 验收：OK"
-    return False, f"Word 验收失败：{export_err}"
+        return PASS, "Word 验收：OK"
+    return FAIL, f"Word 验收失败：{export_err}"
 
 
 # 页脚行识别：整行匹配才认，避免把正文里的数字（如「2026 年 9 月」）当页码。
@@ -273,12 +383,12 @@ def collect_page_numbers(pdf_doc) -> list:
     return numbers
 
 
-def check_page_numbering(pdf_path, max_pages: int = 1000) -> tuple[bool, str]:
+def check_page_numbering(pdf_path, max_pages: int = 1000) -> tuple[str, str]:
     """检查页码连续性 (基于共享导出的 PDF)。"""
     if pdf_path is None:
-        return False, "页码：无法检查 (Word 导出 PDF 失败)"
+        return SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)"
     if pymupdf is None:
-        return True, "页码：跳过 (未安装 PyMuPDF)"
+        return SKIP, "跳过 (未安装 PyMuPDF)"
     try:
         pdf_doc = pymupdf.open(pdf_path)
         try:
@@ -288,36 +398,36 @@ def check_page_numbering(pdf_path, max_pages: int = 1000) -> tuple[bool, str]:
             pdf_doc.close()
 
         if not page_numbers:
-            # 如果无法提取页码，至少确认页数合理
+            # 识别不出页码格式 = 连续性根本没验证。旧实现在这里返回 PASS 且
+            # 文案里写「连续」，把一个 fail-open 说成了通过。
             if 1 <= n_pages <= max_pages:
-                return True, f"页码：{n_pages}页 (连续，未检测到页码格式)"
-            else:
-                return False, f"页数异常：{n_pages}页"
+                return SKIP, f"跳过 (未识别到页脚页码格式，{n_pages}页；连续性未验证)"
+            return FAIL, f"页数异常：{n_pages}页"
 
         # 验证连续性：检测到的页码应构成无缺口的递增序列
         expected = list(range(min(page_numbers), max(page_numbers) + 1))
         if sorted(page_numbers) != expected:
             missing = set(expected) - set(page_numbers)
-            return False, f"页码不连续：缺失{sorted(missing)}"
+            return FAIL, f"页码不连续：缺失{sorted(missing)}"
 
         return (
-            True,
+            PASS,
             f"页码：{n_pages}页 (连续，检测到页码{min(page_numbers)}-{max(page_numbers)})",
         )
     except PermissionError as e:
-        return False, f"文件权限不足：{e}"
+        return FAIL, f"文件权限不足：{e}"
     except FileNotFoundError as e:
-        return False, f"文件不存在：{e}"
+        return FAIL, f"文件不存在：{e}"
     except Exception as e:
-        return False, f"检查失败：{type(e).__name__} - {e}"
+        return ERROR, f"检查失败：{type(e).__name__} - {e}"
 
 
-def check_blank_pages(pdf_path, max_empty: int = 0) -> tuple[bool, str]:
+def check_blank_pages(pdf_path, max_empty: int = 0) -> tuple[str, str]:
     """检查空白页数量 (基于共享导出的 PDF)。"""
     if pdf_path is None:
-        return False, "空白页：无法检查 (Word 导出 PDF 失败)"
+        return SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)"
     if pymupdf is None:
-        return True, "空白页：跳过 (未安装 PyMuPDF)"
+        return SKIP, "跳过 (未安装 PyMuPDF)"
     try:
         pdf_doc = pymupdf.open(pdf_path)
         try:
@@ -332,14 +442,19 @@ def check_blank_pages(pdf_path, max_empty: int = 0) -> tuple[bool, str]:
 
         passed = empty_count <= max_empty
         status = f"空白页：{empty_count}/{n_total} (阈值：{max_empty})"
-        return (passed, status) if passed else (False, status)
+        return (PASS if passed else FAIL, status)
     except Exception as e:
-        return False, f"检查失败：{type(e).__name__} - {e}"
+        return ERROR, f"检查失败：{type(e).__name__} - {e}"
 
 
-# 基线图的录制口径与 snapshot.py 一致：dpi=100、逐字节全量比对。
+# 基线图的录制口径与 snapshot.py 一致：dpi=100、逐字节比对。
 # 之前 validate 用 2x 矩阵渲染再抽样比对，与 baselines/ 的尺寸根本对不上，
-# 会把「没漂移」判成漂移——口径必须统一。
+# 会把「没漂移」判成漂移——dpi 口径必须统一。
+#
+# 覆盖面同样要统一：snapshot.py 是逐页全量，validate 曾经只比首/中/尾 3 页。
+# 272 页的标书第 137 页表格溢出时，抽样的 3 页可能全都干净，于是「视觉漂移」
+# 通过了——同一份文档在两套工具里给出两个结论。默认改为全量，
+# --sample-visual 才退回抽样（长文档快速预检用）。
 BASELINE_DPI = 100
 DEFAULT_MAX_DIFF = 0.001  # 0.1%，实测依据见 snapshot.py 注释
 
@@ -366,20 +481,33 @@ def baseline_page_diff(png_a: str, png_b: str) -> float:
     return diff_ratio(a.samples, b.samples)
 
 
+def sample_page_indices(n: int) -> list[int]:
+    """抽样页号 (0 基)：首 / 中 / 尾。只在 --sample-visual 下使用。"""
+    idxs = [0]
+    if n > 10:
+        idxs.append(n // 2)
+    if n > 1:
+        idxs.append(n - 1)
+    return sorted({i for i in idxs if 0 <= i < n})
+
+
 def check_visual_drift(
-    pdf_path, baseline_dir: str = None, max_diff: float = DEFAULT_MAX_DIFF
-) -> tuple[bool, str]:
-    """与基线比对视觉漂移 (基于共享导出的 PDF，口径同 snapshot.py)。"""
+    pdf_path,
+    baseline_dir: str = None,
+    max_diff: float = DEFAULT_MAX_DIFF,
+    sample: bool = False,
+) -> tuple[str, str]:
+    """与基线比对视觉漂移 (基于共享导出的 PDF，口径同 snapshot.py: 逐页全量)。"""
     if not baseline_dir or not os.path.exists(baseline_dir):
-        return True, "视觉基线：跳过 (未提供基线目录)"
+        return SKIP, "跳过 (未提供基线目录)"
     if pdf_path is None:
-        return False, "视觉基线：无法比对 (Word 导出 PDF 失败)"
+        return SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)"
     if pymupdf is None:
-        return False, "视觉基线：无法比对 (未安装 PyMuPDF：pip install PyMuPDF)"
+        return FAIL, "视觉基线：无法比对 (未安装 PyMuPDF：pip install PyMuPDF)"
 
     baseline_files = sorted(glob.glob(os.path.join(baseline_dir, "p*.png")))
     if not baseline_files:
-        return False, f"基线目录无图片：{baseline_dir}"
+        return FAIL, f"基线目录无图片：{baseline_dir}"
 
     try:
         diff_ratio = _import_diff_ratio()
@@ -387,19 +515,12 @@ def check_visual_drift(
         drifts = []
         try:
             n = len(doc)
-            if n < len(baseline_files):
-                return (
-                    False,
-                    f"页数 {n} 少于基线图数 {len(baseline_files)}，版式可能大改或基线需重录",
-                )
-            # 抽样比对：首 / 中 / 尾（与证据截图同一组页）
-            idxs = [0]
-            if n > 10:
-                idxs.append(n // 2)
-            idxs.append(min(n - 1, len(baseline_files) - 1))
+            n_base = len(baseline_files)
+            # 双向都要卡：变少是大改，变多同样是版式变了（旧实现只对变少报错）
+            if n != n_base:
+                return FAIL, f"页数 {n} != 基线 {n_base} 页，版式可能大改或基线需重录"
+            idxs = sample_page_indices(n) if sample else range(n)
             for i in idxs:
-                if i >= len(baseline_files):
-                    continue
                 cur = doc[i].get_pixmap(dpi=BASELINE_DPI).samples
                 base = pymupdf.Pixmap(baseline_files[i]).samples
                 r = diff_ratio(cur, base)
@@ -409,13 +530,15 @@ def check_visual_drift(
             doc.close()
 
         if drifts:
-            parts = [f"第{i}页漂移{r * 100:.2f}%" for i, r in drifts]
-            return False, "视觉漂移：" + ", ".join(parts)
-        return True, f"视觉基线：一致 (抽样 {len(idxs)} 页)"
+            parts = [f"第{i}页漂移{r * 100:.2f}%" for i, r in drifts[:5]]
+            more = "" if len(drifts) <= 5 else f" …共 {len(drifts)} 页"
+            return FAIL, "视觉漂移：" + ", ".join(parts) + more
+        scope = "抽样 %d 页" % len(sample_page_indices(n)) if sample else "全量 %d 页" % n
+        return PASS, f"视觉基线：一致 ({scope})"
     except ImportError as e:
-        return False, f"依赖缺失：{e} (需要 PyMuPDF)"
+        return ERROR, f"依赖缺失：{e} (需要 PyMuPDF)"
     except Exception as e:
-        return False, f"视觉比对异常：{type(e).__name__} - {e}"
+        return ERROR, f"视觉比对异常：{type(e).__name__} - {e}"
 
 
 # =============================================================================
@@ -430,6 +553,8 @@ def generate_evidence_package(
     expected_hash: str = None,
     max_empty: int = 0,
     baseline_dir: str = None,
+    source_md: str = None,
+    sample_visual: bool = False,
 ):
     """生成证据包：report.json + 截图 + signature。"""
     os.makedirs(out_dir, exist_ok=True)
@@ -443,7 +568,8 @@ def generate_evidence_package(
             "profile": profile or {},
         },
         "checks": {},
-        "summary": {"total": 0, "passed": 0, "failed": 0},
+        # skipped 独立于 passed：「没检查」不许冒充实测通过。
+        "summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
     }
 
     # 2. Word 只启动一次：导出共享 PDF，后面的页码/空白页/视觉比对/截图都用它
@@ -454,33 +580,46 @@ def generate_evidence_package(
         shared_pdf = pdf_path if export_ok else None
 
         # 3. 执行所有检查
+        md_ref_text = None
+        if source_md and os.path.exists(source_md):
+            md_ref_text = open(source_md, encoding="utf-8-sig").read()
+
         checks = [
             ("package_integrity", check_package_integrity, (docx_path,)),
-            ("source_content", check_source_content_integrity, (docx_path, expected_hash)),
-            ("image_embedding", check_image_embedding, (docx_path,)),
+            (
+                "source_content",
+                check_source_content_integrity,
+                (docx_path, expected_hash, source_md),
+            ),
+            ("image_embedding", check_image_embedding, (docx_path, md_ref_text)),
             ("section_count", check_section_count, (docx_path,)),
             ("toc_field", check_toc_field, (docx_path,)),
             ("page_numbering", check_page_numbering, (shared_pdf,)),
             ("blank_pages", check_blank_pages, (shared_pdf, max_empty)),
             ("word_acceptance", check_word_acceptance, (export_ok, export_err)),
-            ("visual_drift", check_visual_drift, (shared_pdf, baseline_dir)),
+            (
+                "visual_drift",
+                check_visual_drift,
+                (shared_pdf, baseline_dir, DEFAULT_MAX_DIFF, sample_visual),
+            ),
         ]
 
         for name, checker, args in checks:
             try:
-                passed, message = checker(*args)
-                report["checks"][name] = {
-                    "status": "PASS" if passed else "FAIL",
-                    "message": message,
-                }
-                report["summary"]["total"] += 1
-                if passed:
-                    report["summary"]["passed"] += 1
-                else:
-                    report["summary"]["failed"] += 1
+                status, message = checker(*args)
+                if status not in (PASS, FAIL, SKIP, ERROR):
+                    status, message = ERROR, f"检查返回了未知状态 {status!r}：{message}"
             except Exception as e:
-                report["checks"][name] = {"status": "ERROR", "message": f"检查异常：{e}"}
-                report["summary"]["total"] += 1
+                status, message = ERROR, f"检查异常：{type(e).__name__} - {e}"
+
+            report["checks"][name] = {"status": status, "message": message}
+            report["summary"]["total"] += 1
+            if status == PASS:
+                report["summary"]["passed"] += 1
+            elif status == SKIP:
+                report["summary"]["skipped"] += 1
+            else:
+                # FAIL 与 ERROR 都算不合格：检查崩了不等于文档合格
                 report["summary"]["failed"] += 1
 
         # 4. 生成 PDF 截图证据（复用同一份导出 PDF）
@@ -516,6 +655,8 @@ def generate_evidence_package(
         f.write(
             "checks_passed: %d/%d\n" % (report["summary"]["passed"], report["summary"]["total"])
         )
+        # 单独记 skipped：签名里也要能看出「9 项里有几项其实没查」
+        f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
 
     # 6. 保存报告
     report_path = os.path.join(out_dir, "report.json")
@@ -534,18 +675,22 @@ def print_report(report: dict, quiet: bool = False):
 
         # 检查项名称与状态在两种模式下都输出（quiet 只是省去标题装饰），
         # 否则调用方/CI 无法从 stdout 判断哪项检查出了问题。
+    symbols = {PASS: "✅", FAIL: "❌", SKIP: "⏭️", ERROR: "⚠️"}
     for name, check in report["checks"].items():
         status = check["status"]
         message = check["message"]
-        symbol = "✅" if status == "PASS" else "❌" if status == "FAIL" else "⚠️"
-        print(f"{symbol} [{status}] {name}: {message}")
+        print(f"{symbols.get(status, '⚠️')} [{status}] {name}: {message}")
 
     if not quiet:
         print("\nSummary")
         print("─" * 40)
 
     # Always print summary even in quiet mode
-    print(f"Passed: {report['summary']['passed']}/{report['summary']['total']}")
+    passed = report["summary"]["passed"]
+    total = report["summary"]["total"]
+    skipped = report["summary"].get("skipped", 0)
+    # 「8/9 通过 + 1 跳过」和「8/9 通过 + 1 失败」在旧口径下长得一样，这里分开写
+    print(f"Passed: {passed}/{total}" + (f" (skipped: {skipped})" if skipped else ""))
 
     if report["summary"]["failed"] > 0:
         print(f"\n❌ Validation FAILED ({report['summary']['failed']} checks failed)")
@@ -572,7 +717,17 @@ def main():
     )
     ap.add_argument("--profile", help="Profile JSON for visual baseline comparison")
     ap.add_argument("--baseline", help="Baseline directory for visual drift comparison")
-    ap.add_argument("--expected-hash", help="Expected SHA256 hash of source content")
+    ap.add_argument("--expected-hash", help="Expected SHA256 hash of the docx artifact")
+    ap.add_argument(
+        "--source-md",
+        help="Source Markdown (.md or a directory's merged text): enables real body-text "
+        "equivalence checking instead of the weaker artifact hash",
+    )
+    ap.add_argument(
+        "--sample-visual",
+        action="store_true",
+        help="Compare only first/middle/last page against the baseline (default: all pages)",
+    )
     ap.add_argument(
         "--max-empty",
         type=int,
@@ -595,7 +750,14 @@ def main():
     # profile 里可以声明 baseline_dir；命令行未提供时逐层回退
     baseline_dir = a.baseline or (profile.get("baseline_dir") if profile else None)
     report = generate_evidence_package(
-        a.docx, a.out, profile, a.expected_hash, a.max_empty, baseline_dir
+        a.docx,
+        a.out,
+        profile,
+        a.expected_hash,
+        a.max_empty,
+        baseline_dir,
+        a.source_md,
+        a.sample_visual,
     )
 
     # 打印报告

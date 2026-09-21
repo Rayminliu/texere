@@ -157,7 +157,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # 模板 �
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # 重建排版模板
 python scripts/snapshot.py 标书.pdf --update                     # 录版式基线（确认版式无误后）
 python scripts/snapshot.py 标书.pdf                              # 回归比对，漂移即 exit 1
-python -m pytest -q                                              # 162 项断言，约 6-7 分钟（需本机 Word）
+python -m pytest -q                                              # 195 项断言，约 6-7 分钟（需本机 Word）
 ```
 
 可运行示例——每个目录自带 Markdown + config，一条命令跑通（见 [examples/README.md](examples/README.md)）：
@@ -187,7 +187,18 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
 
 ### 契约：只改版式，不改内容
 
-`post.py` 不触碰正文与题注的**任何文字**。图表编号由源文件手写。
+**契约的作用域是后处理阶段。** `post.py` 不触碰正文与题注的**任何文字**。图表编号由源文件手写。
+
+契约比整条管线窄，Agent 依赖它做安全保证时，这个边界必须看清：
+
+- **后处理（`post.py`）——绝不改内容。** 这正是契约与
+  `tests/test_postprocess.py::test_never_touches_text` 真正守住的部分。
+- **渲染管线——可以改内容，但只在你显式要求时。** `content_fixes` / `content_fixes_file`
+  会在合并 md 之后、转换之前套用一张显式的 `[[旧, 新]]` 替换表（见「配置」）。
+  这张表为空时，输出文字确实逐字来自源文件；不为空时则不是。
+
+所以"输出文字来自源文件"是**你的配置的属性**，不是工具的属性。想直接验渲染结果而不是
+相信这句声明：`python scripts/validate.py 标书.docx --source-md src/01.md`。
 
 0.2.0 期间曾有过「图表自动编号 + `@tab:` 交叉引用」功能，因会改写题注文字、给无编号题注
 补号、且不同步手写引用，已**整体移除**。若将来要重做编号，正确做法是插入 Word 原生
@@ -217,14 +228,19 @@ evidence/
 | 检查项 | 验的是什么 |
 |---|---|
 | ✅ 包完整性 | docx 是含必需部件的合法 ZIP |
-| ✅ 源内容完整性 | 可选：与预期哈希比对 |
-| ✅ 图片嵌入 | 源里引用的图片全部嵌入（n/m ok） |
+| ✅ 源内容 | `--source-md`：Markdown 各段是否都出现在 docx 正文里；`--expected-hash`：docx 文件级 SHA256（只能证明字节未变）；两者都不给 → SKIP |
+| ✅ 图片嵌入 | 嵌入数 ≥ 引用数 —— 只是下限计数，不校验第几张图对应哪处引用 |
 | ✅ 分节数 | 分节数量合理（1–100） |
-| ✅ 目录域 | 目录存在且可更新 |
-| ✅ 页码 | 页码连续无缺口（只看页脚区域） |
+| ✅ 目录域 | OOXML 里存在真实的 `TOC` 域（文档本就没有目录 → SKIP） |
+| ✅ 页码 | 页脚页码构成无缺口序列（识别不出页码格式 → SKIP） |
 | ✅ 空白页 | 不超阈值（默认允许 0 个） |
 | ✅ Word 验收 | 真 Word 能打开并成功导出 PDF |
-| ✅ 版式基线漂移 | 与基线逐像素比对（需先提供基线） |
+| ✅ 版式基线漂移 | 与基线逐页逐像素比对，默认全量 |
+
+**四种状态，SKIP 不等于 PASS。** 每项检查报 `PASS` / `FAIL` / `SKIP` / `ERROR` 之一。
+`SKIP` 表示前置条件缺失（没给基线、没给 `--source-md`、没装 PyMuPDF），这项**根本没查**；
+它不计入通过数，但也不单独让门禁失败。只有 `FAIL` 与 `ERROR` 会让退出码变成 1。
+`Passed: 7/9 (skipped: 2)` 与 `Passed: 9/9` 是分量完全不同的两句话，报告里会分开写出来。
 
 示例输出：
 
@@ -232,18 +248,18 @@ evidence/
 Document Validation
 ────────────────────────────
 ✅ [PASS] package_integrity: OK
-✅ [PASS] source_content: Skip (未提供 expected_hash)
-✅ [PASS] image_embedding: 图片嵌入：28/28 ok
+⏭️ [SKIP] source_content: 跳过 (未提供 --source-md 或 --expected-hash)
+✅ [PASS] image_embedding: 图片嵌入：28/28 ok (仅数量，不校验对应关系)
 ✅ [PASS] section_count: 分节数：3 (合理)
-✅ [PASS] toc_field: 目录域：存在 (Table of Contents 1)
-✅ [PASS] page_numbering: 页码：69 页 (连续)
+✅ [PASS] toc_field: 目录域：1 个 TOC 域
+✅ [PASS] page_numbering: 页码：69 页 (连续，检测到页码 1-69)
 ✅ [PASS] blank_pages: 空白页：0/69 (阈值：0)
 ✅ [PASS] word_acceptance: Word 验收：OK
-✅ [PASS] visual_drift: 视觉基线：一致
+⏭️ [SKIP] visual_drift: 跳过 (未提供基线目录)
 
 Summary
 ────────────────────────────
-Passed: 9/9
+Passed: 7/9 (skipped: 2)
 
 ✅ All checks passed
 
@@ -498,7 +514,7 @@ pre-commit install               # 一次性
 ruff check scripts/ tests/              # 静态检查
 ruff format --check scripts/ tests/     # 格式
 pre-commit run --all-files              # 上面这些一次跑完
-python -m pytest -q                     # 全量：162 项断言，约 6-7 分钟（需本机 Word）
+python -m pytest -q                     # 全量：195 项断言，约 6-7 分钟（需本机 Word）
 ```
 
 pre-commit 钩子在 lint / format 之外，还跑一组**不启动 Word 的快速测试子集**
@@ -531,7 +547,7 @@ pre-commit 钩子在 lint / format 之外，还跑一组**不启动 Word 的快�
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `SCRIPT_HELP.md` —— 各脚本 CLI 参考（单一来源，见顶部「文档地图」） |
 | `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 162 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
+| `tests/` | 195 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

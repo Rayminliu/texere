@@ -165,7 +165,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 162 assertions, ~6-7 min (needs local Word)
+python -m pytest -q                                              # 195 assertions, ~6-7 min (needs local Word)
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -200,8 +200,22 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
 
 ### Contract: layout only, never content
 
-`post.py` does not touch **any** of the text in the body or the captions. Figure and table numbers are
-hand-written in the source.
+**Scope: the post-processing stage.** `post.py` does not touch **any** of the text in the body or the
+captions. Figure and table numbers are hand-written in the source.
+
+The contract is narrower than the whole pipeline, and that difference matters the moment an agent
+relies on it:
+
+- **Post-processing (`post.py`) — never touches content.** This is what the contract and
+  `tests/test_postprocess.py::test_never_touches_text` actually guarantee.
+- **Render pipeline — may transform content, but only if you ask.** `content_fixes` /
+  `content_fixes_file` apply an explicit `[[old, new]]` replacement table after the Markdown is
+  merged and before conversion (see Configuration). With that table empty, every output character
+  does come from the source; with it populated, it does not.
+
+So "output text comes from the source" is a property of *your config*, not of the tool. To check the
+rendered body against the source instead of trusting the claim:
+`python scripts/validate.py bid.docx --source-md src/01.md`.
 
 Version 0.2.0 briefly shipped an "automatic figure numbering + `@tab:` cross-references" feature. It was
 **removed entirely** because it rewrote caption text, added numbers to captions that had none, and left
@@ -232,14 +246,20 @@ The report contains 9 automated checks:
 | Check | What it verifies |
 |---|---|
 | ✅ Package integrity | DOCX is a valid ZIP with required parts |
-| ✅ Source content integrity | Optional hash verification against expected value |
-| ✅ Image embedding | All referenced images are embedded (n/m ok) |
+| ✅ Source content | `--source-md`: every Markdown segment is present in the docx body. `--expected-hash`: file-level SHA256 of the docx (byte equality only). Neither given → SKIP |
+| ✅ Image embedding | Embedded count ≥ referenced count — a lower bound, not a per-image mapping |
 | ✅ Section count | Reasonable number of sections (1–100) |
-| ✅ TOC field | Table of contents exists and can be updated |
-| ✅ Page numbering | Pages are continuous, no gaps |
+| ✅ TOC field | A real `TOC` field exists in the OOXML (document has no TOC → SKIP) |
+| ✅ Page numbering | Footer numbers form a gap-free sequence (no numbers detected → SKIP) |
 | ✅ Blank pages | Below threshold (default: 0 allowed) |
 | ✅ Word acceptance | Real Word opens and exports PDF successfully |
-| ✅ Visual baseline drift | Pixel comparison against baseline (if provided) |
+| ✅ Visual baseline drift | Per-page pixel comparison against the baseline — all pages by default |
+
+**Four statuses, and SKIP is not PASS.** Every check reports `PASS` / `FAIL` / `SKIP` / `ERROR`.
+`SKIP` means a precondition was missing — no baseline, no `--source-md`, no PyMuPDF — so the check
+never actually ran; it is excluded from the passed count and does not by itself fail the gate. Only
+`FAIL` and `ERROR` set exit code 1. `Passed: 7/9 (skipped: 2)` is a materially weaker statement than
+`Passed: 9/9`, and the report says so out loud.
 
 Example output:
 
@@ -247,18 +267,18 @@ Example output:
 Document Validation
 ────────────────────────────
 ✅ [PASS] package_integrity: OK
-✅ [PASS] source_content: Skip (未提供 expected_hash)
-✅ [PASS] image_embedding: 图片嵌入：28/28 ok
+⏭️ [SKIP] source_content: 跳过 (未提供 --source-md 或 --expected-hash)
+✅ [PASS] image_embedding: 图片嵌入：28/28 ok (仅数量，不校验对应关系)
 ✅ [PASS] section_count: 分节数：3 (合理)
-✅ [PASS] toc_field: 目录域：存在 (Table of Contents 1)
-✅ [PASS] page_numbering: 页码：69 页 (连续)
+✅ [PASS] toc_field: 目录域：1 个 TOC 域
+✅ [PASS] page_numbering: 页码：69 页 (连续，检测到页码 1-69)
 ✅ [PASS] blank_pages: 空白页：0/69 (阈值：0)
 ✅ [PASS] word_acceptance: Word 验收：OK
-✅ [PASS] visual_drift: 视觉基线：一致
+⏭️ [SKIP] visual_drift: 跳过 (未提供基线目录)
 
 Summary
 ────────────────────────────
-Passed: 9/9
+Passed: 7/9 (skipped: 2)
 
 ✅ All checks passed
 
@@ -533,7 +553,7 @@ pre-commit install               # one-time
 ruff check scripts/ tests/              # lint
 ruff format --check scripts/ tests/     # format
 pre-commit run --all-files              # everything below, at once
-python -m pytest -q                     # full suite: 162 assertions, ~6-7 min (needs local Word)
+python -m pytest -q                     # full suite: 195 assertions, ~6-7 min (needs local Word)
 ```
 
 The pre-commit hook runs the lint/format checks plus a **fast test subset** (`test_version`, `test_docs_sync`,
@@ -567,7 +587,7 @@ docs-vs-code guards still bite. Run the full suite manually before pushing.
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` — per-script CLI reference (see the Documentation map above) |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 162 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
+| `tests/` | 195 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

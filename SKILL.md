@@ -10,8 +10,11 @@ compatibility: Requires Windows with a local Microsoft Word (COM), pandoc 3.1 or
 **Reference/Spec → Deterministic Document → Evidence**
 
 Three pillars: **compiler, not converter** (every visual rule is explicit in `ref.docx` + config);
-**contract, not guesswork** (layout only — output text comes from the source, character by character);
-**evidence, not hope** (one command produces a 9-check report + screenshots + signature).
+**contract, not guesswork** (post-processing is layout-only — it never rewrites body or caption text;
+the pipeline stays faithful *unless* `content_fixes` is configured, and that is an explicit
+replacement table you wrote, not a silent rewrite);
+**evidence, not hope** (one command produces a 9-check report + screenshots + signature, where every
+check reports PASS / FAIL / SKIP / ERROR and SKIP is never counted as PASS).
 
 > **Documentation map**: this file is the agent entry point — decisions, contracts, pitfalls, commands.
 > Field-level detail (every config key, `style` table, table syntax, known limitations) lives **only**
@@ -37,7 +40,7 @@ python scripts/patch.py bid.docx patch.json --apply --validate
 # Edit an existing docx (targeted, opposite contract — see "Two chains")
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
 
-python -m pytest -q                   # 162 assertions (~6-7 min; validator tests need local Word; no hosted CI)
+python -m pytest -q                   # 195 assertions (~6-7 min; validator tests need local Word; no hosted CI)
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 
@@ -68,11 +71,15 @@ Do **not** use it for:
 
 ## Hard contract and pitfalls
 
-1. **Layout only, never content.** `post.py` does not touch any text in body or captions. Figure and
-   table numbers are **hand-written** in the source; renumber manually after insert/delete. An
-   `auto_number` feature once existed, silently corrupted body text, and was removed entirely — do
-   not reintroduce caption rewriting. If automatic numbering is ever needed: Word `SEQ`/`REF` fields.
-   Guarded by `tests/test_postprocess.py::test_never_touches_text`.
+1. **Layout only, never content — scoped to `post.py`.** `post.py` does not touch any text in body or
+   captions. Figure and table numbers are **hand-written** in the source; renumber manually after
+   insert/delete. An `auto_number` feature once existed, silently corrupted body text, and was
+   removed entirely — do not reintroduce caption rewriting. If automatic numbering is ever needed:
+   Word `SEQ`/`REF` fields. Guarded by `tests/test_postprocess.py::test_never_touches_text`.
+   The scope matters: `content_fixes` / `content_fixes_file` run *earlier*, in the render pipeline
+   (after merging Markdown, before conversion), and they do rewrite text — on purpose, from a table
+   the user supplied. Never tell an agent "output text is byte-identical to the source" without
+   checking whether that config key is populated.
 2. **Cover lines carry no leading/trailing blanks** — `post.py` appends one blank `CoverInfo`
    paragraph itself; extra blanks overflow the cover onto a second page.
 3. **Do not put content before the first `#`** — it lands after the TOC (or at the top when
@@ -137,11 +144,16 @@ After any real render, the delivery gate is one command:
 python scripts/validate.py bid.docx --out evidence/
 ```
 
-Nine checks run against a **single** shared Word export: package integrity, source content (hash),
-image embedding, section count, TOC field, page numbering (footer region only, continuity),
-blank pages (threshold), Word acceptance, visual drift (optional baseline). Exit code 1 on any
-failure. Output: `report.json` + sampled page screenshots + SHA256 `signature`. Check-by-check
-table: README §Validation.
+Nine checks run against a **single** shared Word export: package integrity, source content
+(`--source-md` body comparison, else `--expected-hash` artifact hash), image embedding, section
+count, TOC field, page numbering (footer region only, continuity), blank pages (threshold), Word
+acceptance, visual drift (baseline, **all pages** by default). Exit code 1 on FAIL or ERROR.
+Output: `report.json` + sampled page screenshots + SHA256 `signature` (which also records how many
+checks were skipped).
+
+Read the statuses before trusting the gate: a check that could not run reports `SKIP` and is not
+counted as passed. `Passed: 7/9 (skipped: 2)` means two things were never verified — treat that as
+weaker evidence, not as a pass. Check-by-check table: README §Validation.
 
 ## Patch schema (Agent API)
 
