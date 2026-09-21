@@ -1,6 +1,6 @@
 [project]
 name = "texere"
-version = "0.6.0"
+version = "0.6.1"
 description = "把 Markdown 渲染成排版合格的中文正式 docx / PDF（标书 / 申报书 / 结题报告）"
 readme = "README.md"
 license = "MIT"

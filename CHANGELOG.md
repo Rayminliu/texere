@@ -4,6 +4,22 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 0.6.1 — 2026-09-21
+
+**文档信息分层治理**（使用反馈："同一件事在 SKILL/README/BEST_PRACTICES 各有一份，
+你在跟漂移打架"——属实，本轮把约定机制化）
+
+- README×2 顶部新增「文档地图」：每条信息只住一个地方，其余文档只指路不复述
+- 删除 `docs/CONFIG_SCHEMA.md`：它是 README 配置字段表的第 4 份拷贝
+  （0.5.1 审查时造的文件，本身就成了漂移源——诚实记录这个弯路）
+- `SKILL.md` 384 行 → 162 行：删去与 README/SCRIPT_HELP 重复的输入要求细节、
+  grid 语法块、模板继承表、9 项检查表、repository map，改为引用；
+  保留 agent 工作必需的决策信息（硬契约、陷阱清单、Patch schema、验收门槛）
+- `BEST_PRACTICES.md`：删「Markdown 写作规范」重复段（指向 README），只留场景经验
+- `test_docs_sync.py` 新增字段表守卫：`| \`key` | 说明 |` 式表格出现在
+  SKILL/BEST_PRACTICES 即 commit 失败——单一来源约定从自觉变成机器强制
+- 测试 154 项全绿
+
 ## 0.6.0 — 2026-09-21
 
 **使用反馈落地：批量编辑三件套 + 无目录模式 + 文档守卫**

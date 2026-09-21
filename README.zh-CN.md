@@ -20,6 +20,18 @@
 | **做** | Markdown 目录 → docx / PDF；封面、目录域、分节页码、页眉；表格排版（框线 / 表头 / 跨页重复 / 斑马纹）；表题与图注规范；交付前的一键验收（Word 能否打开、有无空白页、版式有无漂移）；**对已有 docx 做定点编辑**（改文字、增删段落、改单元格、改页眉页脚），且不重排其余部分 |
 | **不做** | 已有 docx 上的**批注、修订、脱敏、无障碍、水印**——那类任务请用通用 docx 技能；图表自动编号（编号手写，见「契约」）；学位论文所需的参考文献、公式编号、奇偶页页眉 |
 
+## 文档地图
+
+每条信息只住在**一个**地方，其余文档只指路不复述（信息漂移让我们吃过亏，
+CLI 层面已由 `tests/test_docs_sync.py` 把守）：
+
+| 文件 | 负责什么 |
+|---|---|
+| `README.zh-CN.md` / `README.md` | 面向人的手册：config 字段、`style` 键、表格语法、输入规则、已知限制 |
+| `SKILL.md` | Agent 入口：何时用/不用、硬契约、验收门槛、Patch schema、陷阱清单 |
+| `BEST_PRACTICES.md` | 场景经验：profile 选择、表格配方、调试案例、FAQ |
+| `docs/SCRIPT_HELP.md` | 各脚本 CLI 参考（参数的单一来源，与代码互相把守） |
+
 ## 快速开始
 
 外部依赖：`pandoc` 必需；`--pdf` 需要本机 Word。
@@ -92,7 +104,7 @@ python scripts/render.py --sample                                    # 冒烟测
 # 正式渲染（--check 会自动补 --pdf）
 python scripts/render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check
 
-python -m pytest -q                        # 152 项断言，约 6-7 分钟（验收器相关用例需本机 Word）
+python -m pytest -q                        # 154 项断言，约 6-7 分钟（验收器相关用例需本机 Word）
 python scripts/snapshot.py 标书.pdf --update  # 录版式基线（确认版式无误后执行）
 python scripts/snapshot.py 标书.pdf           # 回归比对，漂移即 exit 1
 python scripts/make_ref.py --body-font 楷体    # 重建排版模板（改字体/字号时）
@@ -383,9 +395,9 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 | `assets/ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
 | `assets/sample.md` / `assets/sample_config.json` | 冒烟测试样例（投标文件风格） |
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
-| `docs/` | `CONFIG_SCHEMA.md`（统一配置字段参考）与 `SCRIPT_HELP.md`（各脚本 CLI 帮助） |
+| `docs/` | `SCRIPT_HELP.md` —— 各脚本 CLI 参考（单一来源，见顶部「文档地图」） |
 | `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 152 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、CLI 文档同步守卫（`test_docs_sync.py`） |
+| `tests/` | 154 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、CLI 文档同步守卫（`test_docs_sync.py`） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

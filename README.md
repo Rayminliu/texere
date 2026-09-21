@@ -28,6 +28,18 @@ with an evidence package proving it's delivery-ready.
 | **Does** | Markdown → docx / PDF; cover page, TOC field, per-section page numbers, headers; table typesetting (borders / header rows / repeating headers / zebra stripes); caption conventions for tables and figures; one-command pre-delivery acceptance (does Word open it, are there blank pages, did the layout drift); **targeted edits to an existing docx** (replace text, insert/delete paragraphs, table cells, headers/footers) without re-typesetting the rest |
 | **Doesn't** | Comments, tracked changes, redaction, accessibility and watermarks on an existing docx — use a general-purpose docx skill for those; automatic figure numbering (numbers are hand-written, see *Contract*); thesis features such as bibliography, equation numbering, odd/even page headers |
 
+## Documentation map
+
+Every piece of information lives in exactly **one** place; the other files link instead of duplicating
+(drift has bitten us before, and `tests/test_docs_sync.py` now guards the CLI surface):
+
+| File | Owns |
+|---|---|
+| `README.md` (+ `.zh-CN` mirror) | The human manual: config fields, `style` keys, table syntax, input rules, known limitations |
+| `SKILL.md` | Agent entry: when to use / not, hard contract, acceptance gate, Patch schema, pitfalls |
+| `BEST_PRACTICES.md` | Scenario experience: profile choice, styling recipes, debugging cases, FAQ |
+| `docs/SCRIPT_HELP.md` | Per-script CLI reference (single source for options; guarded against the code) |
+
 > **Scope note.** This tool is opinionated about *Chinese* formal documents: A4 paper, 宋体 (SimSun) body text,
 > 黑体 (SimHei) headings, 2-character first-line indent, full-width punctuation. It is not a general
 > Markdown → docx converter — that is what pandoc is. Enabling the `caption_words` option lets you
@@ -140,7 +152,7 @@ python scripts/patch.py bid.docx patch.json --dry-run    # simulate first
 python scripts/patch.py bid.docx patch.json --apply --out result.docx
 python scripts/patch.py bid.docx patch.json --apply --validate
 
-python -m pytest -q                        # 152 assertions, ~6-7 min (validator tests need local Word)
+python -m pytest -q                        # 154 assertions, ~6-7 min (validator tests need local Word)
 python scripts/snapshot.py bid.pdf --update  # record layout baseline (after confirming the layout)
 python scripts/snapshot.py bid.pdf           # regression compare; exits 1 on drift
 python scripts/make_ref.py --body-font 楷体   # rebuild the typesetting template
@@ -513,9 +525,9 @@ Want a narrow "No." column? Write it narrow.
 | `assets/ref.docx` | The Chinese typesetting template: 宋体 body, 黑体 heading ladder, table borders, caption styles, cover styles (CoverTop/…), callout styles (Lead/SmallNote) |
 | `assets/sample.md` / `assets/sample_config.json` | Smoke-test sample (tender-document style) |
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
-| `docs/` | `CONFIG_SCHEMA.md` (unified config field reference) and `SCRIPT_HELP.md` (per-script CLI help) |
+| `docs/` | `SCRIPT_HELP.md` — per-script CLI reference (see the Documentation map above) |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 152 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), CLI-docs sync guard (`test_docs_sync.py`) |
+| `tests/` | 154 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), CLI-docs sync guard (`test_docs_sync.py`) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

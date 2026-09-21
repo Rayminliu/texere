@@ -75,3 +75,21 @@ def test_script_help_docs_have_no_invented_options(doc_text):
     documented = set(re.findall(r"`(--[a-z][a-z0-9-]*)`", doc_text))
     fake = sorted(o for o in documented if o not in real)
     assert not fake, "文档写了代码里不存在的参数: %s" % fake
+
+
+# 字段说明表行：首列是单个反引号标识符，如 "| `cover` | 封面行 ... |"。
+# 这种表只允许住在手册（README*）和 CLI 参考（SCRIPT_HELP）里——
+# SKILL/BEST_PRACTICES 复述字段表就是漂移源（文档地图约定的单一来源）。
+FIELD_TABLE_ROW = re.compile(r"^\|\s*`[A-Za-z_][A-Za-z0-9_]*`\s*\|.*$", re.MULTILINE)
+
+
+@pytest.mark.parametrize("doc", ["SKILL.md", "BEST_PRACTICES.md"])
+def test_no_field_reference_tables_outside_manual(doc):
+    """字段/参数说明表不得在 SKILL.md 与 BEST_PRACTICES.md 中复述，只能引用。"""
+    with open(os.path.join(KIT, doc), encoding="utf-8") as f:
+        text = f.read()
+    hits = FIELD_TABLE_ROW.findall(text)
+    assert not hits, "%s 复述了字段说明表（应改为引用 README/SCRIPT_HELP）: %s" % (
+        doc,
+        [h[:40] for h in hits[:3]],
+    )
