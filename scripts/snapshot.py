@@ -15,7 +15,7 @@ import operator
 import os
 import sys
 
-import fitz
+import pymupdf
 
 DEFAULT_DPI = 100
 # 0.1%。实测：同一文档重复导出 PDF 的差异为 0.00%，而改一个页眉文字会产生 0.16%，
@@ -63,7 +63,7 @@ def main(argv):
     base_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "baselines")
     meta_path = os.path.join(base_dir, "meta.json")
 
-    doc = fitz.open(pdf)
+    doc = pymupdf.open(pdf)
     samples = [doc[i].get_pixmap(dpi=dpi).samples for i in range(doc.page_count)]
 
     if update:
@@ -96,7 +96,7 @@ def main(argv):
         if not os.path.exists(bp):
             print("FAIL: 缺少基线 %s" % bp)
             return 1
-        r = diff_ratio(samples[i], fitz.Pixmap(bp).samples)
+        r = diff_ratio(samples[i], pymupdf.Pixmap(bp).samples)
         worst = max(worst, r)
         if r > max_diff:
             bad.append((i + 1, r))

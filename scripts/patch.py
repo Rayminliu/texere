@@ -294,7 +294,7 @@ def set_cell_op(doc: Document, op: dict) -> tuple[bool, str]:
 
         cell = edit._cell(doc, ti, ri, ci)
         old = cell.text
-        edit._set_cell_text(cell, value)
+        edit._set_cell_text(cell, value, doc.tables[ti])
 
         return True, f"单元格 [{ti}][{ri},{ci}]: {old[:20]} -> {value[:20]}"
     except Exception as e:
@@ -322,7 +322,7 @@ def add_row_op(doc: Document, op: dict) -> tuple[bool, str]:
 
         for i, v in enumerate(values):
             if i < len(row.cells):
-                edit._set_cell_text(row.cells[i], v)
+                edit._set_cell_text(row.cells[i], v, table)
 
         return True, f"表{ti}: 新增 1 行（{len(values)}列）"
     except Exception as e:

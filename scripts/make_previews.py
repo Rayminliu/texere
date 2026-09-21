@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(KIT, "assets", "previews")
@@ -53,9 +53,9 @@ def pick_page(doc):
 
 
 def save_preview(pdf, page_idx, out_png, zoom=1.4):
-    doc = fitz.open(pdf)
+    doc = pymupdf.open(pdf)
     try:
-        pix = doc[page_idx].get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        pix = doc[page_idx].get_pixmap(matrix=pymupdf.Matrix(zoom, zoom))
         pix.save(out_png)
         print("preview: %s (p%d, %dx%d)" % (os.path.basename(out_png), page_idx + 1, pix.width, pix.height))
     finally:
@@ -70,7 +70,7 @@ def main():
             pdf = render_pdf(name)
             if not pdf:
                 continue
-            doc = fitz.open(pdf)
+            doc = pymupdf.open(pdf)
             try:
                 idx = pick_page(doc)
             finally:

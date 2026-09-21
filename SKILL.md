@@ -80,6 +80,9 @@ Do **not** use it for:
   are not supported.
 - **English-language documents** — the defaults (A4, SimSun/SimHei, full-width punctuation, Chinese caption
   keywords) are Chinese-document conventions. `caption_words` changes the keywords, not the typography.
+- **Bulk content filling** — the editing chain (`edit.py`) is for targeted, point edits; it does not fill
+  a form or table from a data source. Do the bulk fill yourself (or via `--cell` / `--add-row` one cell
+  at a time) and then use this skill for typesetting and acceptance.
 
 ## Input requirements
 

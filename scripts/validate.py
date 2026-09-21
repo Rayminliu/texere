@@ -34,12 +34,15 @@ import tempfile
 from datetime import datetime
 
 try:
-    import fitz  # PyMuPDF：包结构/分节等基础检查不需要它，页码/空白页/视觉比对才需要
+    import pymupdf  # PyMuPDF：包结构/分节等基础检查不需要它，页码/空白页/视觉比对才需要
 except ImportError:
-    fitz = None
+    pymupdf = None
 from docx import Document
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 子进程管道统一 UTF-8 输出，避免 GBK 编码被 utf-8 解码成乱码（同 render.py）
+UTF8_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 
 def _read_version() -> str:
@@ -209,6 +212,7 @@ def export_pdf_once(docx_path: str, pdf_path: str, timeout: int = 300) -> tuple[
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            env=UTF8_ENV,
         )
     except subprocess.TimeoutExpired:
         return False, f"Word 导出超时 ({timeout}s)"
@@ -273,10 +277,10 @@ def check_page_numbering(pdf_path, max_pages: int = 1000) -> tuple[bool, str]:
     """检查页码连续性 (基于共享导出的 PDF)。"""
     if pdf_path is None:
         return False, "页码：无法检查 (Word 导出 PDF 失败)"
-    if fitz is None:
+    if pymupdf is None:
         return True, "页码：跳过 (未安装 PyMuPDF)"
     try:
-        pdf_doc = fitz.open(pdf_path)
+        pdf_doc = pymupdf.open(pdf_path)
         try:
             n_pages = len(pdf_doc)
             page_numbers = collect_page_numbers(pdf_doc)
@@ -312,10 +316,10 @@ def check_blank_pages(pdf_path, max_empty: int = 0) -> tuple[bool, str]:
     """检查空白页数量 (基于共享导出的 PDF)。"""
     if pdf_path is None:
         return False, "空白页：无法检查 (Word 导出 PDF 失败)"
-    if fitz is None:
+    if pymupdf is None:
         return True, "空白页：跳过 (未安装 PyMuPDF)"
     try:
-        pdf_doc = fitz.open(pdf_path)
+        pdf_doc = pymupdf.open(pdf_path)
         try:
             empty_count = 0
             for page_num in range(len(pdf_doc)):
@@ -352,11 +356,11 @@ def _import_diff_ratio():
 
 def baseline_page_diff(png_a: str, png_b: str) -> float:
     """解码两张 PNG 并逐像素比较，返回差异比例 0..1；尺寸不同视为 1.0。"""
-    if fitz is None:
+    if pymupdf is None:
         raise RuntimeError("需要 PyMuPDF：pip install PyMuPDF")
     diff_ratio = _import_diff_ratio()
-    a = fitz.Pixmap(png_a)
-    b = fitz.Pixmap(png_b)
+    a = pymupdf.Pixmap(png_a)
+    b = pymupdf.Pixmap(png_b)
     if (a.width, a.height) != (b.width, b.height):
         return 1.0
     return diff_ratio(a.samples, b.samples)
@@ -370,7 +374,7 @@ def check_visual_drift(
         return True, "视觉基线：跳过 (未提供基线目录)"
     if pdf_path is None:
         return False, "视觉基线：无法比对 (Word 导出 PDF 失败)"
-    if fitz is None:
+    if pymupdf is None:
         return False, "视觉基线：无法比对 (未安装 PyMuPDF：pip install PyMuPDF)"
 
     baseline_files = sorted(glob.glob(os.path.join(baseline_dir, "p*.png")))
@@ -379,7 +383,7 @@ def check_visual_drift(
 
     try:
         diff_ratio = _import_diff_ratio()
-        doc = fitz.open(pdf_path)
+        doc = pymupdf.open(pdf_path)
         drifts = []
         try:
             n = len(doc)
@@ -397,7 +401,7 @@ def check_visual_drift(
                 if i >= len(baseline_files):
                     continue
                 cur = doc[i].get_pixmap(dpi=BASELINE_DPI).samples
-                base = fitz.Pixmap(baseline_files[i]).samples
+                base = pymupdf.Pixmap(baseline_files[i]).samples
                 r = diff_ratio(cur, base)
                 if r > max_diff:
                     drifts.append((i + 1, r))
@@ -480,8 +484,8 @@ def generate_evidence_package(
                 report["summary"]["failed"] += 1
 
         # 4. 生成 PDF 截图证据（复用同一份导出 PDF）
-        if shared_pdf is not None and fitz is not None:
-            pdf_doc = fitz.open(shared_pdf)
+        if shared_pdf is not None and pymupdf is not None:
+            pdf_doc = pymupdf.open(shared_pdf)
             try:
                 # 抽样截图：第 1 页、中间页、最后一页
                 sample_pages = [0]
@@ -491,7 +495,7 @@ def generate_evidence_package(
 
                 for page_idx in sample_pages:
                     page = pdf_doc[page_idx]
-                    zoom = fitz.Matrix(2, 2)  # 2x 缩放（证据图只给人看，不受基线口径约束）
+                    zoom = pymupdf.Matrix(2, 2)  # 2x 缩放（证据图只给人看，不受基线口径约束）
                     pix = page.get_pixmap(matrix=zoom)
                     img_path = os.path.join(out_dir, f"page-{page_idx + 1:03d}.png")
                     pix.save(img_path)

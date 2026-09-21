@@ -13,7 +13,7 @@
 import os
 import sys
 
-import fitz
+import pymupdf
 
 if len(sys.argv) < 2:
     sys.exit("用法: python scripts/check_pdf.py <file.pdf> [--max-empty N] [页码...]")
@@ -33,7 +33,7 @@ while _i < len(_args):
         pages_want.append(int(_args[_i]))
         _i += 1
 
-doc = fitz.open(PDF)
+doc = pymupdf.open(PDF)
 print("pages:", doc.page_count)
 
 sparse = []

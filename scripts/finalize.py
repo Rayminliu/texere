@@ -1,6 +1,7 @@
-"""Word COM 验收 + 导出 PDF：python scripts/finalize.py <in.docx> <out.pdf>
+"""Word COM 验收 + 导出 PDF：python scripts/finalize.py <in.docx> [out.pdf]
 
 验收信号：Word 打不开 = OOXML 结构有问题（立即失败）；同时刷新目录域并重排页码后存回。
+out.pdf 缺省取输入同名 .pdf（长中文名手打容易错，这里自动推导）。
 输出：页数 / 字数 / 表数 / 图数 / 节数。
 """
 
@@ -10,9 +11,10 @@ import sys
 import pythoncom
 import win32com.client as win32
 
-if len(sys.argv) < 3:
-    sys.exit("用法: python scripts/finalize.py <in.docx> <out.pdf>")
-SRC, PDF = sys.argv[1], sys.argv[2]
+if len(sys.argv) < 2:
+    sys.exit("用法: python scripts/finalize.py <in.docx> [out.pdf]")
+SRC = sys.argv[1]
+PDF = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(SRC)[0] + ".pdf"
 
 WD_PAGES, WD_WORDS = 2, 0
 WD_PDF = 17

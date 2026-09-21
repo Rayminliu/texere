@@ -537,11 +537,11 @@ def test_render_finds_sibling_media(tmp_path):
 
     build/src/*.md 引用了 build/media_plan/*.jpg）。
     """
-    fitz = pytest.importorskip("fitz")
+    pymupdf = pytest.importorskip("pymupdf")
     proj = tmp_path / "proj"
     (proj / "src").mkdir(parents=True)
     (proj / "media").mkdir()
-    fitz.open().new_page().get_pixmap().save(str(proj / "media" / "img.png"))
+    pymupdf.open().new_page().get_pixmap().save(str(proj / "media" / "img.png"))
     (proj / "src" / "01.md").write_text(
         "# 第一章\n\n![图 1-1 兄弟目录图片](media/img.png)\n\n正文。\n",
         encoding="utf-8",
@@ -570,12 +570,12 @@ def test_render_finds_sibling_media(tmp_path):
 
 def test_images_survive_postprocess(tmp_path):
     """后处理绝不能把图片弄丢（曾被自动编号抹掉过 28 张）。"""
-    fitz = pytest.importorskip("fitz")
+    pymupdf = pytest.importorskip("pymupdf")
     from docx import Document
 
     src = tmp_path / "src"
     src.mkdir(exist_ok=True)
-    fitz.open().new_page().get_pixmap().save(str(src / "fig.png"))
+    pymupdf.open().new_page().get_pixmap().save(str(src / "fig.png"))
 
     md = "# 第一章\n\n![图 架构示意](fig.png)\n\n正文引用。\n"
     out = _build_md(tmp_path, md, {})

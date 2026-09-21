@@ -14,6 +14,8 @@
   python scripts/edit.py 标书.docx --delete "待删除段落所含文字"
   python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"
   python scripts/edit.py 标书.docx --add-row 0 "接入层" "设备" "320,000"
+  python scripts/edit.py 标书.docx --add-rows 0 3 [--template-row 2]   # 复制行格式批量加空行
+  python scripts/edit.py 标书.docx --fill data.json                    # 批量填表（JSON/CSV）
   python scripts/edit.py 标书.docx --del-row 0 2
   python scripts/edit.py 标书.docx --header "新版页眉" [--section body|all|N]
   python scripts/edit.py 标书.docx --footer "第 X 页"  [--section body|all|N]
@@ -297,8 +299,26 @@ def _cell(doc, ti, ri, ci):
         sys.exit("单元格越界：表%d[%d,%d]（共 %d 个表）" % (ti, ri, ci, len(doc.tables)))
 
 
-def _set_cell_text(cell, value):
-    """改单元格文字：保留首段首 run 的格式，其余段落删除。"""
+def _find_template_rpr(table):
+    """找表里第一个带格式 run 的 rPr（深拷贝），给空白格写入时借格式用。
+
+    直接 p.add_run(value) 会掉回样式默认字体，填空白表单时整张表字体不统一。
+    """
+    for row in table.rows:
+        for c in row.cells:
+            for p in c.paragraphs:
+                for r in p.runs:
+                    rpr = r._r.find(qn("w:rPr"))
+                    if rpr is not None:
+                        return copy.deepcopy(rpr)
+    return None
+
+
+def _set_cell_text(cell, value, table=None):
+    """改单元格文字：保留首段首 run 的格式，其余段落删除。
+
+    首段无 run（空白格）时，从 table 里借一个现成的 rPr，避免字体回退。
+    """
     paras = cell.paragraphs
     for extra in paras[1:]:
         extra._p.getparent().remove(extra._p)
@@ -314,13 +334,20 @@ def _set_cell_text(cell, value):
         runs[0]._r.append(t)
         _set_t(t, value)
     else:
-        p.add_run(value)
+        r = p.add_run("")
+        t = OxmlElement("w:t")
+        r._r.append(t)
+        _set_t(t, value)
+        if table is not None and r._r.find(qn("w:rPr")) is None:
+            rpr = _find_template_rpr(table)
+            if rpr is not None:
+                r._r.insert(0, rpr)
 
 
 def cmd_cell(doc, ti, ri, ci, value):
     cell = _cell(doc, ti, ri, ci)
     old = cell.text
-    _set_cell_text(cell, value)
+    _set_cell_text(cell, value, doc.tables[ti])
     print("cell 表%d[%d,%d]: %r -> %r" % (ti, ri, ci, old[:30], value))
 
 
@@ -332,8 +359,81 @@ def cmd_add_row(doc, ti, values):
     row = t.add_row()
     for i, v in enumerate(values):
         if i < len(row.cells):
-            _set_cell_text(row.cells[i], v)
+            _set_cell_text(row.cells[i], v, t)
     print("add-row 表%d: 新增 1 行（%d 列）" % (ti, len(row.cells)))
+
+
+def _clear_row_text(tr):
+    """清掉一行的可见文字（保留 rPr / tcPr / 域代码），用作空白模板行。"""
+    for t in tr.findall(".//" + qn("w:t")):
+        t.text = ""
+
+
+def cmd_add_rows(doc, ti, n, template_row=None):
+    """批量加行：deepcopy 模板行的 <w:tr>，边框/底纹/字号/对齐全部继承。
+
+    python-docx 的 add_row() 产出的是裸行（丢格式），批量加行只能复制 XML。
+    默认插在模板行之后；不指定模板行时复制最后一行。
+    """
+    try:
+        t = doc.tables[ti]
+    except IndexError:
+        sys.exit("表序号越界：%d（共 %d 个表）" % (ti, len(doc.tables)))
+    if not t.rows:
+        sys.exit("表 %d 是空表，没有格式可复制" % ti)
+    src_idx = template_row if template_row is not None else len(t.rows) - 1
+    if not 0 <= src_idx < len(t.rows):
+        sys.exit(
+            "模板行越界：%d（表 %d 共 %d 行）" % (src_idx, ti, len(t.rows))
+        )
+    src_tr = t.rows[src_idx]._tr
+    anchor = src_tr
+    for _ in range(n):
+        new_tr = copy.deepcopy(src_tr)
+        _clear_row_text(new_tr)
+        anchor.addnext(new_tr)
+        anchor = new_tr
+    print("add-rows 表%d: 复制行%d格式 × %d 行" % (ti, src_idx, n))
+
+
+def cmd_fill(doc, spec) -> int:
+    """批量填表：values 逐格写入 表 ti 的 [start_row+i][start_col+j]。
+
+    null 跳过（不清空现值）；合并单元格区按「写主格、跳过后续坐标」处理
+    （python-docx 对 vMerge/gridSpan 返回同一个 cell 对象，靠 tc 身份去重）。
+    """
+    specs = spec if isinstance(spec, list) else [spec]
+    total = 0
+    for sp in specs:
+        ti = sp.get("table", 0)
+        r0 = sp.get("start_row", 0)
+        c0 = sp.get("start_col", 0)
+        if ti >= len(doc.tables):
+            print("[warn] fill: 表 %d 越界，跳过" % ti)
+            continue
+        t = doc.tables[ti]
+        seen = []  # 持有 tc 元素引用，保证 lxml 代理稳定、身份比较可靠
+        for i, rowvals in enumerate(sp.get("values", [])):
+            ri = r0 + i
+            if ri >= len(t.rows):
+                print("[warn] fill: 表 %d 行 %d 越界，该行跳过" % (ti, ri))
+                continue
+            cells = t.rows[ri].cells
+            for j, v in enumerate(rowvals):
+                if v is None:
+                    continue
+                ci = c0 + j
+                if ci >= len(cells):
+                    print("[warn] fill: 表 %d 行 %d 列 %d 越界，跳过" % (ti, ri, ci))
+                    continue
+                cell = cells[ci]
+                if any(cell._tc is tc for tc in seen):
+                    continue  # 合并区：主格已写，其余坐标不重复写
+                seen.append(cell._tc)
+                _set_cell_text(cell, str(v), t)
+                total += 1
+    print("fill: 写入 %d 格" % total)
+    return total
 
 
 def cmd_del_row(doc, ti, ri):
@@ -386,6 +486,20 @@ def _set_hf_text(container, text):
         p.add_run(text)
 
 
+def _load_fill(path):
+    """--fill 数据文件：.json 按 schema 解析；.csv 读成 values 矩阵（空格跳过）。"""
+    import csv
+    import io
+    import json
+
+    with open(path, encoding="utf-8-sig") as f:
+        text = f.read()
+    if path.lower().endswith(".csv"):
+        rows = [r for r in csv.reader(io.StringIO(text)) if r]
+        return {"table": 0, "values": [[v if v != "" else None for v in r] for r in rows]}
+    return json.loads(text)
+
+
 def cmd_hf(doc, text, sel, is_header):
     what = "页眉" if is_header else "页脚"
     for i in _pick_sections(doc, sel):
@@ -406,6 +520,8 @@ def cmd_verify(path):
             text=True,
             encoding="utf-8",
             errors="replace",
+            # 子进程管道统一 UTF-8，避免 GBK→utf-8 解码乱码（同 render.py）
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
         print(r.stdout.strip())
         if r.returncode != 0:
@@ -441,6 +557,22 @@ def main():
     )
     ap.add_argument("--cell", nargs=4, metavar=("表", "行", "列", "值"))
     ap.add_argument("--add-row", nargs="+", metavar=("表", "值"))
+    ap.add_argument(
+        "--add-rows",
+        nargs=2,
+        metavar=("表", "数量"),
+        help="批量加空行：复制模板行的全部格式（边框/底纹/字号），默认复制最后一行",
+    )
+    ap.add_argument(
+        "--template-row", type=int, default=None, metavar="行", help="配合 --add-rows：复制哪一行"
+    )
+    ap.add_argument(
+        "--fill",
+        action="append",
+        default=[],
+        metavar="data.json",
+        help='批量填表：[{"table":0,"start_row":1,"values":[[...]]}] 或 CSV，可多次',
+    )
     ap.add_argument("--del-row", nargs=2, metavar=("表", "行"))
     ap.add_argument("--header")
     ap.add_argument("--footer")
@@ -491,6 +623,16 @@ def main():
 
     if a.add_row:
         cmd_add_row(doc, int(a.add_row[0]), a.add_row[1:])
+        changed = True
+
+    if a.add_rows:
+        cmd_add_rows(doc, int(a.add_rows[0]), int(a.add_rows[1]), a.template_row)
+        changed = True
+
+    for fill_path in a.fill:
+        if not os.path.exists(fill_path):
+            sys.exit("找不到 fill 数据文件: " + fill_path)
+        cmd_fill(doc, _load_fill(fill_path))
         changed = True
 
     if a.del_row:

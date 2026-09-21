@@ -7,6 +7,7 @@
   2. 「只改你指定的地方」——含图段落不动、歧义锚点拒绝、页眉页脚只动指定节。
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -15,6 +16,8 @@ import pytest
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Pt
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EDIT = os.path.join(KIT, "scripts", "edit.py")
@@ -275,6 +278,110 @@ def test_no_operation_does_not_write(tmp_path):
 
 def test_missing_file_exits(tmp_path):
     run_edit(tmp_path / "nope.docx", "--list", expect=1)
+
+
+# ---------------------------------------------------------------- 批量加行 / 填表
+
+
+def _make_styled_table(path, rows=2, cols=2):
+    """造一张带格式的表：最后一行加粗 9pt + 底纹，供格式继承断言。"""
+    doc = Document()
+    t = doc.add_table(rows=rows, cols=cols)
+    for ci in range(cols):
+        run = t.cell(rows - 1, ci).paragraphs[0].add_run("旧值%d" % ci)
+        run.bold = True
+        run.font.size = Pt(9)
+        tcpr = t.cell(rows - 1, ci)._tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:fill"), "EDEDED")
+        tcpr.append(shd)
+    doc.save(str(path))
+    return str(path)
+
+
+def test_add_rows_copies_row_format(tmp_path):
+    """--add-rows 必须继承模板行的字体/字号/底纹，且文字清空。"""
+    f = _make_styled_table(tmp_path / "a.docx")
+    run_edit(f, "--add-rows", "0", "2", "--template-row", "1")
+
+    t = Document(f).tables[0]
+    assert len(t.rows) == 4
+    for ri in (2, 3):
+        for ci in range(2):
+            c = t.cell(ri, ci)
+            assert c.text == "", "复制出来的应是空白行"
+            runs = c.paragraphs[0].runs
+            assert runs and runs[0].bold is True, "加粗格式必须继承"
+            assert runs[0].font.size == Pt(9), "字号必须继承"
+            shd = c._tc.find(qn("w:tcPr")).find(qn("w:shd"))
+            assert shd is not None and shd.get(qn("w:fill")) == "EDEDED", "底纹必须继承"
+
+
+def test_add_row_plain_still_works(tmp_path):
+    """旧 --add-row 行为不变：新行写入指定值。"""
+    f = _make_styled_table(tmp_path / "a.docx")
+    run_edit(f, "--add-row", "0", "甲", "乙")
+    t = Document(f).tables[0]
+    assert [t.cell(2, i).text for i in range(2)] == ["甲", "乙"]
+
+
+def test_fill_batch_json(tmp_path):
+    """--fill JSON：按坐标逐格写入，null 跳过不清空现值。"""
+    f = _make_styled_table(tmp_path / "a.docx", rows=3, cols=3)
+    doc = Document(f)
+    doc.tables[0].cell(1, 2).paragraphs[0].add_run("保留值")
+    doc.save(f)
+
+    spec = {"table": 0, "start_row": 1, "start_col": 1, "values": [["甲", None], ["乙", "丙"]]}
+    fp = tmp_path / "fill.json"
+    fp.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    out = run_edit(f, "--fill", str(fp))
+    assert "写入 3 格" in out
+
+    t = Document(f).tables[0]
+    assert t.cell(1, 1).text == "甲"
+    assert t.cell(1, 2).text == "保留值", "null 不该清空现值"
+    assert t.cell(2, 1).text == "乙" and t.cell(2, 2).text == "丙"
+
+
+def test_fill_csv(tmp_path):
+    """--fill CSV：空单元格视为跳过；默认填表 0 从 (0,0) 起。"""
+    f = _make_styled_table(tmp_path / "a.docx", rows=2, cols=2)
+    fp = tmp_path / "data.csv"
+    fp.write_text("x,y\n,\n", encoding="utf-8")
+    run_edit(f, "--fill", str(fp))
+
+    t = Document(f).tables[0]
+    assert t.cell(0, 0).text == "x" and t.cell(0, 1).text == "y"
+    assert t.cell(1, 0).text == "旧值0", "CSV 空单元格不能覆盖"
+
+
+def test_fill_out_of_range_warns(tmp_path):
+    """越界不崩，只警告并跳过。"""
+    f = _make_styled_table(tmp_path / "a.docx", rows=2, cols=2)
+    spec = {"table": 0, "start_row": 1, "values": [["a", "b"], ["c", "d"]]}
+    fp = tmp_path / "fill.json"
+    fp.write_text(json.dumps(spec), encoding="utf-8")
+    out = run_edit(f, "--fill", str(fp), expect=0)
+    assert "越界" in out
+    assert Document(f).tables[0].cell(1, 0).text == "a"
+
+
+def test_empty_cell_borrows_format(tmp_path):
+    """往空白格写值时，必须借同表已有 run 的 rPr，不能掉回默认字体。"""
+    doc = Document()
+    t = doc.add_table(rows=2, cols=2)
+    r = t.cell(0, 0).paragraphs[0].add_run("已有值")
+    r.bold = True
+    f = str(tmp_path / "a.docx")
+    doc.save(f)
+
+    run_edit(f, "--cell", "0", "1", "1", "新填的值")
+    c = Document(f).tables[0].cell(1, 1)
+    assert c.text == "新填的值"
+    runs = c.paragraphs[0].runs
+    assert runs and runs[0].bold is True, "空白格应继承表内现有格式"
 
 
 if __name__ == "__main__":

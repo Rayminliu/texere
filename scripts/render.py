@@ -37,10 +37,15 @@ __version__ = _read_version()
 
 # Windows 控制台默认 GBK，子进程输出里若出现 GBK 无法编码的字符（如 PyMuPDF 解出的
 # U+FFFD），print 会抛 UnicodeEncodeError 让验收环节崩掉。这里保持控制台原编码不变
-# （改成 utf-8 反而会让控制台显示乱码），只把无法编码的字符降级为？。
+# （改成 utf-8 反而会让控制台显示乱码），只把无法编码的字符降级为 ?。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(errors="replace")
+
+# 乱码的真正根源：子进程（post.py / check_pdf.py 等）的 stdout 接管道时按系统
+# locale（GBK）编码，而下面用 utf-8 解码 → 中文变乱码再被 ? 替换。
+# 强制子进程管道输出 UTF-8，整条链编码统一。
+UTF8_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 
 def cleanup_old_temp(prefix="texere_"):
@@ -78,6 +83,7 @@ def run(cmd, cwd=None, timeout=300):
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        env=UTF8_ENV,
     )
     if r.stdout.strip():
         print(r.stdout.strip()[:1200])
@@ -265,8 +271,16 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     # 配置有误）都会绕过末尾那行，临时目录就会烂在 %TEMP% 里（实测一天攒了 12 个）。
     atexit.register(shutil.rmtree, tmp, ignore_errors=True)
     all_md = os.path.join(tmp, "all.md")
+    # --src 既可以是目录也可以是单个 .md 文件（一页的通知不必先建目录）。
+    # src_root 是图片搜索的锚点目录：单文件时取其所在目录。
+    if os.path.isfile(src_dir):
+        md_files = [src_dir]
+        src_root = os.path.dirname(os.path.abspath(src_dir))
+    else:
+        md_files = sorted(glob.glob(os.path.join(src_dir, "*.md")))
+        src_root = src_dir
     parts = []
-    for f in sorted(glob.glob(os.path.join(src_dir, "*.md"))):
+    for f in md_files:
         # utf-8-sig：源 md 带 BOM 时不至于让第一个字符变成乱码（记事本默认写 BOM）
         parts.append(open(f, encoding="utf-8-sig").read().rstrip() + "\n")
     if not parts:
@@ -293,10 +307,10 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
     # 图片常放在 src 的子目录或**兄弟**目录里（真实项目里 md 在 src/、图在 media/），
     # pandoc 只按给出的路径查找，故把 src、其全部子目录、src 的父目录及其子目录
     # 都加进 resource-path；还可用 config 的 resource_paths 补充。
-    res_paths = [src_dir]
-    for root, dirs, _files in os.walk(src_dir):
+    res_paths = [src_root]
+    for root, dirs, _files in os.walk(src_root):
         res_paths.extend(os.path.join(root, d) for d in dirs)
-    parent = os.path.dirname(os.path.abspath(src_dir))
+    parent = os.path.dirname(os.path.abspath(src_root))
     if os.path.isdir(parent):
         res_paths.append(parent)
         for d in sorted(os.listdir(parent)):
@@ -409,6 +423,8 @@ def main():
 
     if not a.src or not a.out:
         sys.exit("需要 --src 与 --out，或使用 --sample")
+    if not os.path.exists(a.src):
+        sys.exit("找不到 --src: " + a.src)
     if a.check and not a.pdf:
         print("[note] --check 依赖 PDF，已自动启用 --pdf")
         a.pdf = True

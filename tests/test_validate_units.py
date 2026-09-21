@@ -108,13 +108,13 @@ class TestCollectPageNumbers:
 
 class TestBaselinePageDiff:
     def test_identical_image_has_zero_diff(self):
-        pytest.importorskip("fitz")
+        pytest.importorskip("pymupdf")
         p = os.path.join(KIT, "baselines", "p001.png")
         assert v.baseline_page_diff(p, p) == 0.0
 
     def test_different_pages_report_drift(self):
         # 基线里的第 1 页 vs 第 2 页：必须判为漂移（> 0.1% 阈值）
-        pytest.importorskip("fitz")
+        pytest.importorskip("pymupdf")
         p1 = os.path.join(KIT, "baselines", "p001.png")
         p2 = os.path.join(KIT, "baselines", "p002.png")
         assert v.baseline_page_diff(p1, p2) > v.DEFAULT_MAX_DIFF
