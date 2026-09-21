@@ -7,6 +7,7 @@ config.json 字段（均可省）:
   header  : 页眉文字（正文节）
   title / author / subject / comments : 文档属性
   toc_heading : 目录标题，默认 "目　　录"
+  toc   : false → 不插目录页（通知/公示类短文档）；标题样式照常保留，无封面时不分节
   style   : 版式微调（字体/颜色/间距/表格边框等，见 README 的完整键表）
 行为: 去掉前置书名页与空段 -> 注入封面 -> 注入目录域 -> 分节(封面目录/正文各自页码)
       -> 正文节页眉页脚(居中页码) -> 表格 100% 宽/表头加粗灰底居中/单元格 10.5pt
@@ -548,7 +549,10 @@ def main(body_path, out_path, cfg_path):
         np(text, style)
     if cfg.get("cover"):
         np("", "CoverInfo")
-    if h1_idx is not None:  # 没有一级标题就不插目录（无处可索引）
+    # "toc": false —— 短文档（通知/公示）不要目录页但要标题样式。
+    # 旧写法只能靠「不写 #」绕过，代价是全文变普通段落、标题样式手工后补。
+    toc_enabled = cfg.get("toc", True) is not False
+    if h1_idx is not None and toc_enabled:  # 没有一级标题就不插目录（无处可索引）
         toc_head = np(
             cfg.get("toc_heading", "目　　录"),
             "TOC Heading",
@@ -567,7 +571,7 @@ def main(body_path, out_path, cfg_path):
         )
     # 只有真的往第 1 节里放了东西（封面或目录）才分节；否则那个空的分节段
     # 会变成一张完全空白的首页（表单类文档实测踩过）。
-    create_sec1 = bool(cfg.get("cover")) or h1_idx is not None
+    create_sec1 = bool(cfg.get("cover")) or (h1_idx is not None and toc_enabled)
     sect_para = None
     if create_sec1:
         sect_para = np("")

@@ -147,6 +147,53 @@ def test_cover_and_toc_injected(docx_path):
     assert toc_idx < body_idx, "目录必须排在正文之前"
 
 
+def _has_toc_field(path):
+    """document.xml 里是否有 TOC 域（instrText 含 'TOC \\o'）。"""
+    import zipfile
+
+    with zipfile.ZipFile(path) as z:
+        return "TOC \\o" in z.read("word/document.xml").decode("utf-8")
+
+
+MD_WITH_HEADINGS = """# 第一章 总则
+
+正文一二三。
+
+## 1.1 细则
+
+细则内容。
+"""
+
+
+def test_toc_false_skips_toc_keeps_headings(tmp_path):
+    """config "toc": false：不插目录域、不分节，但 Heading 样式照常保留。
+
+    这是通知/公示类短文档的正路；旧写法只能不写 # 绕过，代价是丢标题样式。
+    """
+    from docx import Document
+
+    out = _build_md(tmp_path, MD_WITH_HEADINGS, {"toc": False})
+    assert not _has_toc_field(out), "toc:false 时不该有 TOC 域"
+
+    doc = Document(out)
+    styles = [p.style.name for p in doc.paragraphs if p.text.strip()]
+    assert "Heading 1" in styles, "toc:false 不能把标题降级成普通段落"
+    assert "Heading 2" in styles
+    assert len(doc.sections) == 1, "无封面又无目录时不该分节（会多出空白首页）"
+
+
+def test_toc_false_with_cover_still_sections(tmp_path):
+    """toc:false + 封面：封面单独成节，页码体系照常，只是没有目录页。"""
+    from docx import Document
+
+    cfg = {"toc": False, "cover": [["CoverTitle", "通 知"]]}
+    out = _build_md(tmp_path, MD_WITH_HEADINGS, cfg)
+    assert not _has_toc_field(out)
+    doc = Document(out)
+    assert len(doc.sections) == 2, "有封面时仍应分节（封面/正文各自页码）"
+    assert "通 知" in [p.text.strip() for p in doc.paragraphs]
+
+
 def test_never_touches_text(tmp_path):
     """核心契约：post.py 只改版式，一个字都不改内容。
 

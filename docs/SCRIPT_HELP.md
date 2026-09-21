@@ -28,7 +28,7 @@ python scripts/render.py --version
 ```
 
 ### 参数说明
-- `--src <dir>`: Markdown 源文件目录（必需）
+- `--src <dir|file.md>`: Markdown 源（目录按文件名序合并，也可直接给单个 .md 文件）（必需）
 - `--out <file>`: 输出 DOCX 文件路径（必需）
 - `--config <file>`: 配置文件路径（可选）
 - `--pdf`: 生成 PDF 格式（需要 Microsoft Word）
@@ -191,6 +191,14 @@ python scripts/edit.py 标书.docx \
 python scripts/edit.py 标书.docx \
   --add-row 0 "接入层" "设备" "320,000"
 
+# 批量加空行（复制模板行的边框/底纹/字号格式，文字清空）
+python scripts/edit.py 标书.docx \
+  --add-rows 0 3 --template-row 2
+
+# 批量填表（JSON：null 跳过不清空；CSV：空单元格跳过）
+python scripts/edit.py 标书.docx --fill data.json
+python scripts/edit.py 标书.docx --fill rows.csv
+
 # 修改页眉
 python scripts/edit.py 标书.docx \
   --header "新版页眉" \
@@ -213,7 +221,9 @@ python scripts/edit.py 标书.docx \
 - `--delete <文字>`: 删除包含该文字的段落
 - `--all-anchors`: 对多个锚点全部生效
 - `--cell <表> <行> <列> <值>`: 设置单元格
-- `--add-row <表> <值1> <值2> ...`: 添加行
+- `--add-row <表> <值1> <值2> ...`: 添加行并写入值
+- `--add-rows <表> <数量> [--template-row <行>]`: 批量加空行，复制模板行的全部格式（默认复制最后一行）
+- `--fill <data.json|data.csv>`: 批量填表，可多次指定。JSON 格式：`[{"table":0,"start_row":1,"start_col":0,"values":[[...]]}]`；合并单元格按「写主格、跳过后续坐标」处理；越界只警告
 - `--del-row <表> <行>`: 删除行
 - `--header <文字>`: 修改页眉
 - `--footer <文字>`: 修改页脚
@@ -253,8 +263,10 @@ python scripts/distill.py 甲方模板.docx --out cfg.json
 
 ### 用法
 ```bash
-python scripts/finalize.py <in.docx> <out.pdf>
+python scripts/finalize.py <in.docx> [out.pdf]
 ```
+
+out.pdf 可省略，默认取输入同名 `.pdf`（长中文名不用再手打）。
 
 ### 功能
 - Word COM 打开文档（验证结构完整性）
@@ -309,7 +321,18 @@ python scripts/make_ref.py --body-font 楷体 --body-size 14
 
 # 指定标题字体
 python scripts/make_ref.py --heading-font 黑体
+
+# 指定西文字体 / 输入输出模板
+python scripts/make_ref.py --latin-font Georgia --src base.docx --dst out_ref.docx
 ```
+
+### 参数说明
+- `--body-font <字体>`: 正文中文字体（默认 宋体）
+- `--latin-font <字体>`: 西文字体（默认 Times New Roman）
+- `--heading-font <字体>`: 标题中文字体（默认 黑体）
+- `--body-size <pt>`: 正文字号（默认 12，小四）
+- `--src <docx>`: 基准模板（默认 assets/ref_default.docx，缺失时由 pandoc 生成）
+- `--dst <docx>`: 输出模板（默认覆盖 assets/ref.docx）
 
 ---
 

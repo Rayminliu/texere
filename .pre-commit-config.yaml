@@ -15,11 +15,11 @@ repos:
 
   - repo: local
     hooks:
-      # 秒级测试子集（不启动 Word）：版本一致性 / 纯函数 / 编辑链 / 快照
+      # 秒级测试子集（不启动 Word）：版本一致性 / 文档同步 / 纯函数 / 编辑链 / 快照
       # 完整套件（约 6-7 分钟，含 Word 验收）在推送前手动跑 python -m pytest
       - id: pytest-fast
         name: pytest (fast subset, no Word)
-        entry: python -m pytest tests/test_version.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q -x
+        entry: python -m pytest tests/test_version.py tests/test_docs_sync.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q -x
         language: system
         pass_filenames: false
         always_run: true

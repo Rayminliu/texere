@@ -140,7 +140,7 @@ python scripts/patch.py bid.docx patch.json --dry-run    # simulate first
 python scripts/patch.py bid.docx patch.json --apply --out result.docx
 python scripts/patch.py bid.docx patch.json --apply --validate
 
-python -m pytest -q                        # 137 assertions, ~6-7 min (validator tests need local Word)
+python -m pytest -q                        # 152 assertions, ~6-7 min (validator tests need local Word)
 python scripts/snapshot.py bid.pdf --update  # record layout baseline (after confirming the layout)
 python scripts/snapshot.py bid.pdf           # regression compare; exits 1 on drift
 python scripts/make_ref.py --body-font 楷体   # rebuild the typesetting template
@@ -160,7 +160,8 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
 ### Input requirements
 
 - Put `01_xxx.md … 0N_xxx.md` in the source directory; they are merged **in filename order**.
-  `#` is a chapter, `##` a section.
+  `#` is a chapter, `##` a section. A single `.md` file works too (`--src notice.md`) — no need to
+  create a directory for a one-pager.
 - Table captions are their own line: `表 1-1 Caption` (centred and greyed automatically). Figures:
   `![图 1-1 Caption](a.jpg){width=13cm}`.
 - **Image search path**: the `src` directory, all of its subdirectories, and **the parent of `src` plus that
@@ -269,6 +270,8 @@ python scripts/edit.py 标书.docx --before "锚点文字" --text "新段落"
 python scripts/edit.py 标书.docx --delete "段落所含文字"
 python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"        # table row column value
 python scripts/edit.py 标书.docx --add-row 0 "接入层" "设备" "320,000"
+python scripts/edit.py 标书.docx --add-rows 0 3 --template-row 2  # batch blank rows, copying row format
+python scripts/edit.py 标书.docx --fill data.json                 # batch fill from JSON/CSV (null = skip)
 python scripts/edit.py 标书.docx --del-row 0 2
 python scripts/edit.py 标书.docx --header "新版页眉"              # default: body section only
 python scripts/edit.py 标书.docx --footer "— X —" --section all
@@ -359,6 +362,7 @@ page-number format and table styling cannot be inferred — they are listed as i
 | `title` / `author` / `subject` / `comments` | Document properties |
 | `reference_doc` | Use a specific template docx (for a client-mandated format) |
 | `toc_heading` | TOC title, default 「目　　录」 |
+| `toc` | `false` → no TOC page (short notices / announcements); headings keep their styles, and with no cover the document stays a single section |
 | `style` | Fine-grained layout, see below |
 | `caption_words` | Custom caption keywords (default 表/图/Table/Figure), see below |
 | `resource_paths` | Extra directories to search for images |
@@ -511,7 +515,7 @@ Want a narrow "No." column? Write it narrow.
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `CONFIG_SCHEMA.md` (unified config field reference) and `SCRIPT_HELP.md` (per-script CLI help) |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 137 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`) |
+| `tests/` | 152 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), CLI-docs sync guard (`test_docs_sync.py`) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

@@ -92,7 +92,7 @@ python scripts/render.py --sample                                    # 冒烟测
 # 正式渲染（--check 会自动补 --pdf）
 python scripts/render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check
 
-python -m pytest -q                        # 137 项断言，约 6-7 分钟（验收器相关用例需本机 Word）
+python -m pytest -q                        # 152 项断言，约 6-7 分钟（验收器相关用例需本机 Word）
 python scripts/snapshot.py 标书.pdf --update  # 录版式基线（确认版式无误后执行）
 python scripts/snapshot.py 标书.pdf           # 回归比对，漂移即 exit 1
 python scripts/make_ref.py --body-font 楷体    # 重建排版模板（改字体/字号时）
@@ -105,6 +105,7 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
 ### 输入要求
 
 - `章节目录` 内放 `01_xxx.md … 0N_xxx.md`，**按文件名排序**合并；`#` 为章、`##` 为节；
+  一页的通知也可直接给单个文件（`--src notice.md`），不必先建目录；
 - 表题写成独立一行 `表 1-1 标题`（自动居中灰字）；图用 `![图 1-1 标题](a.jpg){width=13cm}`；
 - **图片搜索路径**：`src` 目录、其全部子目录、**`src` 的父目录及其子目录**都会自动加入；
   还找不到就用 config 的 `resource_paths` 补充。渲染结束会打印 `images: n/m ok`，
@@ -156,6 +157,8 @@ python scripts/edit.py 标书.docx --before "锚点文字" --text "新段落"
 python scripts/edit.py 标书.docx --delete "段落所含文字"
 python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"        # 表号 行 列 值
 python scripts/edit.py 标书.docx --add-row 0 "接入层" "设备" "320,000"
+python scripts/edit.py 标书.docx --add-rows 0 3 --template-row 2  # 批量加空行，复制模板行格式
+python scripts/edit.py 标书.docx --fill data.json                 # JSON/CSV 批量填表（null 跳过）
 python scripts/edit.py 标书.docx --del-row 0 2
 python scripts/edit.py 标书.docx --header "新版页眉"              # 默认只改正文节，不给封面加页眉
 python scripts/edit.py 标书.docx --footer "— X —" --section all
@@ -241,6 +244,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 | `title` / `author` / `subject` / `comments` | 文档属性 |
 | `reference_doc` | 指定模板 docx（招标方给强制格式时用它） |
 | `toc_heading` | 目录标题，默认「目　　录」 |
+| `toc` | `false` → 不插目录页（通知/公示类短文档）；标题样式照常保留，无封面时不分节 |
 | `style` | 版式微调，见下表 |
 | `caption_words` | 自定义题注关键字（默认 表/图/Table/Figure），见下 |
 | `resource_paths` | 额外的图片搜索目录列表（默认已含 src、其子目录与父目录） |
@@ -381,7 +385,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `CONFIG_SCHEMA.md`（统一配置字段参考）与 `SCRIPT_HELP.md`（各脚本 CLI 帮助） |
 | `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 137 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`） |
+| `tests/` | 152 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、CLI 文档同步守卫（`test_docs_sync.py`） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

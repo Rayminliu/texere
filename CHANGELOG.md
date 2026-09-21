@@ -4,6 +4,36 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 0.6.0 — 2026-09-21
+
+**使用反馈落地：批量编辑三件套 + 无目录模式 + 文档守卫**
+
+### 新增
+- `edit.py --add-rows 表 数量 [--template-row 行]`: 批量加空行，复制模板行的全部格式
+  （边框/底纹/字号/加粗）——python-docx 的 add_row() 是丢格式的裸行
+- `edit.py --fill data.json|data.csv`: 批量填表；null/空单元格跳过不清空；
+  合并单元格按「写主格、跳过后续坐标」处理；越界只警告不崩
+- config `"toc": false`: 通知/公示类短文档不插目录页，标题样式照常保留，
+  无封面时不分节。旧写法只能「不写 #」绕过，代价是全文变普通段落手工后补
+- `render.py --src` 支持直接传单个 .md 文件（一页的通知不必先建目录）
+- `finalize.py` 的 out.pdf 可省略，默认取输入同名 .pdf
+- 空白格写入时借用同表已有 run 的 rPr，填空白表单不再字体回退
+- `tests/test_docs_sync.py`: CLI 参数 ↔ SCRIPT_HELP 双向对拍守卫
+  （漏写文档/虚构文档参数都会被拦），已入 pre-commit 快速子集
+
+### 修复
+- Windows 中文乱码根修：子进程管道统一注入 `PYTHONIOENCODING=utf-8`
+  （旧乱码根源是子进程 GBK 输出被父进程 utf-8 解码，非控制台编码问题）
+- 全部 `fitz` 别名换成 `pymupdf`（PyMuPDF 1.28 起 fitz 每次加载都刷 deprecation warning）
+- pre-commit 形同虚设：hooks 从未安装；配置升级 ruff v0.16.8、
+  新增 check-added-large-files（拦误提交产物）与秒级测试子集
+
+### 文档
+- README×2 / SCRIPT_HELP 补齐本轮全部新参数与 `toc` 字段；make_ref 历史欠账（--dst/--latin-font）补录
+
+### 测试
+- 152 项断言（新增 toc:false ×2、批量编辑 ×6、文档守卫 ×7）
+
 ## 0.5.1 — 2026-09-20
 
 **全面代码审查修复 + validate 性能重构 + 示例扩充**
