@@ -874,7 +874,11 @@ def print_report(report: dict, quiet: bool = False):
         sys.exit(1)
     else:
         if not quiet:
-            print("\n✅ All checks passed")
+            if skipped:
+                # 有跳过时不能只说 "All checks passed"：结论行也要让人一眼看到覆盖缺口
+                print(f"\n✅ Required checks passed ({skipped} skipped — see Summary above)")
+            else:
+                print("\n✅ All checks passed")
 
 
 # =============================================================================
