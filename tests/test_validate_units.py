@@ -539,3 +539,30 @@ class TestProfileContract:
         d2.add_table(rows=1, cols=1)
         d2.save(str(p2))
         assert v._check_table_borders(Document(str(p2))).status == v.FAIL
+
+    def test_missing_required_property_fails(self, tmp_path):
+        # contract semantics：profile 要求某字段时，实际「缺失」也应 FAIL，
+        # 而不是只在「存在但不符」时才 FAIL（否则「要求宋体、实际没设东亚字体」会被放行）。
+        prof = {
+            "page": {"width": 21, "height": 29.7},
+            "styles": {"body": {"font_eastAsia": "宋体"}},
+        }
+        p = tmp_path / "m.docx"
+        d = Document()
+        d.styles["Normal"].font.name = "Times New Roman"  # 只设西文，不声明东亚字体
+        d.save(str(p))
+        body = next(
+            r for r in v.compile_profile_checks(prof, str(p)) if r.name == "profile.body_font"
+        )
+        assert body.status == v.FAIL
+        assert "缺失" in body.message
+
+        # 反向：profile 不要求东亚字体时，缺失不应额外 FAIL（只检查声明了的字段）
+        prof2 = {
+            "page": {"width": 21, "height": 29.7},
+            "styles": {"body": {"font_latin": "Times New Roman"}},
+        }
+        body2 = next(
+            r for r in v.compile_profile_checks(prof2, str(p)) if r.name == "profile.body_font"
+        )
+        assert body2.status == v.PASS

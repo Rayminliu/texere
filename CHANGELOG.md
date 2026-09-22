@@ -25,8 +25,22 @@ customer-specific policy layer，绝不替代原有 acceptance：
   `w:top/w:left/w:bottom/w:right/w:insideH/w:insideV`，没有 `w:border` 这个标签，于是恒返回空 →
   有边框的表被错判为「无可见边框」。改为遍历 `w:tblBorders` 的真实子元素（测试辅助函数同步改用
   真实标签，否则会和 bug 互相「自洽」漏网）
-- 测试 213 → 218 项：新增 `TestProfileContract`（规范文档全 PASS、违规文档 FAIL、空 profile 无断言）
-  + `test_table_border_detection` 回归（钉死上面的标签误判修复）
+- 测试 213 → 219 项：新增 `TestProfileContract`（规范文档全 PASS、违规文档 FAIL、空 profile 无断言）
+  + `test_table_border_detection`（钉死边框标签误判）+ `test_missing_required_property_fails`
+  （缺失 required 字段判 FAIL）
+
+### 让已有 5 个断言「真的严」（contract semantics，而非听起来严）
+
+外部 review 指出：profile 已声明但尚未执行的字段、以及「要求某字段但文档根本没声明」被静默放行，
+都会回到项目一直在消灭的「听起来很严、实际保障没那么强」。这一步只收紧**已有**断言语义，不新增字段：
+
+- **`profile.body_font` / `profile.heading`：required 字段缺失也判 FAIL**：旧逻辑只在「声明了但不符」
+  时 FAIL，「profile 要求宋体、实际根本没设东亚字体」会被放过。现在 profile 要求 font_eastAsia /
+  font_latin / size / bold 任一项时，实际缺失（None / 未声明）与值不符都判 FAIL，消息里标
+  「缺失」vs「≠」
+- **`SCRIPT_HELP.md` 新增「Profile 字段执行状态」矩阵**：逐项标注每个 profile 字段是 ✅ enforced
+  还是 ⚠️ declared-only（`line_spacing` / `space_*` / `caption.*` / `header.*` / `footer.*` /
+  `tender_specific.*` 等目前只是声明、未编译成断言），避免「JSON 写了就以为 validator 会保护我」
 
 ## 0.6.3 — 2026-09-22
 

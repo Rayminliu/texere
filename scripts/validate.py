@@ -770,13 +770,25 @@ def _check_body_font(body, doc) -> CheckResult:
         return CheckResult("profile.body_font", SKIP, "跳过（无 Normal 样式）")
     font = st.font
     issues = []
-    if body.get("font_latin") and font.name and font.name != body["font_latin"]:
-        issues.append(f"西文 {font.name}≠{body['font_latin']}")
+    # contract semantics：profile 要求某字段时，「实际缺失」与「值不符」都应判 FAIL。
+    # 否则「要求宋体、实际根本没声明东亚字体」会被静默放过，违背「声明即检查」。
+    if body.get("font_latin"):
+        actual = font.name
+        if actual is None:
+            issues.append(f"西文缺失（要求 {body['font_latin']}）")
+        elif actual != body["font_latin"]:
+            issues.append(f"西文 {actual}≠{body['font_latin']}")
     ea = _east_asia_of_style(st)
-    if body.get("font_eastAsia") and ea and ea != body["font_eastAsia"]:
-        issues.append(f"中文 {ea}≠{body['font_eastAsia']}")
-    if body.get("size") and font.size is not None and abs(font.size.pt - float(body["size"])) > 0.5:
-        issues.append(f"字号 {font.size.pt}≠{body['size']}")
+    if body.get("font_eastAsia"):
+        if ea is None:
+            issues.append(f"中文缺失（要求 {body['font_eastAsia']}）")
+        elif ea != body["font_eastAsia"]:
+            issues.append(f"中文 {ea}≠{body['font_eastAsia']}")
+    if body.get("size"):
+        if font.size is None:
+            issues.append(f"字号缺失（要求 {body['size']}）")
+        elif abs(font.size.pt - float(body["size"])) > 0.5:
+            issues.append(f"字号 {font.size.pt}≠{body['size']}")
     if issues:
         return CheckResult("profile.body_font", FAIL, "正文样式：" + "，".join(issues))
     return CheckResult("profile.body_font", PASS, "正文样式（字体/字号）符合规范")
@@ -795,14 +807,26 @@ def _check_heading_styles(styles, doc) -> CheckResult:
         font = st.font
         if spec.get("font_eastAsia"):
             ea = _east_asia_of_style(st)
-            if ea and ea != spec["font_eastAsia"]:
+            if ea is None:
+                issues.append(f"{wname} 中文缺失（要求 {spec['font_eastAsia']}）")
+            elif ea != spec["font_eastAsia"]:
                 issues.append(f"{wname} 中文 {ea}≠{spec['font_eastAsia']}")
-        if spec.get("font_latin") and font.name and font.name != spec["font_latin"]:
-            issues.append(f"{wname} 西文 {font.name}≠{spec['font_latin']}")
-        if spec.get("size") and font.size is not None and abs(font.size.pt - spec["size"]) > 0.5:
-            issues.append(f"{wname} 字号 {font.size.pt}≠{spec['size']}")
-        if spec.get("bold") is not None and bool(font.bold) != bool(spec["bold"]):
-            issues.append(f"{wname} 加粗 {font.bold}≠{spec['bold']}")
+        if spec.get("font_latin"):
+            actual = font.name
+            if actual is None:
+                issues.append(f"{wname} 西文缺失（要求 {spec['font_latin']}）")
+            elif actual != spec["font_latin"]:
+                issues.append(f"{wname} 西文 {actual}≠{spec['font_latin']}")
+        if spec.get("size"):
+            if font.size is None:
+                issues.append(f"{wname} 字号缺失（要求 {spec['size']}）")
+            elif abs(font.size.pt - float(spec["size"])) > 0.5:
+                issues.append(f"{wname} 字号 {font.size.pt}≠{spec['size']}")
+        if spec.get("bold") is not None:
+            if font.bold is None:
+                issues.append(f"{wname} 加粗缺失（要求 {spec['bold']}）")
+            elif bool(font.bold) != bool(spec["bold"]):
+                issues.append(f"{wname} 加粗 {font.bold}≠{spec['bold']}")
     if issues:
         return CheckResult("profile.heading", FAIL, "标题样式：" + "，".join(issues))
     return CheckResult("profile.heading", PASS, "标题层级样式符合规范")

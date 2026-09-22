@@ -129,6 +129,26 @@ python scripts/validate.py bid.docx --quiet
 
 这些断言走 OOXML 读取，**不依赖 Word**；只覆盖 profile 真正声明的字段，未声明的不凭空编造。
 未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响。
+
+#### Profile 字段执行状态（声明 ≠ 一定检查）
+
+为避免「JSON 写了就以为 validator 会保护我」，逐项标注每个字段的实际执行状态。**缺失即 FAIL**
+指 profile 要求该字段时，文档实际没声明也会判 FAIL（不只是「声明了但不符」才 FAIL）。
+
+| Profile 字段 | 状态 | 说明 |
+| --- | --- | --- |
+| `page.width` / `page.height` | ✅ enforced | 与 A4（21×29.7cm）等比对，容差 0.1cm |
+| `page.margin_*` | ✅ enforced | 与 profile 比对，容差 0.2cm；**缺失或不符都 FAIL** |
+| `styles.body.font_eastAsia` / `font_latin` / `size` | ✅ enforced | 缺失或不符都 FAIL（容差 0.5pt） |
+| `styles.h1/h2/h3.font_eastAsia` / `font_latin` / `size` / `bold` | ✅ enforced | 缺失或不符都 FAIL |
+| `table.border` | ✅ enforced | ≠ `none` 时检查可见边框（真实 OOXML `w:top/w:left/...`） |
+| `toc` | ✅ enforced | 声明即检查 TOC 域存在 |
+| `styles.body.line_spacing` / `first_line_indent` / `space_*` | ⚠️ declared-only | profile 可声明，目前**未**编译成断言 |
+| `styles.h1/h2/h3.page_break_before` / `space_*` | ⚠️ declared-only | profile 可声明，目前**未**编译成断言 |
+| `caption.*` / `header.*` / `footer.*` | ⚠️ declared-only | 渲染指令，未编译成断言 |
+| `table` 其余键（border_size / border_color / header_shade / zebra / ...） | ⚠️ declared-only | 渲染指令，未编译成断言 |
+| `toc.depth` / `toc.title` / ... | ⚠️ declared-only | 只检查 TOC 域存在，不校验深度 / 标题 |
+| `tender_specific.*`（signature_page / sealing_requirement / price_table_style / ...） | ⚠️ declared-only | 客户语义信息，目前无对应 validator |
    无基线目录 → SKIP
 
 ---
