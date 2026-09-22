@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass, field
 from datetime import datetime
 
 try:
@@ -75,7 +76,23 @@ for _stream in (sys.stdout, sys.stderr):
 PASS, FAIL, SKIP, ERROR = "PASS", "FAIL", "SKIP", "ERROR"
 
 
-def check_package_integrity(docx_path: str) -> tuple[str, str]:
+@dataclass
+class CheckResult:
+    """统一的检查结论对象（Layer 0 integrity 地基）。
+
+    取代各处散落的 `(status, message)` / `(False, ...)` 元组，让 profile enforcement、
+    provenance、CLI report 都依赖同一个类型，而不是各自拼字符串。
+    evidence 装机器可读的判定依据（如命中/缺失段数、图片 sha 列表），report.json
+    一并落盘，便于将来做可解释审计；现在先预留，不强制每个 check 都填。
+    """
+
+    name: str
+    status: str
+    message: str
+    evidence: dict = field(default_factory=dict)
+
+
+def check_package_integrity(docx_path: str) -> CheckResult:
     """检查 DOCX 包结构完整性 (zip 格式 + 必要部分)。"""
     try:
         # 尝试以 zip 方式打开
@@ -87,24 +104,24 @@ def check_package_integrity(docx_path: str) -> tuple[str, str]:
             required = ["word/document.xml", "word/styles.xml"]
             missing = [r for r in required if r not in namelist]
             if missing:
-                return False, f"缺少必要部分：{missing}"
+                return CheckResult("package_integrity", FAIL, f"缺少必要部分：{missing}")
 
             # 检查是否有损坏
             for name in namelist:
                 try:
                     z.read(name)
                 except Exception as e:
-                    return False, f"部分 {name} 读取失败：{e}"
+                    return CheckResult("package_integrity", FAIL, f"部分 {name} 读取失败：{e}")
 
-        return PASS, "OK"
+        return CheckResult("package_integrity", PASS, "OK")
     except zipfile.BadZipFile as e:
-        return FAIL, f"ZIP 格式错误：{e}"
+        return CheckResult("package_integrity", FAIL, f"ZIP 格式错误：{e}")
     except PermissionError as e:
-        return FAIL, f"文件权限不足：{e}"
+        return CheckResult("package_integrity", FAIL, f"文件权限不足：{e}")
     except FileNotFoundError as e:
-        return FAIL, f"文件不存在：{e}"
+        return CheckResult("package_integrity", FAIL, f"文件不存在：{e}")
     except Exception as e:
-        return ERROR, f"未知错误：{type(e).__name__} - {e}"
+        return CheckResult("package_integrity", ERROR, f"未知错误：{type(e).__name__} - {e}")
 
 
 # ---------------------------------------------------------------- 源内容比对
@@ -167,7 +184,7 @@ def _docx_text(doc) -> str:
 
 def check_source_content_integrity(
     docx_path: str, expected_hash: str = None, source_md: str = None
-) -> tuple[str, str]:
+) -> CheckResult:
     """检查源内容完整性。
 
     两条路径，强度完全不同，报告里必须说清走的是哪条：
@@ -178,29 +195,30 @@ def check_source_content_integrity(
     """
     if source_md:
         if not os.path.exists(source_md):
-            return ERROR, f"源 Markdown 不存在：{source_md}"
+            return CheckResult("source_content", ERROR, f"源 Markdown 不存在：{source_md}")
         try:
             md_text = open(source_md, encoding="utf-8-sig").read()
             doc_text = _normalize(_docx_text(Document(docx_path)))
         except PermissionError as e:
-            return FAIL, f"文件权限不足：{e}"
+            return CheckResult("source_content", FAIL, f"文件权限不足：{e}")
         except FileNotFoundError as e:
-            return FAIL, f"文件不存在：{e}"
+            return CheckResult("source_content", FAIL, f"文件不存在：{e}")
         except Exception as e:
-            return ERROR, f"未知错误：{type(e).__name__} - {e}"
+            return CheckResult("source_content", ERROR, f"未知错误：{type(e).__name__} - {e}")
 
         segs = _source_md_segments(md_text)
         missing = [s for s in segs if s not in doc_text]
         if missing:
             sample = " / ".join(m[:24] for m in missing[:3])
-            return (
+            return CheckResult(
+                "source_content",
                 FAIL,
                 f"源内容缺失：{len(missing)}/{len(segs)} 段未在 docx 中找到（例：{sample}）",
             )
-        return PASS, f"正文等价性：{len(segs)} 段全部命中 docx"
+        return CheckResult("source_content", PASS, f"正文等价性：{len(segs)} 段全部命中 docx")
 
     if not expected_hash:
-        return SKIP, "跳过 (未提供 --source-md 或 --expected-hash)"
+        return CheckResult("source_content", SKIP, "跳过 (未提供 --source-md 或 --expected-hash)")
 
     try:
         sha256 = hashlib.sha256()
@@ -210,14 +228,20 @@ def check_source_content_integrity(
 
         actual = sha256.hexdigest()
         if actual == expected_hash:
-            return PASS, "产件 hash 一致 (仅证明字节未变，非正文等价性)"
-        return FAIL, f"Hash 不匹配 (期望:{expected_hash[:16]}..., 实际:{actual[:16]}...)"
+            return CheckResult(
+                "source_content", PASS, "产件 hash 一致 (仅证明字节未变，非正文等价性)"
+            )
+        return CheckResult(
+            "source_content",
+            FAIL,
+            f"Hash 不匹配 (期望:{expected_hash[:16]}..., 实际:{actual[:16]}...)",
+        )
     except PermissionError as e:
-        return FAIL, f"文件权限不足：{e}"
+        return CheckResult("source_content", FAIL, f"文件权限不足：{e}")
     except FileNotFoundError as e:
-        return FAIL, f"文件不存在：{e}"
+        return CheckResult("source_content", FAIL, f"文件不存在：{e}")
     except Exception as e:
-        return ERROR, f"未知错误：{type(e).__name__} - {e}"
+        return CheckResult("source_content", ERROR, f"未知错误：{type(e).__name__} - {e}")
 
 
 # `![alt](path)` —— path 后面可能带 pandoc 属性段 `![](a.png){width=3cm}`
@@ -288,7 +312,7 @@ def _is_subsequence(needle: list[str], hay: list[str]) -> bool:
 
 def check_image_embedding(
     docx_path: str, md_ref_text: str = None, md_path: str = None
-) -> tuple[str, str]:
+) -> CheckResult:
     """检查图片：能给源 md 就做逐图身份 + 顺序校验，否则退回数量下限。
 
     两档强度，报告里必须说清走的是哪档：
@@ -296,6 +320,10 @@ def check_image_embedding(
         能抓住「图串位 / 错图 / 拿同一张图重复占位」——数量检查对这三类全瞎。
       - 只有 md_ref_text：仍是数量下限 `n_img >= n_ref`。
       - 都没有：SKIP。
+
+    失败闭环（fail-close）只在「身份 / 顺序」这条轴：解析不到源图路径属于验证器能力
+    边界（解析规则在 render 的 resource_paths），不能把「部分未校验」算成强 PASS——
+    降级为 SKIP。
     """
     try:
         doc = Document(docx_path)
@@ -303,14 +331,20 @@ def check_image_embedding(
         n_img = len(doc_shas) or len(doc.inline_shapes)
 
         if not md_ref_text:
-            return SKIP, f"跳过 (未提供 Markdown 引用；docx 共 {n_img} 张图)"
+            return CheckResult(
+                "image_embedding", SKIP, f"跳过 (未提供 Markdown 引用；docx 共 {n_img} 张图)"
+            )
 
         n_ref = len(re.findall(r"!\[", md_ref_text))
         if n_img < n_ref:
-            return FAIL, f"图片缺失：引用{n_ref}张，只嵌入{n_img}张"
+            return CheckResult("image_embedding", FAIL, f"图片缺失：引用{n_ref}张，只嵌入{n_img}张")
 
         if not md_path:
-            return PASS, f"图片嵌入：{n_img}/{n_ref} ok (仅数量，不校验对应关系)"
+            return CheckResult(
+                "image_embedding",
+                PASS,
+                f"图片嵌入：{n_img}/{n_ref} ok (仅数量，不校验对应关系)",
+            )
 
         # ---- 逐图身份比对 ----
         md_dir = os.path.dirname(os.path.abspath(md_path))
@@ -322,30 +356,45 @@ def check_image_embedding(
         missing = [resolved[i] for i, s in enumerate(expected) if s not in doc_shas]
         if missing:
             sample = " / ".join(os.path.basename(m) for m in missing[:3])
-            return FAIL, (
+            return CheckResult(
+                "image_embedding",
+                FAIL,
                 f"图片对应错误：{len(missing)}/{len(resolved)} 张引用的图没出现在 docx 里"
-                f"（例：{sample}）"
+                f"（例：{sample}）",
             )
 
         # 源图必须按顺序出现；docx 里允许夹带模板 logo 等额外图片
         if not _is_subsequence(expected, doc_shas):
-            return FAIL, f"图片顺序不一致：{len(resolved)} 张引用的图与 docx 出现次序不同"
+            return CheckResult(
+                "image_embedding",
+                FAIL,
+                f"图片顺序不一致：{len(resolved)} 张引用的图与 docx 出现次序不同",
+            )
 
         n_extra = len(doc_shas) - len(expected)
         extra = f"，另有 {n_extra} 张非源引用图（模板 logo 等）" if n_extra > 0 else ""
-        warn = f"；{unresolved} 张路径未定位，跳过身份校验" if unresolved else ""
-        return PASS, (
-            f"图片逐图比对：{len(resolved)}/{len(resolved)} 张身份与顺序一致{extra}{warn}"
+        if unresolved:
+            # 路径解析不到是验证器能力边界，降级为 SKIP，不计入强 PASS
+            return CheckResult(
+                "image_embedding",
+                SKIP,
+                f"图片身份校验降级：{len(resolved)}/{len(paths)} 张已定位且身份+顺序一致{extra}；"
+                f"{unresolved} 张源图路径未定位，跳过身份校验",
+            )
+        return CheckResult(
+            "image_embedding",
+            PASS,
+            f"图片逐图比对：{len(resolved)}/{len(resolved)} 张身份与顺序一致{extra}",
         )
     except PermissionError as e:
-        return FAIL, f"文件权限不足：{e}"
+        return CheckResult("image_embedding", FAIL, f"文件权限不足：{e}")
     except FileNotFoundError as e:
-        return FAIL, f"文件不存在：{e}"
+        return CheckResult("image_embedding", FAIL, f"文件不存在：{e}")
     except Exception as e:
-        return ERROR, f"未知错误：{type(e).__name__} - {e}"
+        return CheckResult("image_embedding", ERROR, f"未知错误：{type(e).__name__} - {e}")
 
 
-def check_section_count(docx_path: str) -> tuple[str, str]:
+def check_section_count(docx_path: str) -> CheckResult:
     """检查分节数合理性。"""
     try:
         doc = Document(docx_path)
@@ -353,14 +402,14 @@ def check_section_count(docx_path: str) -> tuple[str, str]:
 
         # 合理范围：至少 1 节，一般不超过 100 节
         if 1 <= n_sections <= 100:
-            return PASS, f"分节数：{n_sections} (合理)"
-        return FAIL, f"分节数异常：{n_sections}"
+            return CheckResult("section_count", PASS, f"分节数：{n_sections} (合理)")
+        return CheckResult("section_count", FAIL, f"分节数异常：{n_sections}")
     except PermissionError as e:
-        return FAIL, f"文件权限不足：{e}"
+        return CheckResult("section_count", FAIL, f"文件权限不足：{e}")
     except FileNotFoundError as e:
-        return FAIL, f"文件不存在：{e}"
+        return CheckResult("section_count", FAIL, f"文件不存在：{e}")
     except Exception as e:
-        return ERROR, f"未知错误：{type(e).__name__} - {e}"
+        return CheckResult("section_count", ERROR, f"未知错误：{type(e).__name__} - {e}")
 
 
 def count_toc_fields(doc) -> int:
@@ -383,7 +432,7 @@ def count_toc_fields(doc) -> int:
     return n
 
 
-def check_toc_field(docx_path: str) -> tuple[str, str]:
+def check_toc_field(docx_path: str) -> CheckResult:
     """检查目录域是否存在。
 
     文档没有 TOC 域时返回 SKIP 而不是 PASS：不配目录是合法配置（toc:false、
@@ -393,14 +442,16 @@ def check_toc_field(docx_path: str) -> tuple[str, str]:
         doc = Document(docx_path)
         n = count_toc_fields(doc)
         if n == 0:
-            return SKIP, "跳过 (文档中没有 TOC 域；未要求目录的文档属正常)"
-        return PASS, f"目录域：{n} 个 TOC 域"
+            return CheckResult(
+                "toc_field", SKIP, "跳过 (文档中没有 TOC 域；未要求目录的文档属正常)"
+            )
+        return CheckResult("toc_field", PASS, f"目录域：{n} 个 TOC 域")
     except PermissionError as e:
-        return FAIL, f"文件权限不足：{e}"
+        return CheckResult("toc_field", FAIL, f"文件权限不足：{e}")
     except FileNotFoundError as e:
-        return FAIL, f"文件不存在：{e}"
+        return CheckResult("toc_field", FAIL, f"文件不存在：{e}")
     except Exception as e:
-        return ERROR, f"目录域检查异常：{type(e).__name__} - {e}"
+        return CheckResult("toc_field", ERROR, f"目录域检查异常：{type(e).__name__} - {e}")
 
 
 def export_pdf_once(docx_path: str, pdf_path: str, timeout: int = 300) -> tuple[bool, str]:
@@ -438,11 +489,11 @@ def export_pdf_once(docx_path: str, pdf_path: str, timeout: int = 300) -> tuple[
     return False, err[:300]
 
 
-def check_word_acceptance(export_ok: bool, export_err: str) -> tuple[str, str]:
+def check_word_acceptance(export_ok: bool, export_err: str) -> CheckResult:
     """真机验收：Word 打开 + 导出 PDF（基于步骤 1 的共享导出结果）。"""
     if export_ok:
-        return PASS, "Word 验收：OK"
-    return FAIL, f"Word 验收失败：{export_err}"
+        return CheckResult("word_acceptance", PASS, "Word 验收：OK")
+    return CheckResult("word_acceptance", FAIL, f"Word 验收失败：{export_err}")
 
 
 # 页脚行识别：整行匹配才认，避免把正文里的数字（如「2026 年 9 月」）当页码。
@@ -483,12 +534,12 @@ def collect_page_numbers(pdf_doc) -> list:
     return numbers
 
 
-def check_page_numbering(pdf_path, max_pages: int = 1000) -> tuple[str, str]:
+def check_page_numbering(pdf_path, max_pages: int = 1000) -> CheckResult:
     """检查页码连续性 (基于共享导出的 PDF)。"""
     if pdf_path is None:
-        return SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)"
+        return CheckResult("page_numbering", SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)")
     if pymupdf is None:
-        return SKIP, "跳过 (未安装 PyMuPDF)"
+        return CheckResult("page_numbering", SKIP, "跳过 (未安装 PyMuPDF)")
     try:
         pdf_doc = pymupdf.open(pdf_path)
         try:
@@ -501,33 +552,38 @@ def check_page_numbering(pdf_path, max_pages: int = 1000) -> tuple[str, str]:
             # 识别不出页码格式 = 连续性根本没验证。旧实现在这里返回 PASS 且
             # 文案里写「连续」，把一个 fail-open 说成了通过。
             if 1 <= n_pages <= max_pages:
-                return SKIP, f"跳过 (未识别到页脚页码格式，{n_pages}页；连续性未验证)"
-            return FAIL, f"页数异常：{n_pages}页"
+                return CheckResult(
+                    "page_numbering",
+                    SKIP,
+                    f"跳过 (未识别到页脚页码格式，{n_pages}页；连续性未验证)",
+                )
+            return CheckResult("page_numbering", FAIL, f"页数异常：{n_pages}页")
 
         # 验证连续性：检测到的页码应构成无缺口的递增序列
         expected = list(range(min(page_numbers), max(page_numbers) + 1))
         if sorted(page_numbers) != expected:
             missing = set(expected) - set(page_numbers)
-            return FAIL, f"页码不连续：缺失{sorted(missing)}"
+            return CheckResult("page_numbering", FAIL, f"页码不连续：缺失{sorted(missing)}")
 
-        return (
+        return CheckResult(
+            "page_numbering",
             PASS,
             f"页码：{n_pages}页 (连续，检测到页码{min(page_numbers)}-{max(page_numbers)})",
         )
     except PermissionError as e:
-        return FAIL, f"文件权限不足：{e}"
+        return CheckResult("page_numbering", FAIL, f"文件权限不足：{e}")
     except FileNotFoundError as e:
-        return FAIL, f"文件不存在：{e}"
+        return CheckResult("page_numbering", FAIL, f"文件不存在：{e}")
     except Exception as e:
-        return ERROR, f"检查失败：{type(e).__name__} - {e}"
+        return CheckResult("page_numbering", ERROR, f"检查失败：{type(e).__name__} - {e}")
 
 
-def check_blank_pages(pdf_path, max_empty: int = 0) -> tuple[str, str]:
+def check_blank_pages(pdf_path, max_empty: int = 0) -> CheckResult:
     """检查空白页数量 (基于共享导出的 PDF)。"""
     if pdf_path is None:
-        return SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)"
+        return CheckResult("blank_pages", SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)")
     if pymupdf is None:
-        return SKIP, "跳过 (未安装 PyMuPDF)"
+        return CheckResult("blank_pages", SKIP, "跳过 (未安装 PyMuPDF)")
     try:
         pdf_doc = pymupdf.open(pdf_path)
         try:
@@ -542,9 +598,9 @@ def check_blank_pages(pdf_path, max_empty: int = 0) -> tuple[str, str]:
 
         passed = empty_count <= max_empty
         status = f"空白页：{empty_count}/{n_total} (阈值：{max_empty})"
-        return (PASS if passed else FAIL, status)
+        return CheckResult("blank_pages", PASS if passed else FAIL, status)
     except Exception as e:
-        return ERROR, f"检查失败：{type(e).__name__} - {e}"
+        return CheckResult("blank_pages", ERROR, f"检查失败：{type(e).__name__} - {e}")
 
 
 # 基线图的录制口径与 snapshot.py 一致：dpi=100、逐字节比对。
@@ -596,18 +652,20 @@ def check_visual_drift(
     baseline_dir: str = None,
     max_diff: float = DEFAULT_MAX_DIFF,
     sample: bool = False,
-) -> tuple[str, str]:
+) -> CheckResult:
     """与基线比对视觉漂移 (基于共享导出的 PDF，口径同 snapshot.py: 逐页全量)。"""
     if not baseline_dir or not os.path.exists(baseline_dir):
-        return SKIP, "跳过 (未提供基线目录)"
+        return CheckResult("visual_drift", SKIP, "跳过 (未提供基线目录)")
     if pdf_path is None:
-        return SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)"
+        return CheckResult("visual_drift", SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)")
     if pymupdf is None:
-        return FAIL, "视觉基线：无法比对 (未安装 PyMuPDF：pip install PyMuPDF)"
+        return CheckResult(
+            "visual_drift", FAIL, "视觉基线：无法比对 (未安装 PyMuPDF：pip install PyMuPDF)"
+        )
 
     baseline_files = sorted(glob.glob(os.path.join(baseline_dir, "p*.png")))
     if not baseline_files:
-        return FAIL, f"基线目录无图片：{baseline_dir}"
+        return CheckResult("visual_drift", FAIL, f"基线目录无图片：{baseline_dir}")
 
     try:
         diff_ratio = _import_diff_ratio()
@@ -618,7 +676,11 @@ def check_visual_drift(
             n_base = len(baseline_files)
             # 双向都要卡：变少是大改，变多同样是版式变了（旧实现只对变少报错）
             if n != n_base:
-                return FAIL, f"页数 {n} != 基线 {n_base} 页，版式可能大改或基线需重录"
+                return CheckResult(
+                    "visual_drift",
+                    FAIL,
+                    f"页数 {n} != 基线 {n_base} 页，版式可能大改或基线需重录",
+                )
             idxs = sample_page_indices(n) if sample else range(n)
             for i in idxs:
                 cur = doc[i].get_pixmap(dpi=BASELINE_DPI).samples
@@ -632,13 +694,13 @@ def check_visual_drift(
         if drifts:
             parts = [f"第{i}页漂移{r * 100:.2f}%" for i, r in drifts[:5]]
             more = "" if len(drifts) <= 5 else f" …共 {len(drifts)} 页"
-            return FAIL, "视觉漂移：" + ", ".join(parts) + more
+            return CheckResult("visual_drift", FAIL, "视觉漂移：" + ", ".join(parts) + more)
         scope = "抽样 %d 页" % len(sample_page_indices(n)) if sample else "全量 %d 页" % n
-        return PASS, f"视觉基线：一致 ({scope})"
+        return CheckResult("visual_drift", PASS, f"视觉基线：一致 ({scope})")
     except ImportError as e:
-        return ERROR, f"依赖缺失：{e} (需要 PyMuPDF)"
+        return CheckResult("visual_drift", ERROR, f"依赖缺失：{e} (需要 PyMuPDF)")
     except Exception as e:
-        return ERROR, f"视觉比对异常：{type(e).__name__} - {e}"
+        return CheckResult("visual_drift", ERROR, f"视觉比对异常：{type(e).__name__} - {e}")
 
 
 # =============================================================================
@@ -706,13 +768,23 @@ def generate_evidence_package(
 
         for name, checker, args in checks:
             try:
-                status, message = checker(*args)
-                if status not in (PASS, FAIL, SKIP, ERROR):
-                    status, message = ERROR, f"检查返回了未知状态 {status!r}：{message}"
+                res = checker(*args)
+                if not isinstance(res, CheckResult) or res.status not in (
+                    PASS,
+                    FAIL,
+                    SKIP,
+                    ERROR,
+                ):
+                    res = CheckResult(name, ERROR, f"检查返回了非预期结果：{res!r}")
             except Exception as e:
-                status, message = ERROR, f"检查异常：{type(e).__name__} - {e}"
+                res = CheckResult(name, ERROR, f"检查异常：{type(e).__name__} - {e}")
 
-            report["checks"][name] = {"status": status, "message": message}
+            report["checks"][name] = {
+                "status": res.status,
+                "message": res.message,
+                "evidence": res.evidence,
+            }
+            status = res.status
             report["summary"]["total"] += 1
             if status == PASS:
                 report["summary"]["passed"] += 1

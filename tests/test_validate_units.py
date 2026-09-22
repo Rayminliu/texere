@@ -1,7 +1,8 @@
 """validate.py 纯函数单元测试：页码识别与基线比对，不启动 Word。
 
 这些逻辑此前只在 CLI 级测试里被间接覆盖（且只测了 skip 路径），
-这里对核心判定函数做直接断言。
+这里对核心判定函数做直接断言。check 函数现已返回 CheckResult，测试统一走
+`.status` / `.message`，不再按下标 / 元组解包。
 """
 
 import glob
@@ -133,22 +134,22 @@ class TestNoFailOpen:
     """
 
     def test_page_numbering_without_pdf_is_skip(self):
-        assert v.check_page_numbering(None)[0] == v.SKIP
+        assert v.check_page_numbering(None).status == v.SKIP
 
     def test_blank_pages_without_pdf_is_skip(self):
-        assert v.check_blank_pages(None)[0] == v.SKIP
+        assert v.check_blank_pages(None).status == v.SKIP
 
     def test_visual_drift_without_baseline_is_skip(self):
-        assert v.check_visual_drift(None, None)[0] == v.SKIP
+        assert v.check_visual_drift(None, None).status == v.SKIP
 
     def test_source_content_without_any_evidence_is_skip(self, tmp_path):
-        assert v.check_source_content_integrity(_save_docx(tmp_path))[0] == v.SKIP
+        assert v.check_source_content_integrity(_save_docx(tmp_path)).status == v.SKIP
 
     def test_image_embedding_without_reference_is_skip(self, tmp_path):
-        assert v.check_image_embedding(_save_docx(tmp_path))[0] == v.SKIP
+        assert v.check_image_embedding(_save_docx(tmp_path)).status == v.SKIP
 
     def test_toc_field_without_toc_is_skip(self, tmp_path):
-        assert v.check_toc_field(_save_docx(tmp_path))[0] == v.SKIP
+        assert v.check_toc_field(_save_docx(tmp_path)).status == v.SKIP
 
 
 class TestSamplePageIndices:
@@ -192,11 +193,11 @@ class TestTocField:
         这一项恒定跳过——这里守住「真能从 OOXML 里数出 TOC 域」。"""
         f = _docx_with_toc(tmp_path / "toc.docx")
         assert v.count_toc_fields(Document(f)) == 1
-        assert v.check_toc_field(f)[0] == v.PASS
+        assert v.check_toc_field(f).status == v.PASS
 
     def test_plain_document_is_skipped_not_passed(self, tmp_path):
-        status, _ = v.check_toc_field(_save_docx(tmp_path, "plain.docx"))
-        assert status == v.SKIP
+        res = v.check_toc_field(_save_docx(tmp_path, "plain.docx"))
+        assert res.status == v.SKIP
 
 
 # ------------------------------------------------------------- 源内容契约
@@ -244,15 +245,15 @@ class TestSourceContentIntegrity:
         f = _docx_with_text(tmp_path, text)
         md = tmp_path / "a.md"
         md.write_text("# 标题\n\n%s\n" % text, encoding="utf-8")
-        status, msg = v.check_source_content_integrity(f, source_md=str(md))
-        assert status == v.PASS, msg
+        res = v.check_source_content_integrity(f, source_md=str(md))
+        assert res.status == v.PASS, res.message
 
     def test_md_equivalence_detects_dropped_text(self, tmp_path):
         f = _docx_with_text(tmp_path, "文档里只有这一句话")
         md = tmp_path / "a.md"
         md.write_text("源文档里这一段根本没有进到 docx 里\n", encoding="utf-8")
-        status, _ = v.check_source_content_integrity(f, source_md=str(md))
-        assert status == v.FAIL
+        res = v.check_source_content_integrity(f, source_md=str(md))
+        assert res.status == v.FAIL
 
     def test_code_fence_is_not_checked_as_body(self, tmp_path):
         """代码块里的内容不该被当成正文去比对。"""
@@ -261,22 +262,20 @@ class TestSourceContentIntegrity:
         md.write_text(
             "正文段落内容足够长度\n\n```python\n这段代码不该出现在docx里\n```\n", encoding="utf-8"
         )
-        status, msg = v.check_source_content_integrity(f, source_md=str(md))
-        assert status == v.PASS, msg
+        res = v.check_source_content_integrity(f, source_md=str(md))
+        assert res.status == v.PASS, res.message
 
     def test_expected_hash_matches(self, tmp_path):
-        import hashlib
-
         f = _save_docx(tmp_path, "h.docx")
         h = hashlib.sha256(open(f, "rb").read()).hexdigest()
-        status, msg = v.check_source_content_integrity(f, expected_hash=h)
-        assert status == v.PASS, msg
+        res = v.check_source_content_integrity(f, expected_hash=h)
+        assert res.status == v.PASS, res.message
 
     def test_expected_hash_mismatch_fails(self, tmp_path):
-        status, _ = v.check_source_content_integrity(
+        res = v.check_source_content_integrity(
             _save_docx(tmp_path, "h.docx"), expected_hash="deadbeef"
         )
-        assert status == v.FAIL
+        assert res.status == v.FAIL
 
 
 # ------------------------------------------------------------- 图片计数
@@ -284,14 +283,14 @@ class TestSourceContentIntegrity:
 
 class TestImageEmbedding:
     def test_missing_image_fails(self, tmp_path):
-        status, msg = v.check_image_embedding(_save_docx(tmp_path, "img.docx"), "![a](a.png)")
-        assert status == v.FAIL, msg
+        res = v.check_image_embedding(_save_docx(tmp_path, "img.docx"), "![a](a.png)")
+        assert res.status == v.FAIL, res.message
 
     def test_count_is_a_lower_bound_only(self, tmp_path):
         """n_img >= n_ref 只证明数量够，不证明对应关系——这里把这条边界写死。"""
-        status, msg = v.check_image_embedding(_save_docx(tmp_path, "img.docx"))
-        assert status == v.SKIP
-        assert "未提供 Markdown 引用" in msg
+        res = v.check_image_embedding(_save_docx(tmp_path, "img.docx"))
+        assert res.status == v.SKIP
+        assert "未提供 Markdown 引用" in res.message
 
 
 # ------------------------------------------------------------- 图片身份校验
@@ -346,16 +345,16 @@ class TestImageIdentity:
         a, b = _img_paths()[:2]
         md = self._md(tmp_path, [a, b])
         f = self._docx_with_images([a, a], tmp_path / "d.docx")
-        status, msg = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
-        assert status == v.FAIL, msg
+        res = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
+        assert res.status == v.FAIL, res.message
 
     def test_matching_images_pass(self, tmp_path):
         pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
         a, b = _img_paths()[:2]
         md = self._md(tmp_path, [a, b])
         f = self._docx_with_images([a, b], tmp_path / "d.docx")
-        status, msg = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
-        assert status == v.PASS, msg
+        res = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
+        assert res.status == v.PASS, res.message
 
     def test_swapped_order_is_detected(self, tmp_path):
         """两张图都在，但次序反了——数量检查对这种情况完全无感。"""
@@ -363,16 +362,16 @@ class TestImageIdentity:
         a, b = _img_paths()[:2]
         md = self._md(tmp_path, [a, b])
         f = self._docx_with_images([b, a], tmp_path / "d.docx")
-        status, msg = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
-        assert status == v.FAIL, msg
+        res = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
+        assert res.status == v.FAIL, res.message
 
     def test_without_md_path_falls_back_to_count(self, tmp_path):
         pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
         a = _img_paths()[0]
         f = self._docx_with_images([a], tmp_path / "d.docx")
-        status, msg = v.check_image_embedding(f, "![图一](a.png)")
-        assert status == v.PASS
-        assert "仅数量" in msg
+        res = v.check_image_embedding(f, "![图一](a.png)")
+        assert res.status == v.PASS
+        assert "仅数量" in res.message
 
     def test_sha256_file_helper(self):
         a = _img_paths()[0]

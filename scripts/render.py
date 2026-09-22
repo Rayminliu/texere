@@ -162,17 +162,17 @@ def _pandoc():
 
 
 def _word_engine():
-    """实测验收引擎身份。
+    """实测验收引擎身份，返回 (available, text)。
 
-    不要用注册表 CurVer 猜：那可能是旧 Office 卸载后残留的键值
-    （本机 CurVer 写着 Word.Application.11，实际却是 Microsoft Word 16.0）。
-    直接起 COM 问它自己是谁。
+    available=False 表示 --pdf/--check 所需的 Word 不可用（缺 pywin32 或启动失败），
+    但 docx-only 渲染仍可工作，所以 doctor 不因它判整体失败，只在状态里明确标出——
+    不能再像以前那样把第三字段写死 True 让失败看起来像通过。
     """
     try:
         import pythoncom
         import win32com.client as win32
     except ImportError:
-        return "未安装 pywin32，跳过探测（--pdf 需要它）"
+        return False, "未安装 pywin32，跳过探测（--pdf 需要它）"
     try:
         pythoncom.CoInitialize()
         try:
@@ -183,9 +183,9 @@ def _word_engine():
         finally:
             pythoncom.CoUninitialize()
     except Exception as e:
-        return "启动失败（%s：%s）" % (type(e).__name__, e)
+        return False, "启动失败（%s：%s）" % (type(e).__name__, e)
     tag = "" if "Microsoft" in name else "  [非 Microsoft Word，验收结果仅供参考]"
-    return "%s  %s%s" % (name, path, tag)
+    return True, "%s  %s%s" % (name, path, tag)
 
 
 def doctor():
@@ -207,7 +207,8 @@ def doctor():
         except Exception:
             rows.append((label, "缺失" + ("（核心）" if core else "（可选）"), not core))
 
-    rows.append(("Word 引擎", _word_engine(), True))
+    w_ok, w_text = _word_engine()
+    rows.append(("Word 引擎", w_text, w_ok))
 
     def dw(s):  # 中文按 2 列宽计算
         return len(s) + sum(1 for c in s if ord(c) > 127)
@@ -224,6 +225,10 @@ def doctor():
         if "pandoc" in missing:
             print("  winget install --id JohnMacFarlane.Pandoc   # 已装则把所在目录加进 PATH")
         return 1
+    if not w_ok:
+        print(
+            "\n注意：Word 验收引擎不可用（%s）；--pdf/--check 将失败，仅 docx 渲染可用。" % w_text
+        )
     print("\nOK：核心依赖齐备。")
     return 0
 
@@ -366,7 +371,15 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
 
     if want_pdf:
         pdf = os.path.splitext(out_docx)[0] + ".pdf"
-        run([sys.executable, os.path.join(KIT, "scripts", "finalize.py"), out_docx, pdf])
+        run(
+            [
+                sys.executable,
+                os.path.join(KIT, "scripts", "finalize.py"),
+                out_docx,
+                pdf,
+                "--save-updated-fields",
+            ]
+        )
         if want_check:
             run([sys.executable, os.path.join(KIT, "scripts", "check_pdf.py"), pdf])
     shutil.rmtree(tmp, ignore_errors=True)
