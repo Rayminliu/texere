@@ -91,6 +91,10 @@ class CheckResult:
     status: str
     message: str
     evidence: dict = field(default_factory=dict)
+    # evidence 是「只观测、不裁决」的机器可读判定依据：profile.page / profile.body_font /
+    # profile.heading / profile.table / profile.toc / image_embedding 等检查会填实它，
+    # 其余检查留空 {}。它绝不参与 status 判定，缺失 evidence 也绝不改变 verdict——
+    # 仅用于可解释审计与将来的 Build Manifest 直接消费。
 
 
 def check_package_integrity(docx_path: str) -> CheckResult:
@@ -330,21 +334,41 @@ def check_image_embedding(
         doc = Document(docx_path)
         doc_shas = _docx_image_shas(doc)
         n_img = len(doc_shas) or len(doc.inline_shapes)
+        # evidence：复用同一次扫描结果（doc_shas 即文档顺序的 sha256），绝不为了填
+        # evidence 再跑一遍解析。只记录观测值，不影响下方 status 判定。
+        images = [{"document_index": i, "sha256": s} for i, s in enumerate(doc_shas)]
 
         if not md_ref_text:
             return CheckResult(
-                "image_embedding", SKIP, f"跳过 (未提供 Markdown 引用；docx 共 {n_img} 张图)"
+                "image_embedding",
+                SKIP,
+                f"跳过 (未提供 Markdown 引用；docx 共 {n_img} 张图)",
+                evidence={"available": False, "docx_images": n_img, "images": images},
             )
 
         n_ref = len(re.findall(r"!\[", md_ref_text))
+        ev = {
+            "referenced": n_ref,
+            "embedded": n_img,
+            "resolved": None,
+            "unresolved": None,
+            "unresolved_paths": [],
+            "images": images,
+        }
         if n_img < n_ref:
-            return CheckResult("image_embedding", FAIL, f"图片缺失：引用{n_ref}张，只嵌入{n_img}张")
+            return CheckResult(
+                "image_embedding",
+                FAIL,
+                f"图片缺失：引用{n_ref}张，只嵌入{n_img}张",
+                evidence=ev,
+            )
 
         if not md_path:
             return CheckResult(
                 "image_embedding",
                 PASS,
                 f"图片嵌入：{n_img}/{n_ref} ok (仅数量，不校验对应关系)",
+                evidence=ev,
             )
 
         # ---- 逐图身份比对 ----
@@ -352,16 +376,21 @@ def check_image_embedding(
         paths = _md_image_paths(md_ref_text, md_dir)
         resolved = [p for p in paths if p]
         unresolved = len(paths) - len(resolved)
+        ev["resolved"] = len(resolved)
+        ev["unresolved"] = unresolved
+        ev["unresolved_paths"] = [os.path.basename(p) for p in paths if not p]
 
         expected = [_sha256_file(p) for p in resolved]
         missing = [resolved[i] for i, s in enumerate(expected) if s not in doc_shas]
         if missing:
             sample = " / ".join(os.path.basename(m) for m in missing[:3])
+            ev["missing_sources"] = [os.path.basename(m) for m in missing]
             return CheckResult(
                 "image_embedding",
                 FAIL,
                 f"图片对应错误：{len(missing)}/{len(resolved)} 张引用的图没出现在 docx 里"
                 f"（例：{sample}）",
+                evidence=ev,
             )
 
         # 源图必须按顺序出现；docx 里允许夹带模板 logo 等额外图片
@@ -370,6 +399,7 @@ def check_image_embedding(
                 "image_embedding",
                 FAIL,
                 f"图片顺序不一致：{len(resolved)} 张引用的图与 docx 出现次序不同",
+                evidence=ev,
             )
 
         n_extra = len(doc_shas) - len(expected)
@@ -381,11 +411,13 @@ def check_image_embedding(
                 SKIP,
                 f"图片身份校验降级：{len(resolved)}/{len(paths)} 张已定位且身份+顺序一致{extra}；"
                 f"{unresolved} 张源图路径未定位，跳过身份校验",
+                evidence=ev,
             )
         return CheckResult(
             "image_embedding",
             PASS,
             f"图片逐图比对：{len(resolved)}/{len(resolved)} 张身份与顺序一致{extra}",
+            evidence=ev,
         )
     except PermissionError as e:
         return CheckResult("image_embedding", FAIL, f"文件权限不足：{e}")
@@ -743,7 +775,20 @@ def _east_asia_of_style(style):
 def _check_page(page, doc) -> CheckResult:
     sec = doc.sections[0]
     w_cm, h_cm = _emu_cm(sec.page_width), _emu_cm(sec.page_height)
-    pw, ph = float(page.get("width", 0)), float(page.get("height", 0))
+    pw = float(page.get("width", 0) or 0)
+    ph = float(page.get("height", 0) or 0)
+    # evidence：把「实际观测值」与 profile 期望值并排，便于审计 / Manifest 直接消费。
+    # 注意：evidence 只是观测记录，下方 issues / status 的判定逻辑一字未改。
+    evidence = {
+        "width": {
+            "expected_cm": round(pw, 2) if pw else None,
+            "actual_cm": round(w_cm, 2),
+        },
+        "height": {
+            "expected_cm": round(ph, 2) if ph else None,
+            "actual_cm": round(h_cm, 2),
+        },
+    }
     issues = []
     if pw and abs(w_cm - pw) > 0.1:
         issues.append(f"宽 {w_cm:.2f}≠{pw}")
@@ -755,13 +800,24 @@ def _check_page(page, doc) -> CheckResult:
         ("margin_left", "left_margin"),
         ("margin_right", "right_margin"),
     ):
-        if page.get(pk) is not None:
-            actual = _emu_cm(getattr(sec, sk))
-            if abs(actual - float(page[pk])) > 0.2:
-                issues.append(f"{pk} {actual:.2f}≠{page[pk]}")
+        exp = page.get(pk)
+        actual = _emu_cm(getattr(sec, sk))
+        evidence[pk] = {
+            "expected_cm": round(float(exp), 2) if exp is not None else None,
+            "actual_cm": round(actual, 2),
+        }
+        if exp is not None and abs(actual - float(exp)) > 0.2:
+            issues.append(f"{pk} {actual:.2f}≠{exp}")
     if issues:
-        return CheckResult("profile.page", FAIL, "页面/边距不符：" + "，".join(issues))
-    return CheckResult("profile.page", PASS, f"页面 {w_cm:.2f}×{h_cm:.2f}cm、边距符合规范")
+        return CheckResult(
+            "profile.page", FAIL, "页面/边距不符：" + "，".join(issues), evidence=evidence
+        )
+    return CheckResult(
+        "profile.page",
+        PASS,
+        f"页面 {w_cm:.2f}×{h_cm:.2f}cm、边距符合规范",
+        evidence=evidence,
+    )
 
 
 def _check_body_font(body, doc) -> CheckResult:
@@ -771,31 +827,55 @@ def _check_body_font(body, doc) -> CheckResult:
     font = st.font
     issues = []
     # contract semantics：profile 要求某字段时，「实际缺失」与「值不符」都应判 FAIL。
-    # 否则「要求宋体、实际根本没声明东亚字体」会被静默放过，违背「声明即检查」。
+    # evidence 用 fields 数组把每个声明字段的 expected/actual 并排：actual=None 天然
+    # 表达「缺失 ≠ 不符」，审计方无需从中文 message 里反解。
+    fields = []
     if body.get("font_latin"):
         actual = font.name
+        fields.append(
+            {
+                "field": "styles.body.font_latin",
+                "expected": body["font_latin"],
+                "actual": actual,
+            }
+        )
         if actual is None:
             issues.append(f"西文缺失（要求 {body['font_latin']}）")
         elif actual != body["font_latin"]:
             issues.append(f"西文 {actual}≠{body['font_latin']}")
     ea = _east_asia_of_style(st)
     if body.get("font_eastAsia"):
+        fields.append(
+            {
+                "field": "styles.body.font_eastAsia",
+                "expected": body["font_eastAsia"],
+                "actual": ea,
+            }
+        )
         if ea is None:
             issues.append(f"中文缺失（要求 {body['font_eastAsia']}）")
         elif ea != body["font_eastAsia"]:
             issues.append(f"中文 {ea}≠{body['font_eastAsia']}")
     if body.get("size"):
+        actual = round(font.size.pt, 2) if font.size is not None else None
+        fields.append({"field": "styles.body.size", "expected": body["size"], "actual": actual})
         if font.size is None:
             issues.append(f"字号缺失（要求 {body['size']}）")
         elif abs(font.size.pt - float(body["size"])) > 0.5:
             issues.append(f"字号 {font.size.pt}≠{body['size']}")
+    evidence = {"fields": fields, "source": "profile"}
     if issues:
-        return CheckResult("profile.body_font", FAIL, "正文样式：" + "，".join(issues))
-    return CheckResult("profile.body_font", PASS, "正文样式（字体/字号）符合规范")
+        return CheckResult(
+            "profile.body_font", FAIL, "正文样式：" + "，".join(issues), evidence=evidence
+        )
+    return CheckResult(
+        "profile.body_font", PASS, "正文样式（字体/字号）符合规范", evidence=evidence
+    )
 
 
 def _check_heading_styles(styles, doc) -> CheckResult:
     issues = []
+    fields = []
     for lvl, wname in (("h1", "Heading 1"), ("h2", "Heading 2"), ("h3", "Heading 3")):
         spec = styles.get(lvl)
         if not spec:
@@ -807,29 +887,58 @@ def _check_heading_styles(styles, doc) -> CheckResult:
         font = st.font
         if spec.get("font_eastAsia"):
             ea = _east_asia_of_style(st)
+            fields.append(
+                {
+                    "field": f"styles.{lvl}.font_eastAsia",
+                    "expected": spec["font_eastAsia"],
+                    "actual": ea,
+                }
+            )
             if ea is None:
                 issues.append(f"{wname} 中文缺失（要求 {spec['font_eastAsia']}）")
             elif ea != spec["font_eastAsia"]:
                 issues.append(f"{wname} 中文 {ea}≠{spec['font_eastAsia']}")
         if spec.get("font_latin"):
             actual = font.name
+            fields.append(
+                {
+                    "field": f"styles.{lvl}.font_latin",
+                    "expected": spec["font_latin"],
+                    "actual": actual,
+                }
+            )
             if actual is None:
                 issues.append(f"{wname} 西文缺失（要求 {spec['font_latin']}）")
             elif actual != spec["font_latin"]:
                 issues.append(f"{wname} 西文 {actual}≠{spec['font_latin']}")
         if spec.get("size"):
+            actual = round(font.size.pt, 2) if font.size is not None else None
+            fields.append(
+                {"field": f"styles.{lvl}.size", "expected": spec["size"], "actual": actual}
+            )
             if font.size is None:
                 issues.append(f"{wname} 字号缺失（要求 {spec['size']}）")
             elif abs(font.size.pt - float(spec["size"])) > 0.5:
                 issues.append(f"{wname} 字号 {font.size.pt}≠{spec['size']}")
         if spec.get("bold") is not None:
+            actual = bool(font.bold) if font.bold is not None else None
+            fields.append(
+                {
+                    "field": f"styles.{lvl}.bold",
+                    "expected": bool(spec["bold"]),
+                    "actual": actual,
+                }
+            )
             if font.bold is None:
                 issues.append(f"{wname} 加粗缺失（要求 {spec['bold']}）")
             elif bool(font.bold) != bool(spec["bold"]):
                 issues.append(f"{wname} 加粗 {font.bold}≠{spec['bold']}")
+    evidence = {"fields": fields, "source": "profile"}
     if issues:
-        return CheckResult("profile.heading", FAIL, "标题样式：" + "，".join(issues))
-    return CheckResult("profile.heading", PASS, "标题层级样式符合规范")
+        return CheckResult(
+            "profile.heading", FAIL, "标题样式：" + "，".join(issues), evidence=evidence
+        )
+    return CheckResult("profile.heading", PASS, "标题层级样式符合规范", evidence=evidence)
 
 
 def _check_table_borders(doc) -> CheckResult:
@@ -846,18 +955,36 @@ def _check_table_borders(doc) -> CheckResult:
         # 于是 render 默认加的全框线被错杀成 FAIL。这里直接遍历 tblBorders 的子元素。
         if any((b.get(qn("w:sz")) and int(b.get(qn("w:sz")) or 0) > 0) for b in borders):
             bordered += 1
+    # evidence 记录粗粒度语义：「至少一个表存在可见边框」，不逐边校验颜色/粗细——
+    # 用 rule 字段把这条边界写死，防止后人误读成「所有表全部符合边框规范」。
+    evidence = {
+        "bordered": bordered,
+        "total": len(doc.tables),
+        "rule": "at_least_one_visible_border",
+    }
     if bordered:
         return CheckResult(
-            "profile.table", PASS, f"表格边框：{bordered}/{len(doc.tables)} 个表含可见边框"
+            "profile.table",
+            PASS,
+            f"表格边框：{bordered}/{len(doc.tables)} 个表含可见边框",
+            evidence=evidence,
         )
-    return CheckResult("profile.table", FAIL, f"表格边框：{len(doc.tables)} 个表均无可见边框")
+    return CheckResult(
+        "profile.table",
+        FAIL,
+        f"表格边框：{len(doc.tables)} 个表均无可见边框",
+        evidence=evidence,
+    )
 
 
 def _check_profile_toc(doc) -> CheckResult:
     n = count_toc_fields(doc)
+    evidence = {"has_field": bool(n), "count": n}
     if n:
-        return CheckResult("profile.toc", PASS, f"目录域：{n} 个")
-    return CheckResult("profile.toc", FAIL, "profile 要求目录，但文档中未发现 TOC 域")
+        return CheckResult("profile.toc", PASS, f"目录域：{n} 个", evidence=evidence)
+    return CheckResult(
+        "profile.toc", FAIL, "profile 要求目录，但文档中未发现 TOC 域", evidence=evidence
+    )
 
 
 def compile_profile_checks(profile, docx_path) -> list:

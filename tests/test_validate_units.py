@@ -380,6 +380,84 @@ class TestImageIdentity:
         assert v._sha256_file(a) == hashlib.sha256(open(a, "rb").read()).hexdigest()
 
 
+class TestEvidenceEnrichment:
+    """Evidence Enrichment：填充已有 CheckResult.evidence（不新增 check / 不改 status）。
+
+    守住五件事：profile.page / body_font / heading / table / toc 的 evidence 非空且形状正确，
+    且所有 evidence 必须 JSON-serializable（防止 Decimal / Length / EMU / Enum 漏进 report.json）。
+    """
+
+    def _results(self, tmp_path, conforming=True):
+        prof = _formal_profile()
+        docx = _make_profiled_docx(tmp_path, conforming)
+        return {r.name: r for r in v.compile_profile_checks(prof, docx)}
+
+    def test_page_evidence_has_expected_and_actual(self, tmp_path):
+        ev = self._results(tmp_path)["profile.page"].evidence
+        assert ev, "profile.page 的 evidence 不应为空"
+        for dim in (
+            "width",
+            "height",
+            "margin_top",
+            "margin_bottom",
+            "margin_left",
+            "margin_right",
+        ):
+            assert dim in ev, f"page evidence 缺维度 {dim}"
+            assert "expected_cm" in ev[dim] and "actual_cm" in ev[dim]
+
+    def test_body_font_evidence_nonempty_and_missing_is_none(self, tmp_path):
+        # conforming：PASS 时 evidence 也必须非空
+        r_ok = self._results(tmp_path)["profile.body_font"]
+        assert r_ok.status == v.PASS
+        assert r_ok.evidence["fields"], "PASS 时 body_font evidence 不应为空"
+        # nonconforming 文档的 Normal 不设 eastAsia → 逼出「缺失 = actual None」
+        prof = _formal_profile()
+        docx = _make_profiled_docx(tmp_path, False)
+        r = next(x for x in v.compile_profile_checks(prof, docx) if x.name == "profile.body_font")
+        assert r.status == v.FAIL
+        ea = next(f for f in r.evidence["fields"] if f["field"] == "styles.body.font_eastAsia")
+        assert ea["actual"] is None, "缺失字段的 actual 必须是 None（而非静默放过）"
+
+    def test_heading_evidence_contains_level_fields(self, tmp_path):
+        r = self._results(tmp_path)["profile.heading"]
+        fields = r.evidence["fields"]
+        assert fields, "heading evidence 不应为空"
+        assert any(f["field"].startswith("styles.h1.") for f in fields)
+
+    def test_table_evidence_records_bordered_total_rule(self, tmp_path):
+        ev = self._results(tmp_path)["profile.table"].evidence
+        assert "bordered" in ev and "total" in ev and "rule" in ev
+        assert ev["rule"] == "at_least_one_visible_border"
+
+    def test_toc_evidence_has_field_and_count(self, tmp_path):
+        ev = self._results(tmp_path)["profile.toc"].evidence
+        assert "has_field" in ev and "count" in ev
+        assert ev["has_field"] is True and ev["count"] >= 1
+
+    def test_all_evidence_is_json_serializable(self, tmp_path):
+        # 钉死「evidence 只装可序列化观测值」，防 EMU / Decimal / Enum 漏进 report.json
+        import json
+
+        for r in self._results(tmp_path).values():
+            assert isinstance(json.dumps(r.evidence, ensure_ascii=False), str)
+
+    def test_image_evidence_reuses_single_scan(self, tmp_path):
+        pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
+        a, b = _img_paths()[:2]
+        md = TestImageIdentity._md(tmp_path, [a, b])
+        f = TestImageIdentity._docx_with_images([a, b], tmp_path / "d.docx")
+        res = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
+        assert res.status == v.PASS, res.message
+        ev = res.evidence
+        assert "referenced" in ev and "embedded" in ev and "resolved" in ev
+        assert ev["images"], "images 必须记录文档顺序的 sha256"
+        assert len(ev["images"]) == ev["embedded"]  # 不二次扫描
+        import json
+
+        json.dumps(ev, ensure_ascii=False)  # 必须可序列化
+
+
 class TestBaselinePageDiff:
     def test_identical_image_has_zero_diff(self):
         pytest.importorskip("pymupdf")

@@ -42,6 +42,28 @@ customer-specific policy layer，绝不替代原有 acceptance：
   还是 ⚠️ declared-only（`line_spacing` / `space_*` / `caption.*` / `header.*` / `footer.*` /
   `tender_specific.*` 等目前只是声明、未编译成断言），避免「JSON 写了就以为 validator 会保护我」
 
+### Evidence Enrichment（只填 `evidence`，不增 check / 不改 verdict）
+
+`CheckResult.evidence` 槽位与 `report.json` 落盘早在 profile 章节就已就位，但多数检查留空 `{}`。
+这一步把已有判定的「实际观测值」填实——**不新增断言、不改变 PASS/FAIL/SKIP/ERROR、不改变
+默认验收行为、只提高 `report.json` 的可解释性**，为将来的 Build Manifest 直接消费做准备：
+
+- **`profile.page`**: `evidence` 把每个维度（width/height/margin_top/bottom/left/right）的
+  `expected_cm` / `actual_cm` 并排，审计方无需反解中文 message
+- **`profile.body_font` / `profile.heading`**: `evidence.fields` 数组，每项 `{field, expected, actual}`；
+  `actual: null` 天然表达「缺失 ≠ 不符」（正是 contract semantics 修的那条），`source: "profile"`
+- **`profile.table`**: `{bordered, total, rule: "at_least_one_visible_border"}`——`rule` 把粗粒度语义
+  写死，防止误读成「所有表全部符合边框规范」
+- **`profile.toc`**: `{has_field, count}`（count 是实数，不只一个 bool）
+- **`image_embedding`**: 复用**同一次** `doc_shas` 扫描填 `evidence`
+  （`referenced / embedded / resolved / unresolved / images[document_index, sha256]`），绝不为了
+  填 evidence 再跑一遍解析（不把 evidence 做成第二套 validator）
+- `SCRIPT_HELP.md` 补「检查语义边界（Known limitations，只记录不实现）」：明确 `profile.page` 只看
+  `sections[0]`（first_section）、`profile.table` 是 at_least_one 粗粒度、evidence 不参与 status 判定、
+  以及 declared-only 字段清单
+- 测试 219 → 226 项：新增 `TestEvidenceEnrichment`（5 个 profile 检查的 evidence 形状 +
+  `json.dumps` 可序列化守护 + image 复用单次扫描守护）
+
 ## 0.6.3 — 2026-09-22
 
 ### README：从「工程手册」改成「产品首页 + 工程索引」

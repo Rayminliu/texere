@@ -130,6 +130,19 @@ python scripts/validate.py bid.docx --quiet
 这些断言走 OOXML 读取，**不依赖 Word**；只覆盖 profile 真正声明的字段，未声明的不凭空编造。
 未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响。
 
+#### 检查语义边界（Known limitations，只记录不实现）
+
+- **`profile.page` 只看 `doc.sections[0]`（first_section）**：多节文档（如 cover=A4、body=A3
+  横版）不会逐节比对，只校验主 section。若 profile 合同需要多节，需显式扩展 scope 语义。
+- **`profile.table` 是「至少一个表含可见边框」的粗粒度断言**：不逐边（top/left/right/
+  bottom/insideH/insideV）校验颜色或粗细；evidence 里 `rule` 固定为 `at_least_one_visible_border`，
+  防止误读成「所有表全部符合边框规范」。
+- **`profile.<field>` 的 `evidence` 只是观测记录**：report.json 里每个 profile 检查都带
+  `evidence`（机器可读的 `expected` / `actual` / `field` / `source`），但它**不参与 status 判定**，
+  缺失 evidence 也绝不改变 verdict——仅用于可解释审计与将来的 Build Manifest 直接消费。
+- 下列 profile 字段**目前仅声明、未强制验证**（declared-only，非 enforced）：`line_spacing`、
+  `first_line_indent`、`space_*`、`caption.*`、`header.*`、`footer.*`、`tender_specific.*`。
+
 #### Profile 字段执行状态（声明 ≠ 一定检查）
 
 为避免「JSON 写了就以为 validator 会保护我」，逐项标注每个字段的实际执行状态。**缺失即 FAIL**
