@@ -57,10 +57,8 @@ ships its Markdown + config and runs with one command; regenerate these with
 > [Known limitations](#known-limitations)).
 
 **Contents** · [Quick start](#quick-start) · [Examples](#see-the-result) ·
-[What it does](#what-it-does-and-doesnt-do) · [Why not pandoc alone?](#why-not-pandoc-alone) ·
-[Keep your template](#have-an-existing-word-template-keep-it) · [Workflows](#usage) ·
-[Validation](#validation-and-evidence-package) · [Editing](#editing-an-existing-docx) ·
-[Limitations](#known-limitations) · [Docs](#documentation-map)
+[Workflows](#usage) · [Validation](#validation-and-evidence-package) ·
+[Editing](#editing-an-existing-docx) · [Docs](#documentation-map)
 
 ## What it does and doesn't do
 
@@ -127,15 +125,15 @@ Contributor tooling (ruff, pre-commit, the test suite) is in [Development](#deve
 
 ## Measured throughput
 
-Word acceptance + PDF export + blank-page check included:
+On Windows + Microsoft Word, with Word acceptance and PDF export included:
 
-| Size | Time |
-|---|---|
-| 69 pages / 63 tables / 28 images | **19.0 s** |
-| 272 pages / 252 tables / 112 images | **69.7 / 66.9 s** (two consecutive runs) |
+69 pages / 63 tables / 28 images → **19.0 s** end-to-end
 
-The large run produced a 2.9 MB docx; both runs matched item by item (page count, word count, tables, images,
-and sampled page pixels), with no orphaned Word processes.
+272 pages / 252 tables / 112 images → **66.9–69.7 s** end-to-end
+
+Both runs produced a 2.9 MB docx and matched item by item (page count, word count, tables, images,
+sampled page pixels), with no orphaned Word processes. Reproducible examples and benchmark details
+→ [`examples/`](examples/README.md).
 
 ## Why not pandoc alone?
 
@@ -225,27 +223,11 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
 
 ### Contract: layout only, never content
 
-**Scope: the post-processing stage.** `post.py` does not touch **any** of the text in the body or the
-captions. Figure and table numbers are hand-written in the source.
-
-The contract is narrower than the whole pipeline, and that difference matters the moment an agent
-relies on it:
-
-- **Post-processing (`post.py`) — never touches content.** This is what the contract and
-  `tests/test_postprocess.py::test_never_touches_text` actually guarantee.
-- **Render pipeline — may transform content, but only if you ask.** `content_fixes` /
-  `content_fixes_file` apply an explicit `[[old, new]]` replacement table after the Markdown is
-  merged and before conversion (see Configuration). With that table empty, every output character
-  does come from the source; with it populated, it does not.
-
-So "output text comes from the source" is a property of *your config*, not of the tool. To check the
-rendered body against the source instead of trusting the claim:
-`python scripts/validate.py bid.docx --source-md src/01.md`.
-
-Version 0.2.0 briefly shipped an "automatic figure numbering + `@tab:` cross-references" feature. It was
-**removed entirely** because it rewrote caption text, added numbers to captions that had none, and left
-hand-written in-text references out of sync. If numbering is ever revisited, the right implementation is
-Word's native `SEQ` / `REF` fields (updatable, no text rewriting) — not rewriting caption text.
+`post.py` never touches body or caption text — figure and table numbers are hand-written in the source.
+That guarantee is enforced by `tests/test_postprocess.py::test_never_touches_text`. The render pipeline
+*may* transform text, but only via an explicit `content_fixes` table you opt into; with it empty, every
+output character comes from the source. Full contract, the `content_fixes` mechanism and the removed
+auto-numbering feature → [`SKILL.md`](SKILL.md).
 
 ## Validation and evidence package
 
