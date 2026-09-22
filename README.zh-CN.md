@@ -22,28 +22,40 @@ Markdown  +  ref.docx / profile.json        设计契约
 
 ### 看看产物
 
-以下均为 [`examples/`](examples/README.md) 的真实渲染结果——每个目录自带 Markdown + config，
+**你写的是这个**（`examples/tender/01_bid.md`）：
+
+```markdown
+表 1-1 商务条款响应表
+
+| 条款 | 招标要求 | 投标响应 |
+|:---|:---|:---|
+| 工期 | 90 日历天 | 完全响应 |
+| 质量要求 | 符合国家验收标准 | 完全响应 |
+| 付款方式 | 按招标文件 | 完全响应 |
+```
+
+**甲方打开的是这个**——字一个没变，加上了模板的框线、表头底纹、居中表题、分节页码与目录域：
+
+![tender](assets/previews/tender.png)
+
+同一条管线用在别的文档类型上——[`examples/`](examples/README.md) 每个目录自带 Markdown + config，
 一条命令即可跑通；重跑 `python scripts/make_previews.py` 可刷新这些图。
 
-| 投标文件（`tender/`） | 公文请示（`gongwen/`） |
+| 公文请示（`gongwen/`） | 项目申报书（`form/`） |
 |---|---|
-| ![tender](assets/previews/tender.png) | ![gongwen](assets/previews/gongwen.png) |
-| 项目申报书（`form/`）——无标题无目录，首行是字段名 | 会议纪要（`minutes/`）——封面承载会议信息 |
-| ![form](assets/previews/form.png) | ![minutes](assets/previews/minutes.png) |
-| 经营分析报告（`report/`）——多文件合并、Lead 提示框、grid 表头 | 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 |
-| ![report](assets/previews/report.png) | ![contract](assets/previews/contract.png) |
-| 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 | |
-| ![tables](assets/previews/tables.png) | |
+| ![gongwen](assets/previews/gongwen.png) | ![form](assets/previews/form.png) |
+| 会议纪要（`minutes/`）——封面承载会议信息 | 经营分析报告（`report/`）——多文件合并、Lead 提示框、grid 表头 |
+| ![minutes](assets/previews/minutes.png) | ![report](assets/previews/report.png) |
+| 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 | 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 |
+| ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
 
 > **运行平台**：Windows + 本机 Microsoft Word。docx 之后的每一步——Word 验收、PDF 导出、9 项验证器——
 > 都走 Word COM。Linux / macOS 只有 docx 那一半能跑（见[已知边界](#已知边界)）。
 
-**目录** · [能力边界](#能力边界) · [快速开始](#快速开始) · [规模实测](#规模实测) ·
+**目录** · [快速开始](#快速开始) · [看看产物](#看看产物) · [能力边界](#能力边界) ·
 [为什么不只是 Pandoc？](#为什么不只是-pandoc) · [沿用现有模板](#已有-word-模板继续用它) ·
-[三条支柱](#三条支柱) · [用法](#用法) · [验证与证据包](#验证与证据包) ·
-[编辑已有 docx](#编辑已有-docx) · [复用已有模板](#复用已有模板) · [配置与表格](#配置与表格) ·
-[标书场景注意](#标书场景注意) · [已知边界](#已知边界) · [设计原则](#设计原则) ·
-[开发](#开发) · [文档地图](#文档地图)
+[工作流](#用法) · [验证与证据包](#验证与证据包) · [编辑已有 docx](#编辑已有-docx) ·
+[已知边界](#已知边界) · [文档](#文档地图)
 
 ## 能力边界
 
@@ -69,7 +81,17 @@ Markdown  +  ref.docx / profile.json        设计契约
 
 ## 快速开始
 
-外部依赖：`pandoc` 必需；`--pdf` 与验证器需要本机 Word。
+```powershell
+python scripts/render.py --doctor     # 我的环境准备好了吗？
+python scripts/render.py --sample     # 冒烟测试，产出 sample_out.docx/.pdf
+python scripts/render.py --src examples/tender --out 标书.docx `
+    --config examples/tender/config.json --pdf --check
+```
+
+第三条命令渲染一份真实投标文件、在 Word 里验收、导出 PDF 并检查产物——**不用先配任何东西**。
+只有 `--doctor` 报错时才需要往下看。
+
+**如果 `--doctor` 报错**——`pandoc` 必需；`--pdf` 与验证器需要本机 Word：
 
 | 依赖 | 用途 | 安装 |
 |---|---|---|
@@ -79,20 +101,15 @@ Markdown  +  ref.docx / profile.json        设计契约
 | PyMuPDF | 仅 `--check`（PDF 目视验收） | 见下 |
 | Microsoft Word | 仅 `--pdf` | 系统级，pip / uv 都装不了 |
 
+```powershell
+winget install --id JohnMacFarlane.Pandoc
+pip install -r requirements.txt      # 纯 pip；版本由 uv.lock 导出锁死
+                                     # 用 uv 的话：uv sync --all-extras
+```
+
 > **本仓库是「脚本集合」，不是可 pip 安装的包**——`pip install .` 会失败（没有构建后端，
 > 而且工具要靠相对路径（从各脚本自身位置出发）找到 `assets/ref.docx` / `scripts/` / `assets/sample.md`）。
 > 把文件夹放好，**直接跑脚本**即可。
-
-```powershell
-winget install --id JohnMacFarlane.Pandoc
-
-# 依赖（一条命令装齐；版本由 uv.lock 导出锁死）
-pip install -r requirements.txt      # 纯 pip
-                                     # 用 uv 的话：uv sync --all-extras
-
-python scripts/render.py --doctor            # 环境自检
-python scripts/render.py --sample            # 冒烟测试，产出 sample_out.docx/.pdf
-```
 
 `--doctor` 会**实测 Word 引擎身份**（走 COM 直接问）。不读注册表——注册表里的 `CurVer`
 可能是旧 Office 卸载后的残留值，会误报。
@@ -162,7 +179,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # 模板 �
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # 重建排版模板
 python scripts/snapshot.py 标书.pdf --update                     # 录版式基线（确认版式无误后）
 python scripts/snapshot.py 标书.pdf                              # 回归比对，漂移即 exit 1
-python -m pytest -q                                              # 207 项断言，约 6-7 分钟（需本机 Word）
+python -m pytest -q                                              # 211 项断言，约 6-7 分钟（需本机 Word）
 ```
 
 可运行示例——每个目录自带 Markdown + config，一条命令跑通（见 [examples/README.md](examples/README.md)）：
@@ -331,21 +348,13 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 ## 开发
 
 ```bash
-pip install ruff pre-commit      # ruff 一个工具顶 flake8 + black + isort
-pre-commit install               # 一次性
-
-ruff check scripts/ tests/              # 静态检查
-ruff format --check scripts/ tests/     # 格式
-pre-commit run --all-files              # 上面这些一次跑完
-python -m pytest -q                     # 全量：207 项断言，约 6-7 分钟（需本机 Word）
+pip install ruff pre-commit && pre-commit install      # ruff 一个工具顶 flake8 + black + isort
+pre-commit run --all-files                             # lint + 格式 + 不启 Word 的测试子集
+python -m pytest -q                                    # 全量：211 项断言，约 6-7 分钟
 ```
 
-pre-commit 钩子在 lint / format 之外，还跑一组**不启动 Word 的快速测试子集**
-（`test_version` / `test_docs_sync` / `test_validate_units` / `test_edit` / `test_snapshot`），
-所以提交照样快，而「文档与代码互相把守」那条不会形同虚设。全量套件推送前手动跑。
-
-> **没有托管 CI。** 验收类用例要通过 COM 驱动一台真 Microsoft Word，GitHub 托管 runner 给不了。
-> 所以本仓库靠 pre-commit 在本地检查，而不是靠流水线。真要加 CI，也只能覆盖上面那个无 Word 的子集。
+> **没有托管 CI。** 验收类用例要通过 COM 驱动一台真 Microsoft Word，托管 runner 给不了——
+> 本地靠 pre-commit 覆盖无 Word 的那部分，全量套件推送前手动跑。
 
 ## 文档地图
 
@@ -388,7 +397,7 @@ pre-commit 钩子在 lint / format 之外，还跑一组**不启动 Word 的快�
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `SCRIPT_HELP.md`（CLI）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——各有 `.zh-CN` 镜像 |
 | `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 207 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
+| `tests/` | 211 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

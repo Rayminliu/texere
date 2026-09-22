@@ -144,6 +144,44 @@ def test_no_key_defined_twice_in_manual(doc):
     assert not dup, "%s 里这些配置键被定义了两次，默认值会各说各话: %s" % (doc, dup)
 
 
+# 手工目录导航的起头标记（两份 README 不同语言）
+NAV_MARKERS = {"README.md": "**Contents**", "README.zh-CN.md": "**目录**"}
+
+
+def _nav_anchors(path, marker):
+    """取手工目录那一段（从 marker 到下一个空行）里的全部锚点。"""
+    out, started = [], False
+    for line in open(path, encoding="utf-8").read().splitlines():
+        if marker in line:
+            started = True
+        elif started and not line.strip():
+            break
+        if started:
+            out.extend(re.findall(r"\]\(#([^)\s]+)\)", line))
+    return out
+
+
+@pytest.mark.parametrize("doc", ["README.md", "README.zh-CN.md"])
+def test_contents_nav_has_no_duplicate_entries(doc):
+    """首屏那条手工目录不许有重复项。
+
+    英文版一度把 Design principles 列了两次。镜像守卫只比对标题层级序列——
+    「标题没多没少」和「目录列表没写错」是两件事，而目录就在第一屏，
+    错一眼就能看见，所以单独守一条。
+    """
+    anchors = _nav_anchors(os.path.join(KIT, doc), NAV_MARKERS[doc])
+    assert anchors, "%s 里没找到目录导航（标记：%s）" % (doc, NAV_MARKERS[doc])
+    dup = sorted({a for a in anchors if anchors.count(a) > 1})
+    assert not dup, "%s 的目录里有重复项: %s" % (doc, dup)
+
+
+@pytest.mark.parametrize("doc", ["README.md", "README.zh-CN.md"])
+def test_contents_nav_stays_short(doc):
+    """目录是首屏导航，不是第二套站点地图——超过 12 项就该往下沉了。"""
+    anchors = _nav_anchors(os.path.join(KIT, doc), NAV_MARKERS[doc])
+    assert len(anchors) <= 12, "%s 的目录有 %d 项，太重了: %s" % (doc, len(anchors), anchors)
+
+
 FRONTMATTER_UNQUOTED_KV = re.compile(r"^([A-Za-z_][\w-]*):\s+(?!['\"])(.*\S.*)$")
 
 

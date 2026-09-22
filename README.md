@@ -23,31 +23,44 @@ against a layout baseline.
 
 ### See the result
 
-Real rendering output from [`examples/`](examples/README.md) — every directory ships its Markdown +
-config and runs with one command; regenerate these with `python scripts/make_previews.py`.
+**You write this** (`examples/tender/01_bid.md`):
 
-| Tender (`tender/`) | Official document (`gongwen/`) |
+```markdown
+表 1-1 商务条款响应表
+
+| 条款 | 招标要求 | 投标响应 |
+|:---|:---|:---|
+| 工期 | 90 日历天 | 完全响应 |
+| 质量要求 | 符合国家验收标准 | 完全响应 |
+| 付款方式 | 按招标文件 | 完全响应 |
+```
+
+**The client opens this** — same words, with the template's borders, header-row shading, a centred
+caption, section page numbers and a TOC field applied:
+
+![tender](assets/previews/tender.png)
+
+The same pipeline on other document types — every directory in [`examples/`](examples/README.md)
+ships its Markdown + config and runs with one command; regenerate these with
+`python scripts/make_previews.py`.
+
+| Official document (`gongwen/`) | Application form (`form/`) |
 |---|---|
-| ![tender](assets/previews/tender.png) | ![gongwen](assets/previews/gongwen.png) |
-| Application form (`form/`) — no headings, no TOC, field-name first rows | Meeting minutes (`minutes/`) — cover carries the meeting metadata |
-| ![form](assets/previews/form.png) | ![minutes](assets/previews/minutes.png) |
-| Business analysis report (`report/`) — multi-file merge, Lead callout, grid header | Contract (`contract/`) — clause sections, in-cell line breaks, signature block |
-| ![report](assets/previews/report.png) | ![contract](assets/previews/contract.png) |
-| Table styling (`tables/`) — multi-level headers, merged cells, column widths | |
-| ![tables](assets/previews/tables.png) | |
+| ![gongwen](assets/previews/gongwen.png) | ![form](assets/previews/form.png) |
+| Meeting minutes (`minutes/`) — cover carries the meeting metadata | Business analysis report (`report/`) — multi-file merge, Lead callout, grid header |
+| ![minutes](assets/previews/minutes.png) | ![report](assets/previews/report.png) |
+| Contract (`contract/`) — clause sections, in-cell line breaks, signature block | Table styling (`tables/`) — multi-level headers, merged cells, column widths |
+| ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
 
 > **Platform**: Windows + a local Microsoft Word install. Everything past the docx — Word acceptance, PDF export,
 > the 9-check validator — runs through Word COM. On Linux/macOS only the docx half works (see
 > [Known limitations](#known-limitations)).
 
-**Contents** · [What it does](#what-it-does-and-doesnt-do) · [Quick start](#quick-start) ·
-[Throughput](#measured-throughput) · [Why not pandoc alone?](#why-not-pandoc-alone) ·
-[Keep your template](#have-an-existing-word-template-keep-it) · [Three pillars](#three-pillars) ·
-[Usage](#usage) · [Validation](#validation-and-evidence-package) · [Editing a docx](#editing-an-existing-docx) ·
-[Reusing a template](#reusing-an-existing-template) · [Config & tables](#configuration-and-tables) ·
-[Bid notes](#tenderbid-notes) · [Design principles](#design-principles) ·
-[Known limitations](#known-limitations) · [Design principles](#design-principles) ·
-[Development](#development) · [Documentation map](#documentation-map)
+**Contents** · [Quick start](#quick-start) · [Examples](#see-the-result) ·
+[What it does](#what-it-does-and-doesnt-do) · [Why not pandoc alone?](#why-not-pandoc-alone) ·
+[Keep your template](#have-an-existing-word-template-keep-it) · [Workflows](#usage) ·
+[Validation](#validation-and-evidence-package) · [Editing](#editing-an-existing-docx) ·
+[Limitations](#known-limitations) · [Docs](#documentation-map)
 
 ## What it does and doesn't do
 
@@ -77,7 +90,17 @@ are in [Known limitations](#known-limitations).
 
 ## Quick start
 
-External dependencies: `pandoc` is required; `--pdf` and the validator need a local Microsoft Word.
+```powershell
+python scripts/render.py --doctor     # is my environment ready?
+python scripts/render.py --sample     # smoke test -> sample_out.docx/.pdf
+python scripts/render.py --src examples/tender --out bid.docx `
+    --config examples/tender/config.json --pdf --check
+```
+
+That third command renders a real tender document, accepts it in Word, exports the PDF and checks the
+result — nothing to configure first. Read on only if `--doctor` complains.
+
+**If `--doctor` complains** — `pandoc` is required; `--pdf` and the validator need a local Word:
 
 | Dependency | Purpose | Install |
 |---|---|---|
@@ -87,21 +110,16 @@ External dependencies: `pandoc` is required; `--pdf` and the validator need a lo
 | PyMuPDF | `--check` only (PDF visual acceptance) | see below |
 | Microsoft Word | `--pdf` only | system-level; neither pip nor uv can install it |
 
+```powershell
+winget install --id JohnMacFarlane.Pandoc
+pip install -r requirements.txt      # plain pip; versions are exported from uv.lock
+                                     # (uv users: `uv sync --all-extras`)
+```
+
 > **This repository is a collection of scripts, not a pip-installable package** — `pip install .` fails
 > (there is no build backend, and the tool resolves `assets/ref.docx` / `scripts/` / `assets/sample.md` by
 > relative path from each script's own location).
 > Put the folder anywhere and run the scripts in place.
-
-```powershell
-winget install --id JohnMacFarlane.Pandoc
-
-# Dependencies:
-pip install -r requirements.txt      # plain pip; versions are exported from uv.lock
-                                     # (uv users: `uv sync --all-extras`)
-
-python scripts/render.py --doctor            # environment self-check
-python scripts/render.py --sample            # smoke test -> sample_out.docx/.pdf
-```
 
 `--doctor` **identifies the Word engine by actually launching it via COM**. It does not read the registry:
 a stale `CurVer` key left over from an uninstalled Office can make that report lie.
@@ -172,7 +190,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 207 assertions, ~6-7 min (needs local Word)
+python -m pytest -q                                              # 211 assertions, ~6-7 min (needs local Word)
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -362,22 +380,13 @@ Follow these when editing the template or hand-writing content:
 ## Development
 
 ```bash
-pip install ruff pre-commit      # ruff replaces flake8 + black + isort in one fast tool
-pre-commit install               # one-time
-
-ruff check scripts/ tests/              # lint
-ruff format --check scripts/ tests/     # format
-pre-commit run --all-files              # everything below, at once
-python -m pytest -q                     # full suite: 207 assertions, ~6-7 min (needs local Word)
+pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + black + isort
+pre-commit run --all-files                             # lint + format + a Word-free test subset
+python -m pytest -q                                    # full suite: 211 assertions, ~6-7 min
 ```
 
-The pre-commit hook runs the lint/format checks plus a **fast test subset** (`test_version`, `test_docs_sync`,
-`test_validate_units`, `test_edit`, `test_snapshot`) that never launches Word, so commits stay quick while the
-docs-vs-code guards still bite. Run the full suite manually before pushing.
-
-> **There is no hosted CI.** The suite's acceptance tests drive a real Microsoft Word over COM, which no
-> GitHub-hosted runner provides — so this repository is checked locally, by pre-commit, not by a pipeline.
-> If you add CI, it can only cover the Word-free subset above.
+> **There is no hosted CI.** The acceptance tests drive a real Microsoft Word over COM, which no hosted
+> runner provides — pre-commit covers the Word-free subset locally; run the full suite before pushing.
 
 ## Documentation map
 
@@ -421,7 +430,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` (CLI), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — each with a `.zh-CN` mirror |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 207 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
+| `tests/` | 211 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License
