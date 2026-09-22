@@ -3,6 +3,7 @@
 pytest -q tests/test_validate.py
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -612,3 +613,78 @@ class TestReportStructure:
             m = re.search(r'__version__\s*=\s*"([^"]+)"', f.read())
         assert m, "scripts/_version.py 里找不到 __version__"
         assert report["metadata"]["tool_version"] == m.group(1)
+
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _make_docx(tmp_path, name="in.docx"):
+    """最小可 Word 打开的 docx（含一个 TOC 域，便于域刷新改变字节）。"""
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    p = tmp_path / name
+    doc = Document()
+    doc.add_paragraph("Texere read-only acceptance regression")
+    para = doc.add_paragraph()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    para.add_run()._r.append(begin)
+    it = OxmlElement("w:instrText")
+    it.set(qn("xml:space"), "preserve")
+    it.text = 'TOC \\o "1-2" \\h \\z \\u'
+    para.add_run()._r.append(it)
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    para.add_run()._r.append(end)
+    doc.save(str(p))
+    return str(p)
+
+
+class TestFinalizeIsReadOnly:
+    """钉死 read-only 验收契约：默认不改输入，--save-updated-fields 才写回。
+
+    否则将来某维护者在 finalize.py 里随手加回 doc.Save()，immutable acceptance
+    这条承诺就会静默失效。"""
+
+    def test_default_does_not_mutate_input(self, tmp_path):
+        src = _make_docx(tmp_path, "ro.docx")
+        before = _sha256(src)
+        r = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(KIT, "scripts", "finalize.py"),
+                src,
+                str(tmp_path / "ro.pdf"),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0, r.stderr
+        after = _sha256(src)
+        assert before == after, "finalize 默认不应修改输入 docx（验收必须 immutable）"
+        assert (tmp_path / "ro.pdf").exists()
+
+    def test_save_updated_fields_mutates_input(self, tmp_path):
+        src = _make_docx(tmp_path, "su.docx")
+        before = _sha256(src)
+        r = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(KIT, "scripts", "finalize.py"),
+                src,
+                str(tmp_path / "su.pdf"),
+                "--save-updated-fields",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0, r.stderr
+        after = _sha256(src)
+        assert before != after, "--save-updated-fields 应把刷新后的域写回原 docx"

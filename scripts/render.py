@@ -225,6 +225,12 @@ def doctor():
         if "pandoc" in missing:
             print("  winget install --id JohnMacFarlane.Pandoc   # 已装则把所在目录加进 PATH")
         return 1
+    # 能力感知 preflight：不再只吐一个全局 OK，而是按管线给出 READY / NOT READY，
+    # 避免用户把「docx 可用」误读成「完整 Texere 环境就绪」。
+    print("\n管线就绪度：")
+    print("  DOCX 渲染      %s" % ("READY" if not missing else "NOT READY"))
+    print("  PDF 导出       %s" % ("READY" if w_ok else "NOT READY"))
+    print("  验收(--check)  %s" % ("READY" if w_ok else "NOT READY"))
     if not w_ok:
         print(
             "\n注意：Word 验收引擎不可用（%s）；--pdf/--check 将失败，仅 docx 渲染可用。" % w_text
