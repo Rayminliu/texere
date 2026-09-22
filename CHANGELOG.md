@@ -4,7 +4,11 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
-## 0.6.3 — 未发布
+## 0.6.4 — 未发布
+
+（进行中）
+
+## 0.6.3 — 2026-09-22
 
 ### README：从「工程手册」改成「产品首页 + 工程索引」
 
@@ -99,6 +103,26 @@
 
 - 测试 162 → 195 项：新增 PASS/SKIP 分级与反 fail-open、TOC 域真检查、`--source-md`
   正文比对与 Markdown 归一化、`after_row` 插入位置与坏导入回归。
+
+### Layer 0：验证器自身可信化（integrity foundation）
+
+外部 review 后进一步收口「验证器本身必须可信」——这是 0.6.3 收尾的三道关：
+
+- **`CheckResult` 统一四态类型**：各 validator 不再各自 `return (bool, str)`，改为
+  `CheckResult(name, status, message, evidence)`；后续 profile 断言 / provenance / CLI 报告都依赖这一类型
+- **`finalize.py` 只读验收**：默认只拿输入 docx 的临时副本交给 Word 做域更新 / 重分页 / 导 PDF，
+  **绝不写回原文件**；只有显式 `--save-updated-fields` 才写回——验证不再改变被验证对象
+- **`doctor` 状态模型 + 能力感知 preflight**：`_word_engine()` 返回 `(available, text)`，
+  Word 缺失 / 启动失败不再被硬写成「可用」；`--doctor` 输出 `DOCX 渲染 / PDF 导出 / 验收(--check)`
+  三档 `READY / NOT READY`，避免把「docx 可用」误读成「完整环境就绪」
+- **图片未定位降级 SKIP**：源图路径解析不到时不再并入强 PASS，整项降为 `SKIP`；
+  已定位图片仍按身份 SHA-256 + 顺序做强校验（fail-close 在身份/顺序，fail-open 在解析能力边界）
+- **结论行 skip 感知**：除 `Passed: 7/9 (skipped: 2)` 外，最终结论行在有 SKIP 时改报
+  `Required checks passed (N skipped — see Summary above)`，不再只写 `All checks passed`
+- **回归测试钉死契约**：新增 `TestFinalizeIsReadOnly`（默认不改输入 sha、仅 `--save-updated-fields`
+  才写回）；新增 `tests/test_validate_units.py` 纯函数级覆盖页码识别 / 连续性 / 基线像素差 / 四态 /
+  fail-open / TOC / Markdown 归一化 / 源完整性 / 图片身份顺序（不启动 Word，加速迭代）
+- 测试 195 → 213 项
 
 ## 0.6.2 — 2026-09-21
 
