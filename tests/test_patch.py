@@ -334,7 +334,10 @@ class TestSetCellOperation:
 
 
 class TestAddRowOperation:
-    """Test add_row operation."""
+    """Test add_row operation.
+
+    after_row 的位置 / 格式继承 / 越界断言在 TestPatchUnits 里（不启 Word，跑得快）。
+    """
 
     def test_add_row_dry_run(self, tmp_path):
         """Should work in dry run mode."""
@@ -706,6 +709,60 @@ class TestPatchUnits:
         ok, msg = p.add_row_op(doc, {"op": "add_row", "target": {"table": 0}, "values": ["NEW-E"]})
         assert ok, msg
         assert t.rows[-1].cells[0].text == "NEW-E"
+
+    @staticmethod
+    def _styled_table_doc():
+        """第 1 行带底纹 + 字号的表，用来验证新行真的继承了锚点行格式。"""
+        from docx import Document
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        from docx.shared import Pt
+
+        doc = Document()
+        t = doc.add_table(rows=3, cols=2)
+        for r in range(3):
+            for c in range(2):
+                t.rows[r].cells[c].text = "r%d-c%d" % (r, c)
+        for cell in t.rows[1].cells:
+            tcPr = cell._tc.get_or_add_tcPr()
+            shd = OxmlElement("w:shd")
+            shd.set(qn("w:val"), "clear")
+            shd.set(qn("w:fill"), "FF0000")
+            tcPr.append(shd)
+            for p in cell.paragraphs:
+                for run in p.runs:
+                    run.font.size = Pt(18)
+        return doc, t
+
+    def test_after_row_inherits_anchor_row_formatting(self):
+        """新行必须继承锚点行的底纹 / 字号 —— 不只是插对位置。
+
+        python-docx 的 add_row() 产出的是裸行（丢边框、底纹、字号），这正是
+        add_row 要 deepcopy <w:tr> 而不是调 add_row() 的全部理由。只断言位置、
+        不断言格式的话，这个理由没人守着，哪天被改回 add_row() 也不会红。
+        """
+        from docx.oxml.ns import qn
+        from docx.shared import Pt
+
+        p = self._module()
+        doc, t = self._styled_table_doc()
+        ok, msg = p.add_row_op(
+            doc, {"op": "add_row", "target": {"table": 0, "after_row": 1}, "values": ["X0", "X1"]}
+        )
+        assert ok, msg
+
+        # 形状：r0 / r1 / X / r2
+        assert [c.text for c in t.rows[0].cells] == ["r0-c0", "r0-c1"]
+        assert [c.text for c in t.rows[1].cells] == ["r1-c0", "r1-c1"]
+        assert [c.text for c in t.rows[2].cells] == ["X0", "X1"]
+        assert [c.text for c in t.rows[3].cells] == ["r2-c0", "r2-c1"]
+
+        for cell in t.rows[2].cells:
+            shd = cell._tc.tcPr.find(qn("w:shd"))
+            assert shd is not None, "新行丢了底纹（说明退回成了裸行）"
+            assert shd.get(qn("w:fill")) == "FF0000"
+            runs = cell.paragraphs[0].runs
+            assert runs and runs[0].font.size == Pt(18), "新行丢了字号"
 
     def test_after_row_out_of_range_reports_error(self):
         p = self._module()

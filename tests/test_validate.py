@@ -353,6 +353,9 @@ class TestEvidencePackage:
         content = sig_path.read_text(encoding="utf-8")
         assert "document_hash" in content
         assert "checks_passed" in content
+        # report.json 的 hash 也要进证据清单：否则改报告结论不会破坏证据
+        assert "report_hash" in content
+        assert "cryptographic" in content  # 明说是 checksum manifest，不是签名
 
     def test_screenshot_created(self, tmp_path):
         """Screenshot PNGs should be created."""

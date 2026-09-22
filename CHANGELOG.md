@@ -6,6 +6,26 @@
 
 ## 0.6.3 — 未发布
 
+### README：从「工程手册」改成「产品首页 + 工程索引」
+
+此前 README 是 manual-first：先讲哲学、再讲文档治理、最后才讲到「你输入什么、得到什么」。
+现在按漏斗重排，并把 reference / cookbook 类内容下沉到 `docs/`：
+
+- 第一屏：管线图 + 示例画廊（7 张真实渲染图）+ 一句话定位，不再先要求读者理解
+  Semantic IR / design contract
+- 新增 `Why not pandoc alone?`（五句话）与 `Have an existing Word template? Keep it.`（客户模板）
+- 「三条支柱」下移到设计原则旁：它和「为什么不是 Pandoc」相邻时两节都在列差异化点
+- 去掉重复：`--sample` 的产物图不再在 README 展示（首屏画廊是唯一展示入口）；
+  `Repository map` 并入 `Documentation map`（两张表都列 `SKILL.md` 与 `docs/`）
+- 下沉到 `docs/`，各带 `.zh-CN` 镜像：`CONFIG.md`（config 字段 + `style` 键）、
+  `TABLES.md`（表格写法）、`VALIDATION.md`（9 项检查逐项 + 人工门槛）、
+  `EDITING.md`（编辑操作 + Patch schema + 重排）。README 只留命令与关键口径
+- 英文 600 → 429 行，中文 559 → 396 行；信息一条没丢，只是分层
+- `test_docs_sync.py` 新增 `test_docs_mirrors_share_structure`：内容一旦离开 README 就不再被
+  原镜像守卫覆盖，不补这条的话「下沉」会悄悄变成「英文一套、中文另一套」
+- 下沉同步修掉的跨区锚点：config 表引用 `Visual control`、Tables 引用 `The style section`，
+  以及 SKILL.md 里的 `README §Configuration / §Tables / §Validation / §Editing`
+
 ### 修复
 - **`SKILL.md` 的 front matter 不是合法 YAML，导致技能加载报错**：
   `description:` 的值未加引号，而值中间含 `: `（`… with unified validation: 9 automated checks …`），
@@ -51,6 +71,24 @@
   `insert_before` / `add_row` 全部抛 `cannot import name 'edit' from 'scripts'`，又被
   `except Exception` 兜成「操作失败」，长期被误当成「目标不存在」。改为显式把脚本目录放进
   `sys.path` 后按模块名导入。
+
+### 图片：从「数量下限」升级为「身份 + 顺序」
+
+- 此前只做 `n_img >= n_ref`：`图A 图B → 图B 图B` 数量正确也判 PASS。实测 pandoc **原样嵌入图片
+  字节**（`contract.png` 的 sha256 与 `word/media/rId9.png` 完全一致），于是可以逐图比对：
+  md 侧按文档顺序取 `![](path)` 的 sha256，docx 侧按文档顺序取 `a:blip/@r:embed` → rels →
+  media 的 sha256，比 missing / extra / 顺序（子序列匹配，允许夹带模板 logo）
+- 顺带修掉两个盲区：改走 `a:blip` 而非 `inline_shapes`，浮动型（anchor）图片从此也计数；
+  不按 media 文件名排序（`rId12` 会排在 `rId9` 前面，实测踩到），改走文档顺序
+- 未给 `--source-md` 时行为不变，仍是数量检查
+
+### signature：把话说准，并补上 report.json 的摘要
+
+- 文件头明写「checksum manifest, not a cryptographic signature」。没有密钥，任何人都能重算
+  这些 hash，它证明的是「这份证据描述的是哪个产物」，不是「证据没被改过」
+- **顺序 bug**：`report.json` 原本在签名之后才落盘，不在摘要范围内——改报告结论不会破坏
+  证据。现在先写 report、再写清单，新增 `report_hash`
+- 文件名不动（`signature`），避免破坏已有消费方；README / SKILL / SCRIPT_HELP 口径统一
 
 ### 契约措辞收窄
 

@@ -25,7 +25,7 @@
   - report.json: 结构化验证报告
   - diff.pdf: 差异高亮 PDF (如有基线)
   - page-XXX.png: 抽样截图
-  - signature: SHA256 签名 (防篡改)
+  - signature: SHA256 校验清单（checksum manifest，非密码学签名；含 docx 与 report 的 hash）
 """
 
 import argparse
@@ -220,23 +220,123 @@ def check_source_content_integrity(
         return ERROR, f"未知错误：{type(e).__name__} - {e}"
 
 
-def check_image_embedding(docx_path: str, md_ref_text: str = None) -> tuple[str, str]:
-    """检查图片嵌入数量 vs 引用数量。
+# `![alt](path)` —— path 后面可能带 pandoc 属性段 `![](a.png){width=3cm}`
+MD_IMAGE_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
-    注意强度：只做「下限计数」——数量够了就过，不校验第几张图对应哪一处的
-    引用、顺序、尺寸或锚点。它能抓住最常见的「pandoc 没找到图、整份标书缺图」，
-    抓不住「图串位 / 错图」。另外只数 inline_shapes，浮动型（anchor）图片不计入。
+
+def _md_image_paths(md_text: str, md_dir: str = None) -> list[str | None]:
+    """按文档顺序解析 `![](path)` 指向的真实文件；解析不到的位置留 None。
+
+    解析顺序：md 所在目录 → 当前目录 → 原样（绝对路径）。
+    解析不到不判失败，只在消息里说明「N 张无法定位」——路径规则属于
+    render.py 的 resource_paths，这里不该重复实现一套。
+    """
+    found = []
+    for m in MD_IMAGE_REF.finditer(md_text):
+        raw = m.group(1).strip()
+        raw = re.split(r"\s+[{]", raw)[0].strip().strip("<>").strip()
+        raw = raw.split(" ")[0]  # `path "title"` 形式
+        cand = raw
+        if not os.path.isabs(cand):
+            for base in (md_dir, os.getcwd()):
+                if not base:
+                    continue
+                p = os.path.join(base, cand)
+                if os.path.exists(p):
+                    cand = p
+                    break
+        found.append(cand if os.path.exists(cand) else None)
+    return found
+
+
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _docx_image_shas(doc) -> list[str]:
+    """按文档顺序取每张嵌入图的 sha256。
+
+    两个关键点：
+      1. 走 a:blip 而不是 doc.inline_shapes —— 后者不包含浮动型（anchor）图片，
+         浮动图既不被计数也不被发现。
+      2. 走文档顺序而不是 media 文件名排序 —— 文件名排序会把 rId12 排在
+         rId9 前面（实测踩到），顺序直接反。
+    """
+    from docx.oxml.ns import qn
+
+    shas, rels = [], doc.part.rels
+    for blip in doc.element.body.iter(qn("a:blip")):
+        rid = blip.get(qn("r:embed"))
+        if not rid or rid not in rels:
+            continue
+        try:
+            shas.append(hashlib.sha256(rels[rid].target_part.blob).hexdigest())
+        except Exception:
+            continue
+    return shas
+
+
+def _is_subsequence(needle: list[str], hay: list[str]) -> bool:
+    """needle 是否按顺序出现在 hay 中（允许 hay 里夹着额外图片，如模板 logo）。"""
+    it = iter(hay)
+    return all(any(x == y for y in it) for x in needle)
+
+
+def check_image_embedding(
+    docx_path: str, md_ref_text: str = None, md_path: str = None
+) -> tuple[str, str]:
+    """检查图片：能给源 md 就做逐图身份 + 顺序校验，否则退回数量下限。
+
+    两档强度，报告里必须说清走的是哪档：
+      - 有 md_path：按 sha256 逐图比对（pandoc 原样嵌入字节，实测 sha 一致），
+        能抓住「图串位 / 错图 / 拿同一张图重复占位」——数量检查对这三类全瞎。
+      - 只有 md_ref_text：仍是数量下限 `n_img >= n_ref`。
+      - 都没有：SKIP。
     """
     try:
         doc = Document(docx_path)
-        n_img = len(doc.inline_shapes)
+        doc_shas = _docx_image_shas(doc)
+        n_img = len(doc_shas) or len(doc.inline_shapes)
 
-        if md_ref_text:
-            n_ref = len(re.findall(r"!\[", md_ref_text))
-            if n_img >= n_ref:
-                return PASS, f"图片嵌入：{n_img}/{n_ref} ok (仅数量，不校验对应关系)"
+        if not md_ref_text:
+            return SKIP, f"跳过 (未提供 Markdown 引用；docx 共 {n_img} 张图)"
+
+        n_ref = len(re.findall(r"!\[", md_ref_text))
+        if n_img < n_ref:
             return FAIL, f"图片缺失：引用{n_ref}张，只嵌入{n_img}张"
-        return SKIP, f"跳过 (未提供 Markdown 引用数；共 {n_img} 个 inline shape)"
+
+        if not md_path:
+            return PASS, f"图片嵌入：{n_img}/{n_ref} ok (仅数量，不校验对应关系)"
+
+        # ---- 逐图身份比对 ----
+        md_dir = os.path.dirname(os.path.abspath(md_path))
+        paths = _md_image_paths(md_ref_text, md_dir)
+        resolved = [p for p in paths if p]
+        unresolved = len(paths) - len(resolved)
+
+        expected = [_sha256_file(p) for p in resolved]
+        missing = [resolved[i] for i, s in enumerate(expected) if s not in doc_shas]
+        if missing:
+            sample = " / ".join(os.path.basename(m) for m in missing[:3])
+            return FAIL, (
+                f"图片对应错误：{len(missing)}/{len(resolved)} 张引用的图没出现在 docx 里"
+                f"（例：{sample}）"
+            )
+
+        # 源图必须按顺序出现；docx 里允许夹带模板 logo 等额外图片
+        if not _is_subsequence(expected, doc_shas):
+            return FAIL, f"图片顺序不一致：{len(resolved)} 张引用的图与 docx 出现次序不同"
+
+        n_extra = len(doc_shas) - len(expected)
+        extra = f"，另有 {n_extra} 张非源引用图（模板 logo 等）" if n_extra > 0 else ""
+        warn = f"；{unresolved} 张路径未定位，跳过身份校验" if unresolved else ""
+        return PASS, (
+            f"图片逐图比对：{len(resolved)}/{len(resolved)} 张身份与顺序一致{extra}{warn}"
+        )
     except PermissionError as e:
         return FAIL, f"文件权限不足：{e}"
     except FileNotFoundError as e:
@@ -591,7 +691,7 @@ def generate_evidence_package(
                 check_source_content_integrity,
                 (docx_path, expected_hash, source_md),
             ),
-            ("image_embedding", check_image_embedding, (docx_path, md_ref_text)),
+            ("image_embedding", check_image_embedding, (docx_path, md_ref_text, source_md)),
             ("section_count", check_section_count, (docx_path,)),
             ("toc_field", check_toc_field, (docx_path,)),
             ("page_numbering", check_page_numbering, (shared_pdf,)),
@@ -643,26 +743,31 @@ def generate_evidence_package(
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    # 5. 生成签名
-    with open(docx_path, "rb") as f:
-        doc_hash = hashlib.sha256(f.read()).hexdigest()
-
-    sig_path = os.path.join(out_dir, "signature")
-    with open(sig_path, "w", encoding="utf-8") as f:
-        f.write("# texere validation signature\n")
-        f.write("# Generated: %s\n" % report["metadata"]["timestamp"])
-        f.write("document_hash: %s\n" % doc_hash)
-        f.write(
-            "checks_passed: %d/%d\n" % (report["summary"]["passed"], report["summary"]["total"])
-        )
-        # 单独记 skipped：签名里也要能看出「9 项里有几项其实没查」
-        f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
-
-    # 6. 保存报告
+    # 5. 先落盘 report.json —— 它的 hash 要进证据清单，顺序不能反
     report_path = os.path.join(out_dir, "report.json")
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+    # 6. 证据清单（文件名沿用 signature，但它是 checksum manifest，不是密码学签名：
+    #    没有密钥，任何人都能重算这些 hash。它证明的是「这份证据记录了哪个产物」，
+    #    不是「这份证据没被改过」。真签名需要非对称密钥 + 验签方持公钥。）
+    with open(docx_path, "rb") as f:
+        doc_hash = hashlib.sha256(f.read()).hexdigest()
+    with open(report_path, "rb") as f:
+        report_hash = hashlib.sha256(f.read()).hexdigest()
+
+    sig_path = os.path.join(out_dir, "signature")
+    with open(sig_path, "w", encoding="utf-8") as f:
+        f.write("# texere validation manifest (checksums, not a cryptographic signature)\n")
+        f.write("# Generated: %s\n" % report["metadata"]["timestamp"])
+        f.write("document_hash: %s\n" % doc_hash)
+        f.write("report_hash: %s\n" % report_hash)
+        f.write(
+            "checks_passed: %d/%d\n" % (report["summary"]["passed"], report["summary"]["total"])
+        )
+        # 单独记 skipped：证据里也要能看出「9 项里有几项其实没查」
+        f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
 
     return report
 

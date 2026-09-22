@@ -4,6 +4,8 @@
 这里对核心判定函数做直接断言。
 """
 
+import glob
+import hashlib
 import importlib.util
 import os
 import sys
@@ -289,7 +291,92 @@ class TestImageEmbedding:
         """n_img >= n_ref 只证明数量够，不证明对应关系——这里把这条边界写死。"""
         status, msg = v.check_image_embedding(_save_docx(tmp_path, "img.docx"))
         assert status == v.SKIP
-        assert "inline shape" in msg
+        assert "未提供 Markdown 引用" in msg
+
+
+# ------------------------------------------------------------- 图片身份校验
+
+
+def _img_paths():
+    return sorted(glob.glob(os.path.join(KIT, "assets", "previews", "*.png")))
+
+
+class TestImageIdentity:
+    """数量检查（n_img >= n_ref）抓不住串位/错图/重复占位，这里守住身份校验。"""
+
+    @staticmethod
+    def _docx_with_images(paths, out):
+        from docx import Document
+        from docx.shared import Pt
+
+        doc = Document()
+        for p in paths:
+            doc.add_picture(p, width=Pt(100))
+        doc.save(str(out))
+        return str(out)
+
+    @staticmethod
+    def _md(tmp_path, paths):
+        md = tmp_path / "a.md"
+        md.write_text(
+            "\n\n".join("![图%d](%s)" % (i, p.replace("\\", "/")) for i, p in enumerate(paths)),
+            encoding="utf-8",
+        )
+        return md
+
+    def test_embedded_shas_match_source_bytes(self, tmp_path):
+        """pandoc 原样嵌入字节，所以 sha256 可以直接当图片指纹（实测一致）。"""
+        pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
+        a, b = _img_paths()[:2]
+        f = self._docx_with_images([a, b], tmp_path / "p.docx")
+        assert v._docx_image_shas(Document(f)) == [v._sha256_file(a), v._sha256_file(b)]
+
+    def test_md_paths_are_parsed_in_order(self, tmp_path):
+        (tmp_path / "imgs").mkdir()
+        for name in ("a.png", "b.png"):
+            (tmp_path / "imgs" / name).write_bytes(b"x")
+        md = tmp_path / "a.md"
+        md.write_text("![图一](imgs/a.png)\n\n![图二](imgs/b.png){width=3cm}\n", encoding="utf-8")
+        got = v._md_image_paths(md.read_text(encoding="utf-8"), str(tmp_path))
+        assert [os.path.basename(p) for p in got] == ["a.png", "b.png"]
+
+    def test_same_image_twice_is_detected(self, tmp_path):
+        """图 A / 图 B → docx 里两张都是 A：数量 2/2 是对的，但 B 根本没进去。"""
+        pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
+        a, b = _img_paths()[:2]
+        md = self._md(tmp_path, [a, b])
+        f = self._docx_with_images([a, a], tmp_path / "d.docx")
+        status, msg = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
+        assert status == v.FAIL, msg
+
+    def test_matching_images_pass(self, tmp_path):
+        pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
+        a, b = _img_paths()[:2]
+        md = self._md(tmp_path, [a, b])
+        f = self._docx_with_images([a, b], tmp_path / "d.docx")
+        status, msg = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
+        assert status == v.PASS, msg
+
+    def test_swapped_order_is_detected(self, tmp_path):
+        """两张图都在，但次序反了——数量检查对这种情况完全无感。"""
+        pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
+        a, b = _img_paths()[:2]
+        md = self._md(tmp_path, [a, b])
+        f = self._docx_with_images([b, a], tmp_path / "d.docx")
+        status, msg = v.check_image_embedding(f, md.read_text(encoding="utf-8"), str(md))
+        assert status == v.FAIL, msg
+
+    def test_without_md_path_falls_back_to_count(self, tmp_path):
+        pytest.importorskip("PIL", reason="add_picture 需要 Pillow")
+        a = _img_paths()[0]
+        f = self._docx_with_images([a], tmp_path / "d.docx")
+        status, msg = v.check_image_embedding(f, "![图一](a.png)")
+        assert status == v.PASS
+        assert "仅数量" in msg
+
+    def test_sha256_file_helper(self):
+        a = _img_paths()[0]
+        assert v._sha256_file(a) == hashlib.sha256(open(a, "rb").read()).hexdigest()
 
 
 class TestBaselinePageDiff:

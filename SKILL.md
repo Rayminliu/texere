@@ -40,7 +40,7 @@ python scripts/patch.py bid.docx patch.json --apply --validate
 # Edit an existing docx (targeted, opposite contract — see "Two chains")
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
 
-python -m pytest -q                   # 199 assertions (~6-7 min; validator tests need local Word; no hosted CI)
+python -m pytest -q                   # 207 assertions (~6-7 min; validator tests need local Word; no hosted CI)
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 
