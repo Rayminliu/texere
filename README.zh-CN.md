@@ -1,33 +1,49 @@
 [English](README.md) | 简体中文
 
-# texere —— 中文正式文档编译器
+# texere —— 从 Markdown 生成可验收的中文 Word 文档
 
-> 名字取自拉丁语 **texere**——"编织"，*text*（文本）与 *textile*（织物）的共同词源。
-> 排版做的正是这件事：把正文、表格、题注、页码编织成一页有序的版面。
+Markdown + Word 模板 → DOCX → 真 Word → PDF → 版式回归 → 证据。
 
-**Reference/Spec → Deterministic Document → Evidence**
+```text
+Markdown  +  ref.docx / profile.json        设计契约
+        │
+        ▼
+     texere                                 pandoc → 确定性 OOXML 后处理
+        │
+        ▼
+     DOCX ──► Microsoft Word (COM) ──► PDF
+        │
+        ▼
+   9 项检查 · 逐页版式回归 · 证据包
+```
 
-texere 是面向**中文正式文档**（标书、申报书、结题报告、白皮书）的高保真文档编译器：给它 Markdown 源文件
-和一份参考模板（`ref.docx` 或 `profile.json`），它产出一个**经真 Word 验收过**、导出 PDF、并做过版式漂移
-比对的 Word 文档——附带一个证据包，证明它达到了可交付标准。
+生成中文标书、正式报告、申报书等正式文档，**不只相信 DOCX 结构本身**——产物要在真 Word 里打开、
+导出 PDF，并与版式基线逐页比对。
+
+### 看看产物
+
+以下均为 [`examples/`](examples/README.md) 的真实渲染结果——每个目录自带 Markdown + config，
+一条命令即可跑通；重跑 `python scripts/make_previews.py` 可刷新这些图。
+
+| 投标文件（`tender/`） | 公文请示（`gongwen/`） |
+|---|---|
+| ![tender](assets/previews/tender.png) | ![gongwen](assets/previews/gongwen.png) |
+| 项目申报书（`form/`）——无标题无目录，首行是字段名 | 会议纪要（`minutes/`）——封面承载会议信息 |
+| ![form](assets/previews/form.png) | ![minutes](assets/previews/minutes.png) |
+| 经营分析报告（`report/`）——多文件合并、Lead 提示框、grid 表头 | 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 |
+| ![report](assets/previews/report.png) | ![contract](assets/previews/contract.png) |
+| 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 | |
+| ![tables](assets/previews/tables.png) | |
 
 > **运行平台**：Windows + 本机 Microsoft Word。docx 之后的每一步——Word 验收、PDF 导出、9 项验证器——
 > 都走 Word COM。Linux / macOS 只有 docx 那一半能跑（见[已知边界](#已知边界)）。
 
-**目录** · [三条支柱](#三条支柱) · [能力边界](#能力边界) · [文档地图](#文档地图) ·
-[快速开始](#快速开始) · [效果](#效果) · [用法](#用法) · [验证与证据包](#验证与证据包) ·
-[编辑已有 docx](#编辑已有-docx) · [复用已有模板](#复用已有模板) · [配置](#配置) · [表格](#表格) ·
-[标书场景注意](#标书场景注意) · [设计原则](#设计原则) · [已知边界](#已知边界) ·
-[开发](#开发) · [文件地图](#文件地图)
-
-## 三条支柱
-
-1. **是编译器，不是转换器** —— Markdown → 语义 IR → 版式规格 → DOCX。每条视觉规则都明写在设计契约里
-   （`ref.docx` + `profile.json`），没有魔法。
-2. **是契约，不是猜测** —— profile 声明字体、间距、框线、页眉、页脚、题注。agent 读得懂，人查得清，
-   没有隐藏假设。
-3. **是证据，不是希望** —— 一条命令验完：包完整性、图片嵌入、目录域、页码、空白页、Word 验收、版式漂移。
-   产出 `report.json` + 页面截图 + 签名。
+**目录** · [能力边界](#能力边界) · [快速开始](#快速开始) · [规模实测](#规模实测) ·
+[为什么不只是 Pandoc？](#为什么不只是-pandoc) · [沿用现有模板](#已有-word-模板继续用它) ·
+[三条支柱](#三条支柱) · [用法](#用法) · [验证与证据包](#验证与证据包) ·
+[编辑已有 docx](#编辑已有-docx) · [复用已有模板](#复用已有模板) · [配置与表格](#配置与表格) ·
+[标书场景注意](#标书场景注意) · [已知边界](#已知边界) · [设计原则](#设计原则) ·
+[开发](#开发) · [文档地图](#文档地图)
 
 ## 能力边界
 
@@ -45,21 +61,7 @@ texere 是面向**中文正式文档**（标书、申报书、结题报告、白
 - 图表自动编号——编号手写，见[契约](#契约只改版式不改内容)
 - 学位论文所需的参考文献、公式编号、奇偶页页眉
 
-## 文档地图
-
-每条信息只住在**一个**地方，其余文档只指路不复述（信息漂移让我们吃过亏，
-能机器查的那部分已由 `tests/test_docs_sync.py` 把守）：
-
-| 文件 | 负责什么 |
-|---|---|
-| `README.zh-CN.md` / `README.md` | 面向人的手册：config 字段、`style` 键、表格语法、输入规则、已知限制 |
-| `SKILL.md` | Agent 入口：何时用/不用、硬契约、验收门槛、Patch schema、陷阱清单 |
-| `BEST_PRACTICES.md` | 场景经验：profile 选择、表格配方、调试案例、FAQ |
-| `docs/SCRIPT_HELP.md` | 各脚本 CLI 参考（参数的**唯一**来源，与代码双向对拍把守） |
-
-所以：**本手册不列 CLI 参数表**——只给你真要跑的那几条命令，其余指向 SCRIPT_HELP。
-脚本新增了参数却没写进 SCRIPT_HELP，或者 SCRIPT_HELP 编了个不存在的参数，`test_docs_sync.py`
-都会在 commit 时拦下。
+更细的边界——无法往返的 OOXML 特性、`.docm`、Word COM 的具体限制——见[已知边界](#已知边界)。
 
 > **范围说明。** 本工具对*中文*正式文档是有立场的：A4、宋体正文、黑体标题、首行缩进 2 字符、全角标点。
 > 它不是通用 Markdown → docx 转换器（那是 pandoc 的活）。配 `caption_words` 可以适配非中文题注关键字，
@@ -96,29 +98,9 @@ python scripts/render.py --sample            # 冒烟测试，产出 sample_out.
 可能是旧 Office 卸载后的残留值，会误报。
 贡献者工具（ruff、pre-commit、测试套件）见[开发](#开发)。
 
-## 效果
+## 规模实测
 
-`python scripts/render.py --sample` 的产物（4 页投标文件风格样例）：
-
-![样例封面](baselines/p001.png)
-![样例正文](baselines/p003.png)
-
-### 示例画廊
-
-以下均为 [`examples/`](examples/README.md) 的真实渲染结果——每个目录自带 Markdown + config，
-一条命令即可跑通；重跑 `python scripts/make_previews.py` 可刷新这些图。
-
-| 投标文件（`tender/`） | 公文请示（`gongwen/`） |
-|---|---|
-| ![tender](assets/previews/tender.png) | ![gongwen](assets/previews/gongwen.png) |
-| 项目申报书（`form/`）——无标题无目录，首行是字段名 | 会议纪要（`minutes/`）——封面承载会议信息 |
-| ![form](assets/previews/form.png) | ![minutes](assets/previews/minutes.png) |
-| 经营分析报告（`report/`）——多文件合并、Lead 提示框、grid 表头 | 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 |
-| ![report](assets/previews/report.png) | ![contract](assets/previews/contract.png) |
-| 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 | |
-| ![tables](assets/previews/tables.png) | |
-
-**规模实测**（含 Word 验收 + 导 PDF + 空白页检查）：
+含 Word 验收 + 导 PDF + 空白页检查：
 
 | 规模 | 耗时 |
 |---|---|
@@ -127,6 +109,29 @@ python scripts/render.py --sample            # 冒烟测试，产出 sample_out.
 
 大文档那次产物 docx 2.9 MB，两次运行结果逐项一致（页数、字数、表格、图片及抽查页像素全部相同），
 Word 进程无残留。
+
+## 为什么不只是 Pandoc？
+
+Pandoc 生成 DOCX，texere 在此之外还做五件事：
+
+1. 把 Word 模板当作版式契约（`ref.docx` / `profile.json`）；
+2. 做确定性的 OOXML 后处理——封面、目录域、分节页码、表格样式；
+3. 在**真 Microsoft Word** 里打开产物并导出 PDF——「能被解析」不等于「能被接受」；
+4. 检查渲染后的产物——页码连续性、空白页、逐页版式回归；
+5. 为结果产出证据：`report.json` + 截图 + 校验清单。
+
+## 已有 Word 模板？继续用它。
+
+把 `reference_doc` 指向甲方给的 `.docx`，版式仍然由它说了算：
+
+| 模板负责 | texere 负责 |
+|---|---|
+| 页面设置与页边距 | 来自 Markdown 的内容 |
+| 正文 / 标题 / 表格 / 题注样式 | 确定性后处理 |
+| 页眉（有条件）、表格框线 | Word 验收 + PDF 导出 |
+
+封面与分节结构**不继承**——那两部分由 texere 自己生成。完整继承矩阵见
+[复用已有模板](#复用已有模板)。
 
 ## 用法
 
@@ -157,7 +162,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # 模板 �
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # 重建排版模板
 python scripts/snapshot.py 标书.pdf --update                     # 录版式基线（确认版式无误后）
 python scripts/snapshot.py 标书.pdf                              # 回归比对，漂移即 exit 1
-python -m pytest -q                                              # 195 项断言，约 6-7 分钟（需本机 Word）
+python -m pytest -q                                              # 199 项断言，约 6-7 分钟（需本机 Word）
 ```
 
 可运行示例——每个目录自带 Markdown + config，一条命令跑通（见 [examples/README.md](examples/README.md)）：
@@ -206,134 +211,28 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
 
 ## 验证与证据包
 
-渲染之后，一条命令把"我看着没问题"变成可审计的产物：
-
 ```bash
 python scripts/validate.py 标书.docx --out evidence/
 ```
 
-产出：
-
-```
-evidence/
-├── report.json          # 结构化验证报告（9 项）
-├── page-001.png         # 抽样页面截图（首 / 中 / 尾）
-├── page-069.png
-├── page-272.png
-└── signature            # SHA256 哈希 + 检查摘要
-```
-
-报告含 9 项自动检查：
-
-| 检查项 | 验的是什么 |
-|---|---|
-| ✅ 包完整性 | docx 是含必需部件的合法 ZIP |
-| ✅ 源内容 | `--source-md`：Markdown 各段是否都出现在 docx 正文里；`--expected-hash`：docx 文件级 SHA256（只能证明字节未变）；两者都不给 → SKIP |
-| ✅ 图片嵌入 | 嵌入数 ≥ 引用数 —— 只是下限计数，不校验第几张图对应哪处引用 |
-| ✅ 分节数 | 分节数量合理（1–100） |
-| ✅ 目录域 | OOXML 里存在真实的 `TOC` 域（文档本就没有目录 → SKIP） |
-| ✅ 页码 | 页脚页码构成无缺口序列（识别不出页码格式 → SKIP） |
-| ✅ 空白页 | 不超阈值（默认允许 0 个） |
-| ✅ Word 验收 | 真 Word 能打开并成功导出 PDF |
-| ✅ 版式基线漂移 | 与基线逐页逐像素比对，默认全量 |
-
-**四种状态，SKIP 不等于 PASS。** 每项检查报 `PASS` / `FAIL` / `SKIP` / `ERROR` 之一。
-`SKIP` 表示前置条件缺失（没给基线、没给 `--source-md`、没装 PyMuPDF），这项**根本没查**；
-它不计入通过数，但也不单独让门禁失败。只有 `FAIL` 与 `ERROR` 会让退出码变成 1。
-`Passed: 7/9 (skipped: 2)` 与 `Passed: 9/9` 是分量完全不同的两句话，报告里会分开写出来。
-
-示例输出：
-
-```
-Document Validation
-────────────────────────────
-✅ [PASS] package_integrity: OK
-⏭️ [SKIP] source_content: 跳过 (未提供 --source-md 或 --expected-hash)
-✅ [PASS] image_embedding: 图片嵌入：28/28 ok (仅数量，不校验对应关系)
-✅ [PASS] section_count: 分节数：3 (合理)
-✅ [PASS] toc_field: 目录域：1 个 TOC 域
-✅ [PASS] page_numbering: 页码：69 页 (连续，检测到页码 1-69)
-✅ [PASS] blank_pages: 空白页：0/69 (阈值：0)
-✅ [PASS] word_acceptance: Word 验收：OK
-⏭️ [SKIP] visual_drift: 跳过 (未提供基线目录)
-
-Summary
-────────────────────────────
-Passed: 7/9 (skipped: 2)
-
-✅ All checks passed
-
-Evidence package saved to: evidence/
-  - report.json (structured validation report)
-  - page-XXX.png (sample screenshots)
-  - signature (SHA256 signature)
-```
-
-任何一项失败即 exit code 1，并给出详细错误。参数（`--profile` / `--max-empty` / `--quiet` 等）见
-`docs/SCRIPT_HELP.md` §validate.py。
-
-### 人工门槛
-
-9 项检查管的是结构，头一遍过某份新文档时，这四件事仍然得靠人：
-
-1. 日志出现 `images: n/m ok` 且 **n == m**（m 是源 md 中 `![` 的次数）
-2. `near-empty pages: 0`
-3. `OK`（Word 成功打开并导出 PDF）
-4. **人工过一遍 PDF 渲染图**——机器能查页数、图片数、空白页，
-   查不了"这张图画得对不对、表头有没有被截断"
+产出 `report.json`、抽样页面截图与校验清单。9 项检查共用**一次** Word 导出。每项检查报
+`PASS` / `FAIL` / `SKIP` / `ERROR`：`SKIP` 表示前置条件缺失、这项根本没查，**不计入通过数**——
+只有 `FAIL` 与 `ERROR` 会让退出码变成 1。逐项明细、人工门槛与注意事项见
+[`docs/VALIDATION.zh-CN.md`](docs/VALIDATION.zh-CN.md)。
 
 ## 编辑已有 docx
 
-`scripts/edit.py` 是**独立于渲染链路**的第二条链，契约正好相反：
-
-| | 渲染链路 | 编辑链路 |
-|---|---|---|
-| 输入 | Markdown | 已有 docx |
-| 契约 | 只改版式，不改内容 | **只改你指定的地方，其余字节原样保留** |
-| 禁止 | 改写文字 | 注入封面 / 目录 / 页码 / 重排样式 |
-
-操作长这样（完整参数：`docs/SCRIPT_HELP.md` §edit.py）：
+**独立于渲染链路**的第二条链，契约正好相反：**只改你指定的地方，其余字节原样保留**——
+绝不注入封面 / 目录 / 页码，也不重排样式。
 
 ```bash
-python scripts/edit.py 标书.docx --list                      # 看结构：分节 / 表格 / 段落
-python scripts/edit.py 标书.docx --replace "旧=新" --scope body,tables,header,footer
-python scripts/edit.py 标书.docx --after "锚点文字" --text "新段落"   # 另有 --before / --delete
-python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"            # 表号 / 行 / 列 / 值
-python scripts/edit.py 标书.docx --add-rows 0 3 --template-row 2     # 另有 --add-row / --del-row
-python scripts/edit.py 标书.docx --fill data.json                    # 批量填表，JSON 或 CSV
-python scripts/edit.py 标书.docx --header "新版页眉" --footer "— X —" --section all
-python scripts/edit.py 标书.docx --replace "A=B" --verify            # 改完让 Word 打开一次验收
+python scripts/edit.py 标书.docx --replace "旧=新" --scope body,tables
+python scripts/edit.py 标书.docx --after "锚点文字" --text "新段落"
+python scripts/edit.py 标书.docx --cell 0 2 1 "1,060,000"
+python scripts/patch.py 标书.docx patch.json --dry-run --apply   # 声明式 Patch，对 agent 友好
 ```
 
-默认先把原文件备份成 `<name>.bak.docx`（`--no-backup` 关闭，`--out` 另存）。
-
-**为什么可以放心原地改**：实测 `python-docx` 打开再保存，部件**零丢失、零新增**（4 页文档实测；
-文件变小只是重新压缩）。
-
-**两个必须知道的坑**
-
-1. **Word 会把文字切成多个 run。** `自开标之日起 90 日历天` 可能是三个 run，数字单独一个，
-   直接遍历 `run.text` 根本找不到。`edit.py` 的做法是：拼整段文本定位，把替换内容写进
-   「命中起点所在的那个 run」，其余 run 只删掉被覆盖的字符——run 数和各 run 的格式都保住。
-2. **锚点命中多处时拒绝执行。** 目录被 Word 刷成静态文本后，`1.2 资质与业绩` 这类标题在目录和
-   正文里各有一份，照着插两遍就会插进目录。此时会列出候选并退出，换更精确的锚点，
-   或显式加 `--all-anchors`。
-
-**明确不做**：批注、修订、水印、内容控件，以及带宏的 `.docm`（`python-docx` 保存会丢
-`vbaProject.bin`）。
-
-### 要「重排」而不是「编辑」时
-
-想把别人的 docx 换成我们这套格式，走 Markdown 中转，但**中间产物必须手工清理**：
-
-```bash
-pandoc 甲方文档.docx -t markdown --wrap=none --extract-media=media -o 01_内容.md
-# 手工清理：删掉原来的封面行与目录块、去掉表头残留的 ** 加粗
-python scripts/render.py --src . --out 新版.docx --config cfg.json --pdf --check
-```
-
-4 页文档实测：不清理会得到**双封面 + 双目录**，`[1](#...)` 链接语法漏进正文，页数从 4 变 5。
-`--extract-media` 抽出的图片路径是相对**执行目录**的，所以在仓库根执行，或把 `media/` 放进 `--src`。
+操作清单、Patch schema 与「重排而非编辑」见 [`docs/EDITING.zh-CN.md`](docs/EDITING.zh-CN.md)。
 
 ## 复用已有模板
 
@@ -373,100 +272,15 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 > **是蒸馏，不是转换。** 脚本不去"理解"模板，它把模板拆成 config 字段，决定权在你——
 > 这跟整个工具的分工方式一致。
 
-## 配置
+## 配置与表格
 
-### config.json 字段
+参考类内容下沉到 docs，本手册才能保持「产品首页」的定位。默认值已经够跑通
+`render.py --sample` 和所有示例，需要查某个键时再翻参考：
 
-| 字段 | 作用 |
+| 要查什么 | 在哪 |
 |---|---|
-| `cover` | 封面行 `[[样式名, 文本], …]`，样式名用 CoverTop / CoverTitle / CoverSub / CoverInfo / CoverDate |
-| `header` | 正文节页眉 |
-| `title` / `author` / `subject` / `comments` | 文档属性 |
-| `reference_doc` | 指定模板 docx（招标方给强制格式时用它） |
-| `toc_heading` | 目录标题，默认「目　　录」 |
-| `toc` | `false` → 不插目录页（通知/公示类短文档）；标题样式照常保留，无封面时不分节 |
-| `style` | 版式微调，见下表 |
-| `caption_words` | 自定义题注关键字（默认 表/图/Table/Figure），见下 |
-| `resource_paths` | 额外的图片搜索目录列表（默认已含 src、其子目录与父目录） |
-| `content_fixes` | 编辑性替换表 `[[旧文本, 新文本], …]`，合并 md 后、转换前套用 |
-| `content_fixes_file` | 替换表文件（`.json`，或 `.py` 里的 `CONTENT_FIXES` 字面量；相对路径按 config 所在目录解析） |
-
-> `content_fixes` 用来删掉注释性括号、统一措辞。指向上游已有的 `.py` 时，是用 `ast`
-> **只读取值、不执行代码**，因此不必把规则复制成第二份。
-
-`caption_words`（需要非中文或不惯用叫法时才配，`post.py` 与 lua filter 会同步）：
-
-```json
-"caption_words": {"table": ["表", "表格"], "figure": ["图", "图片"]}
-```
-
-### `style` 段
-
-**这张表是 `style` 键与默认值的唯一来源**，别处只指路不复述。全部可省，缺省即中文正式文档惯例：
-
-| 分组 | 键 | 默认 |
-|---|---|---|
-| 页脚 | `page_number` / `page_number_size` | `— {n} —` / `9` |
-| 页眉 | `header_size` / `header_gray` / `header_rule_color` / `header_rule_size` | `9` / `595959` / `BFBFBF` / `4` |
-| 目录 | `toc_depth` / `toc_title_size` / `toc_title_color` / `toc_placeholder` / `toc_placeholder_size` | `1-2` / `16` / `000000` / 见提示语 / `12` |
-| 题注 | `caption_gray` / `caption_size` / `caption_space_before` / `caption_space_after` | `404040` / `10.5` / `6` / `4` |
-| 题注 | `caption_keep_with_next` | `true`（表题不与表格分家；实测关掉可省 1 页，但表题可能落在页尾） |
-| 表格 | `header_rows` | 自动——**逐表**识别（读 pandoc 打的 `w:tblHeader`）；填数字则强制；`0` = 该表没有表头（表单 / 附件类首行是字段名），并一并去掉「跨页重复表头」。何时该动它见[视觉控制](#视觉控制) |
-| 表格 | `table_border` / `table_shade` / `table_size` | `full` / `EDEDED` / `10.5` |
-| 表格 | `table_header_color` / `table_zebra` / `table_zebra_fill` | 不指定 / `false` / `F7F7F7` |
-| 表格 | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
-| 表格 | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |
-| 字体 | `east_font` / `latin_font` | `宋体` / `Times New Roman`（**只作用于表格与题注**） |
-
-> 颜色写 6 位十六进制（`404040`），粗细单位 1/8 pt，间距单位 pt，单元格边距单位 twips。
-
-## 表格
-
-### 两种写法，按需选
-
-| | pipe table | grid table |
-|---|---|---|
-| 写法 | `\| a \| b \|` | `+---+---+` |
-| 多级表头 | ❌ | ✅（`+===+` 以上全是表头行） |
-| 合并单元格 | ❌ | ✅（跨列、跨行） |
-| 单元格内换行 | ❌ | ✅ |
-| **控制列宽** | ❌ 一律等宽 | ✅ 见下 |
-| 列对齐 | ✅ `:--` `:-:` `--:` | ❌ |
-
-模块清单、报价表这类简单表用 pipe table；**复杂表头、合并单元格、要控制列宽的，一律用 grid table**。
-
-### grid table 三板斧
-
-**1. 多级表头 + 合并单元格**——`+===+` 分隔表头与表体；某一行不写中间竖线即为跨列：
-
-```
-+------------------+------------------+
-| 商务部分         | 技术部分         |
-+--------+---------+--------+---------+
-| 条款   | 响应    | 模块   | 说明   |
-+========+=========+========+=========+
-| 工期   | 完全响应| 接入层 | 设备   |
-+--------+---------+--------+---------+
-```
-
-**2. 控制列宽**——pandoc 按**最细的列分隔**分配列宽。上表最细一行是 `+--------+---------+`
-（8/9/8/9），四列实际宽度就是 8:9:8:9（实测 990/1100/990/1100 twips）。想让「序号」列窄，把它写窄就行。
-
-**3. 单元格内换行**——同一个单元格里写多行即可（pipe table 做不到）。
-
-### 视觉控制
-
-默认值在 [`style` 段](#style-段)，这里只讲*什么时候该动它*。
-
-- **`header_rows`**——唯一一份文档大概率要改的键。不管它，每张表的表头按源文件自动识别
-  （grid table 里 `+===+` 以上全算表头）；表单 / 附件类首行是字段名而不是列标题时填 `0`，
-  这会同时去掉跨页重复表头。
-- **`table_border: "three"`**——分析型表格用三线表；纯排版用的表想让它别看起来像数据，填 `none`。
-  框线粗细由 `border_size` / `three_line_size` 管。
-- **`table_shade` + `table_header_color`**——深色表头底一定要配 `table_header_color: "FFFFFF"`，
-  否则表头文字淹死在自己的底色里。
-- **`table_zebra`**——宽表隔行浅底，首条数据行保持白底。
-- **跨页重复表头不用配**：pandoc 原生就给表头行设了 `w:tblHeader`，`post.py` 里那行只是幂等加固。
+| `config.json` 全部字段、`style` 全部键 | [`docs/CONFIG.zh-CN.md`](docs/CONFIG.zh-CN.md) |
+| 表格写法、grid table、视觉控制 | [`docs/TABLES.zh-CN.md`](docs/TABLES.zh-CN.md) |
 
 ## 标书场景注意
 
@@ -477,6 +291,15 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
    报价表建议保留 pipe table，便于后期整体替换为招标方表格；复杂表头用 grid table。
 3. 交付前跑 `--pdf --check` 并肉眼过一遍渲染图：Word 能打开、无空白页、表头灰底、题注居中，
    四条都过再封包。
+
+## 三条支柱
+
+1. **是编译器，不是转换器** —— Markdown → 语义 IR → 版式规格 → DOCX。每条视觉规则都明写在设计契约里
+   （`ref.docx` + `profile.json`），没有魔法。
+2. **是契约，不是猜测** —— profile 声明字体、间距、框线、页眉、页脚、题注。agent 读得懂，人查得清，
+   没有隐藏假设。
+3. **是证据，不是希望** —— 一条命令验完：包完整性、图片嵌入、目录域、页码、空白页、Word 验收、版式漂移。
+   产出 `report.json` + 页面截图 + 校验清单（见[证据包](#验证与证据包)）。
 
 ## 设计原则
 
@@ -514,7 +337,7 @@ pre-commit install               # 一次性
 ruff check scripts/ tests/              # 静态检查
 ruff format --check scripts/ tests/     # 格式
 pre-commit run --all-files              # 上面这些一次跑完
-python -m pytest -q                     # 全量：195 项断言，约 6-7 分钟（需本机 Word）
+python -m pytest -q                     # 全量：199 项断言，约 6-7 分钟（需本机 Word）
 ```
 
 pre-commit 钩子在 lint / format 之外，还跑一组**不启动 Word 的快速测试子集**
@@ -524,11 +347,29 @@ pre-commit 钩子在 lint / format 之外，还跑一组**不启动 Word 的快�
 > **没有托管 CI。** 验收类用例要通过 COM 驱动一台真 Microsoft Word，GitHub 托管 runner 给不了。
 > 所以本仓库靠 pre-commit 在本地检查，而不是靠流水线。真要加 CI，也只能覆盖上面那个无 Word 的子集。
 
-## 文件地图
+## 文档地图
+
+每条信息只住在**一个**地方，其余文档只指路不复述（能机器查的那部分已由 `tests/test_docs_sync.py` 把守）：
+
+| 文件 | 负责什么 |
+|---|---|
+| `README.zh-CN.md` / `README.md` | 产品首页：是什么、快速开始、工作流、边界——不做参考手册 |
+| `SKILL.md` | Agent 入口：何时用/不用、硬契约、验收门槛、Patch schema、陷阱清单 |
+| `BEST_PRACTICES.md` | 场景经验：profile 选择、表格配方、调试案例、FAQ |
+| `docs/SCRIPT_HELP.md` | 各脚本 CLI 参考（参数的**唯一**来源，与代码双向对拍把守） |
+| `docs/CONFIG.zh-CN.md` / `docs/CONFIG.md` | `config.json` 全部字段与 `style` 全部键 |
+| `docs/TABLES.zh-CN.md` / `docs/TABLES.md` | 表格写法、grid table、视觉控制 |
+| `docs/VALIDATION.zh-CN.md` / `docs/VALIDATION.md` | 9 项检查逐项说明、人工门槛、注意事项 |
+| `docs/EDITING.zh-CN.md` / `docs/EDITING.md` | 编辑操作、Patch schema、重排流程 |
+
+所以：**本手册不列 CLI 参数表**——只给你真要跑的那几条命令，其余指向 SCRIPT_HELP。
+脚本新增了参数却没写进 SCRIPT_HELP，或者 SCRIPT_HELP 编了个不存在的参数，`test_docs_sync.py`
+都会在 commit 时拦下。
+
+**仓库结构**
 
 | 路径 | 职责 |
 |---|---|
-| `SKILL.md` | 给其他 agent 用的技能说明（何时用、验证门槛、硬契约） |
 | `scripts/render.py` | 入口：合并 md → pandoc → post.py →（可选）finalize / check |
 | `scripts/post.py` | 后处理：封面注入、目录域、分节页码、页眉页脚、表格规则、题注样式；手写 OOXML 按 ECMA-376 顺序插入 |
 | `scripts/filters/captions.lua` | pandoc Lua filter：在 **AST 层**把表题 / 图注标记成 `TableCaption` / `FigureCaption`，`post.py` 不必用正则猜 |
@@ -543,11 +384,11 @@ pre-commit 钩子在 lint / format 之外，还跑一组**不启动 Word 的快�
 | `scripts/make_ref.py` | 重新生成 `assets/ref.docx`（改字体 / 字号 / 间距时用它） |
 | `profiles/*.json` | 设计契约：`formal-cn-v1`（通用正式）、`gongwen-v1`、`tender-v1`、`application-v1` |
 | `assets/ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
-| `assets/sample.md` / `assets/sample_config.json` | 冒烟测试样例（投标文件风格） |
+| `assets/sample.md` / `assets/sample_config.json` | 钉死的回归夹具，不是展示样例：`--sample`、四个测试文件与 `baselines/` 都只渲染这一份文档。展示请看 `examples/` |
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
-| `docs/` | `SCRIPT_HELP.md` —— 各脚本 CLI 参考（单一来源，见顶部「文档地图」） |
+| `docs/` | `SCRIPT_HELP.md`（CLI）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——各有 `.zh-CN` 镜像 |
 | `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 195 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
+| `tests/` | 199 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

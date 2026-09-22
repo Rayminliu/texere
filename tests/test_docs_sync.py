@@ -206,6 +206,27 @@ def test_readme_mirrors_share_structure():
     assert en == zh, "中英 README 章节结构已分叉（层级序列不同），把两份对齐: %s / %s" % (en, zh)
 
 
+# 下沉到 docs/ 的参考文档同样是中英成对的；README 的镜像守卫管不到它们，另立一条
+DOCS_MIRROR_PAIRS = [
+    ("docs/CONFIG.md", "docs/CONFIG.zh-CN.md"),
+    ("docs/TABLES.md", "docs/TABLES.zh-CN.md"),
+    ("docs/VALIDATION.md", "docs/VALIDATION.zh-CN.md"),
+    ("docs/EDITING.md", "docs/EDITING.zh-CN.md"),
+]
+
+
+@pytest.mark.parametrize("en, zh", DOCS_MIRROR_PAIRS)
+def test_docs_mirrors_share_structure(en, zh):
+    """从 README 下沉出去的参考文档也要中英同构。
+
+    内容一旦离开 README，就不再被 test_readme_mirrors_share_structure 覆盖；
+    不补这条的话，「下沉」会悄悄变成「英文版有一套、中文版有另一套」。
+    """
+    a = _headings(os.path.join(KIT, en))
+    b = _headings(os.path.join(KIT, zh))
+    assert a == b, "%s / %s 章节结构已分叉（层级序列不同）: %s / %s" % (en, zh, a, b)
+
+
 def test_readme_mirrors_cover_same_scripts():
     """两份 README 提到的脚本集合要一致——只在一边介绍某脚本就是漏写。"""
     pat = re.compile(r"scripts/([a-z_]+\.py)")

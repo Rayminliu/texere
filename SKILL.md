@@ -40,7 +40,7 @@ python scripts/patch.py bid.docx patch.json --apply --validate
 # Edit an existing docx (targeted, opposite contract — see "Two chains")
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
 
-python -m pytest -q                   # 195 assertions (~6-7 min; validator tests need local Word; no hosted CI)
+python -m pytest -q                   # 199 assertions (~6-7 min; validator tests need local Word; no hosted CI)
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 
@@ -114,8 +114,8 @@ Short documents (notices/announcements) that need headings but no table of conte
 heading styles stay intact, no TOC page. Form-style documents (no `#` headings) need
 `"style": {"header_rows": 0}` so the field-name first row isn't shaded as a header.
 
-Every field and `style` key: README §Configuration. Table syntax (pipe vs grid, multi-level headers,
-merged cells, column widths): README §Tables.
+Every field and `style` key: `docs/CONFIG.md`. Table syntax (pipe vs grid, multi-level headers,
+merged cells, column widths): `docs/TABLES.md`.
 
 ## Two chains, opposite contracts
 
@@ -124,8 +124,8 @@ merged cells, column widths): README §Tables.
 | Input | Markdown | an existing docx |
 | Contract | layout only, never content | **change only what is asked; leave every other byte alone** |
 
-Full command reference for both: README §Usage / §Editing an existing docx, and
-`docs/SCRIPT_HELP.md`. Two rules that matter for agents:
+Full command reference for both: README §Usage, `docs/EDITING.md` and `docs/SCRIPT_HELP.md`.
+Two rules that matter for agents:
 
 1. **Word splits text into runs unpredictably.** `edit.py` matches against the concatenated
    paragraph text and writes the replacement into the run where the match starts, so per-run
@@ -148,12 +148,13 @@ Nine checks run against a **single** shared Word export: package integrity, sour
 (`--source-md` body comparison, else `--expected-hash` artifact hash), image embedding, section
 count, TOC field, page numbering (footer region only, continuity), blank pages (threshold), Word
 acceptance, visual drift (baseline, **all pages** by default). Exit code 1 on FAIL or ERROR.
-Output: `report.json` + sampled page screenshots + SHA256 `signature` (which also records how many
-checks were skipped).
+Output: `report.json` + sampled page screenshots + `signature` — a **checksum manifest** (docx + report
+hashes, plus how many checks were skipped). It is not a cryptographic signature: no key, so it proves
+*which artifact this evidence describes*, not that the evidence was not tampered with.
 
 Read the statuses before trusting the gate: a check that could not run reports `SKIP` and is not
 counted as passed. `Passed: 7/9 (skipped: 2)` means two things were never verified — treat that as
-weaker evidence, not as a pass. Check-by-check table: README §Validation.
+weaker evidence, not as a pass. Check-by-check table: `docs/VALIDATION.md`.
 
 ## Patch schema (Agent API)
 

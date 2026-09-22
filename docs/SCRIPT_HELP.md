@@ -101,8 +101,9 @@ python scripts/validate.py bid.docx --quiet
 1. ✅ Package integrity - DOCX 包结构完整性
 2. ✅ Source content - 给了 `--source-md` 就做 Markdown↔docx 正文比对；只给
    `--expected-hash` 就退化为产件文件级 hash；两者都无 → SKIP
-3. ✅ Image embedding - 嵌入数 ≥ 引用数（下限计数，不校验第几张图对应哪处引用）；
-   无 Markdown 引用数 → SKIP
+3. ✅ Image embedding - 给了 `--source-md`：逐图 SHA256 身份 + 文档顺序校验（pandoc 原样
+   嵌入字节，实测 sha 一致；能抓串位 / 错图 / 重复占位，且含浮动图）。没给：嵌入数 ≥
+   引用数的下限计数。无 Markdown 引用 → SKIP
 4. ✅ Section count - 分节数合理性
 5. ✅ TOC field - OOXML 里是否存在真实 `TOC` 域；文档本就没有目录 → SKIP
 6. ✅ Page numbering - 页码连续性；识别不出页脚页码格式 → SKIP
