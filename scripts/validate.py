@@ -814,10 +814,13 @@ def _check_table_borders(doc) -> CheckResult:
     bordered = 0
     for tbl in doc.tables:
         borders = tbl._tbl.tblPr.find(qn("w:tblBorders"))
-        if borders is not None and any(
-            (b.get(qn("w:sz")) and int(b.get(qn("w:sz")) or 0) > 0)
-            for b in borders.findall(qn("w:border"))
-        ):
+        if borders is None:
+            continue
+        # OOXML 里 w:tblBorders 的子元素是 w:top / w:left / w:bottom / w:right /
+        # w:insideH / w:insideV（没有名为 w:border 的元素）。早期实现误用
+        # findall(qn("w:border"))，恒返回空 → 所有表都被误判为「无边框」，
+        # 于是 render 默认加的全框线被错杀成 FAIL。这里直接遍历 tblBorders 的子元素。
+        if any((b.get(qn("w:sz")) and int(b.get(qn("w:sz")) or 0) > 0) for b in borders):
             bordered += 1
     if bordered:
         return CheckResult(
@@ -1088,7 +1091,8 @@ def main():
     ap.add_argument(
         "--enforce-profile",
         action="store_true",
-        help="把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言（profile 即文档规范；默认只当 baseline 选择器）",
+        help="把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言（profile 即文档规范；"
+        "默认只当 baseline 选择器，不编译成检查项）",
     )
     ap.add_argument(
         "--max-empty",

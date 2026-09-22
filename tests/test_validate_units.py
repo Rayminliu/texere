@@ -428,15 +428,13 @@ def _make_profiled_docx(tmp_path, conforming=True):
             doc.styles[_wname].element.get_or_add_rPr().get_or_add_rFonts().set(
                 qn("w:eastAsia"), "黑体"
             )
-        # 带可见边框的表格
+        # 带可见边框的表格（真实 OOXML：w:tblBorders 的子元素是 w:top/w:left/...，不是 w:border）
         t = doc.add_table(rows=1, cols=2)
-        borders = t._tbl.tblPr.makeelement(
-            qn("w:tblBorders"), {qn("w:val"): "single", qn("w:sz"): "4"}
-        )
+        borders = t._tbl.tblPr.makeelement(qn("w:tblBorders"), {})
         for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
             borders.append(
                 borders.makeelement(
-                    qn("w:border"),
+                    qn("w:" + edge),
                     {
                         qn("w:val"): "single",
                         qn("w:sz"): "4",
@@ -507,3 +505,37 @@ class TestProfileContract:
         for r in checks:
             assert r.name.startswith("profile.")
             assert r.status in (v.PASS, v.FAIL, v.SKIP, v.ERROR)
+
+    def test_table_border_detection(self, tmp_path):
+        # 回归：旧实现误用 borders.findall(qn("w:border"))，而真实 OOXML 里
+        # w:tblBorders 的子元素是 w:top/w:left/w:bottom/w:right/w:insideH/w:insideV，
+        # 根本没有 w:border 这个标签 → 恒返回空 → 所有表被错判为「无可见边框」，
+        # render 默认加的全框线被错杀成 FAIL。这里用真实结构钉死检测逻辑。
+
+        # 有真实边框的表
+        p1 = tmp_path / "b1.docx"
+        d1 = Document()
+        t = d1.add_table(rows=1, cols=1)
+        borders = t._tbl.tblPr.makeelement(qn("w:tblBorders"), {})
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            borders.append(
+                borders.makeelement(
+                    qn("w:" + edge),
+                    {
+                        qn("w:val"): "single",
+                        qn("w:sz"): "6",
+                        qn("w:space"): "0",
+                        qn("w:color"): "808080",
+                    },
+                )
+            )
+        t._tbl.tblPr.append(borders)
+        d1.save(str(p1))
+        assert v._check_table_borders(Document(str(p1))).status == v.PASS
+
+        # 无边框的表（python-docx 默认不加 tblBorders）
+        p2 = tmp_path / "b2.docx"
+        d2 = Document()
+        d2.add_table(rows=1, cols=1)
+        d2.save(str(p2))
+        assert v._check_table_borders(Document(str(p2))).status == v.FAIL

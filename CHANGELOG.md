@@ -6,16 +6,27 @@
 
 ## 0.6.4 — 未发布
 
-### Profile enforcement 起步（profile = executable document contract）
+### Profile enforcement 作为可选 policy layer（opt-in，非 core acceptance）
 
-- **profile 从「只选 baseline 的 metadata」接成可执行契约**：`validate.py` 新增
+外部 review 校准了定位：`profile` 不该成为核心验收的前提——Texere 的核心验收本来就是
+「structural invariants + 真实 Word acceptance + visual baseline regression」，template 承担
+presentation truth、baseline 承担 rendered truth。所以 `profile` 保持**可选**的
+customer-specific policy layer，绝不替代原有 acceptance：
+
+- **profile 从「只选 baseline 的 metadata」接成可执行契约（opt-in）**：`validate.py` 新增
   `compile_profile_checks(profile, docx)`，把 profile 里声明的 `page / styles / table / toc`
   编译成 `profile.page / profile.body_font / profile.heading / profile.table / profile.toc`
   断言（Level 1 Structural，纯 OOXML 读取，不依赖 Word），命名空间独立、可单独追溯
-- 这些断言**只在显式 `--enforce-profile` 时计入门禁**（profile 是按需 opt-in 的 contract）；
-  未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响
+- 这些断言**只在显式 `--enforce-profile` 时计入门禁**（profile 是按需 opt-in 的 contract，
+  默认仍只当 baseline 选择器）；未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响
 - `SCRIPT_HELP.md` 补 `--enforce-profile` 文档与「profile 作为可执行契约」小节
-- 测试 213 → 217 项：新增 `TestProfileContract`（规范文档全 PASS、违规文档 FAIL、空 profile 无断言）
+- **修正 `profile.table` 边框检测 bug**（opt-in 层自身正确性，不是把 profile 抬成核心）：旧实现用
+  `borders.findall(qn("w:border"))`，但真实 OOXML 里 `w:tblBorders` 的子元素是
+  `w:top/w:left/w:bottom/w:right/w:insideH/w:insideV`，没有 `w:border` 这个标签，于是恒返回空 →
+  有边框的表被错判为「无可见边框」。改为遍历 `w:tblBorders` 的真实子元素（测试辅助函数同步改用
+  真实标签，否则会和 bug 互相「自洽」漏网）
+- 测试 213 → 218 项：新增 `TestProfileContract`（规范文档全 PASS、违规文档 FAIL、空 profile 无断言）
+  + `test_table_border_detection` 回归（钉死上面的标签误判修复）
 
 ## 0.6.3 — 2026-09-22
 
