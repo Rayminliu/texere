@@ -75,6 +75,9 @@ python scripts/validate.py bid.docx --max-empty 2
 # 使用 profile 进行视觉基线比对
 python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json
 
+# 把 profile 当成可执行契约强制执行（profile.<field> 计入门禁）
+python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json --enforce-profile
+
 # 静默模式（仅输出摘要）
 python scripts/validate.py bid.docx --quiet
 ```
@@ -88,6 +91,8 @@ python scripts/validate.py bid.docx --quiet
 - `--source-md <file>`: 源 Markdown，开启正文等价性比对（比 hash 强得多，见下）
 - `--sample-visual`: 视觉比对只比首 / 中 / 尾三页（默认逐页全量）
 - `--max-empty <n>`: 允许的最大空白页数（默认：0）
+- `--enforce-profile`: 把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言
+  （profile 即文档规范；默认只把 profile 当 baseline 选择器，不强制）
 - `--quiet`: 静默模式
 
 ### 验证项（9 项）
@@ -110,6 +115,20 @@ python scripts/validate.py bid.docx --quiet
 7. ✅ Blank pages - 空白页数量
 8. ✅ Word acceptance - Word 真机验收
 9. ✅ Visual drift - 与基线逐页比对（默认全量；`--sample-visual` 才抽样）；
+
+### Profile 作为可执行契约（`--enforce-profile`）
+
+`--profile` 默认只把 profile 当 baseline 选择器；加 `--enforce-profile` 时，profile 里声明
+的字段会被编译成额外断言，命名 `profile.<field>`，独立计入报告与门禁（任一 FAIL → 退出码 1）：
+
+- `profile.page` - 页面尺寸（A4）+ 上下左右边距，与 profile.page 对齐（容差 0.1–0.2cm）
+- `profile.body_font` - 正文 Normal 样式的中/西文字体 + 字号（容差 0.5pt）
+- `profile.heading` - 标题 1/2/3 的中/西文字体 + 字号 + 加粗
+- `profile.table` - 表格是否含可见边框（profile.table.border ≠ none 时）
+- `profile.toc` - 文档是否存在 TOC 域（profile.toc 声明时）
+
+这些断言走 OOXML 读取，**不依赖 Word**；只覆盖 profile 真正声明的字段，未声明的不凭空编造。
+未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响。
    无基线目录 → SKIP
 
 ---

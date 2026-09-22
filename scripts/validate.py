@@ -46,6 +46,7 @@ try:
 except ImportError:
     pymupdf = None
 from docx import Document
+from docx.oxml.ns import qn
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -704,6 +705,164 @@ def check_visual_drift(
 
 
 # =============================================================================
+# Profile enforcement —— profile 的声明字段编译成可执行断言（Level 1: Structural）
+# =============================================================================
+#
+# 这是「Profile = executable document contract」的第一步：profile 不再是只选 baseline
+# 的 metadata，而是机器可执行的文档规范。每条断言以 profile.<field> 命名，独立可追溯。
+# 目前只覆盖 Structural 级（页面/边距/字体/标题层级/表格边框/目录域），这些都能用
+# python-docx 直接读 OOXML 判定，不依赖 Word；Semantic / Rendered 级后续接入。
+# 只在显式 --enforce-profile 时才计入门禁；profile 是按需 opt-in 的 contract。
+
+EMU_PER_CM = 360000.0
+
+
+def _emu_cm(v):
+    return (v or 0) / EMU_PER_CM
+
+
+def _get_style(doc, name):
+    """python-docx 的 Styles 没有 .get，这里做缺失安全的取值。"""
+    try:
+        return doc.styles[name]
+    except KeyError:
+        return None
+
+
+def _east_asia_of_style(style):
+    """取 style 的 w:rFonts/@w:eastAsia（中文主字体）。"""
+    rpr = style.element.find(qn("w:rPr"))
+    if rpr is None:
+        return None
+    fonts = rpr.find(qn("w:rFonts"))
+    if fonts is None:
+        return None
+    return fonts.get(qn("w:eastAsia"))
+
+
+def _check_page(page, doc) -> CheckResult:
+    sec = doc.sections[0]
+    w_cm, h_cm = _emu_cm(sec.page_width), _emu_cm(sec.page_height)
+    pw, ph = float(page.get("width", 0)), float(page.get("height", 0))
+    issues = []
+    if pw and abs(w_cm - pw) > 0.1:
+        issues.append(f"宽 {w_cm:.2f}≠{pw}")
+    if ph and abs(h_cm - ph) > 0.1:
+        issues.append(f"高 {h_cm:.2f}≠{ph}")
+    for pk, sk in (
+        ("margin_top", "top_margin"),
+        ("margin_bottom", "bottom_margin"),
+        ("margin_left", "left_margin"),
+        ("margin_right", "right_margin"),
+    ):
+        if page.get(pk) is not None:
+            actual = _emu_cm(getattr(sec, sk))
+            if abs(actual - float(page[pk])) > 0.2:
+                issues.append(f"{pk} {actual:.2f}≠{page[pk]}")
+    if issues:
+        return CheckResult("profile.page", FAIL, "页面/边距不符：" + "，".join(issues))
+    return CheckResult("profile.page", PASS, f"页面 {w_cm:.2f}×{h_cm:.2f}cm、边距符合规范")
+
+
+def _check_body_font(body, doc) -> CheckResult:
+    st = _get_style(doc, "Normal")
+    if st is None:
+        return CheckResult("profile.body_font", SKIP, "跳过（无 Normal 样式）")
+    font = st.font
+    issues = []
+    if body.get("font_latin") and font.name and font.name != body["font_latin"]:
+        issues.append(f"西文 {font.name}≠{body['font_latin']}")
+    ea = _east_asia_of_style(st)
+    if body.get("font_eastAsia") and ea and ea != body["font_eastAsia"]:
+        issues.append(f"中文 {ea}≠{body['font_eastAsia']}")
+    if body.get("size") and font.size is not None and abs(font.size.pt - float(body["size"])) > 0.5:
+        issues.append(f"字号 {font.size.pt}≠{body['size']}")
+    if issues:
+        return CheckResult("profile.body_font", FAIL, "正文样式：" + "，".join(issues))
+    return CheckResult("profile.body_font", PASS, "正文样式（字体/字号）符合规范")
+
+
+def _check_heading_styles(styles, doc) -> CheckResult:
+    issues = []
+    for lvl, wname in (("h1", "Heading 1"), ("h2", "Heading 2"), ("h3", "Heading 3")):
+        spec = styles.get(lvl)
+        if not spec:
+            continue
+        st = _get_style(doc, wname)
+        if st is None:
+            issues.append(f"{wname} 样式缺失")
+            continue
+        font = st.font
+        if spec.get("font_eastAsia"):
+            ea = _east_asia_of_style(st)
+            if ea and ea != spec["font_eastAsia"]:
+                issues.append(f"{wname} 中文 {ea}≠{spec['font_eastAsia']}")
+        if spec.get("font_latin") and font.name and font.name != spec["font_latin"]:
+            issues.append(f"{wname} 西文 {font.name}≠{spec['font_latin']}")
+        if spec.get("size") and font.size is not None and abs(font.size.pt - spec["size"]) > 0.5:
+            issues.append(f"{wname} 字号 {font.size.pt}≠{spec['size']}")
+        if spec.get("bold") is not None and bool(font.bold) != bool(spec["bold"]):
+            issues.append(f"{wname} 加粗 {font.bold}≠{spec['bold']}")
+    if issues:
+        return CheckResult("profile.heading", FAIL, "标题样式：" + "，".join(issues))
+    return CheckResult("profile.heading", PASS, "标题层级样式符合规范")
+
+
+def _check_table_borders(doc) -> CheckResult:
+    if not doc.tables:
+        return CheckResult("profile.table", SKIP, "跳过（文档无表格，border 断言不适用）")
+    bordered = 0
+    for tbl in doc.tables:
+        borders = tbl._tbl.tblPr.find(qn("w:tblBorders"))
+        if borders is not None and any(
+            (b.get(qn("w:sz")) and int(b.get(qn("w:sz")) or 0) > 0)
+            for b in borders.findall(qn("w:border"))
+        ):
+            bordered += 1
+    if bordered:
+        return CheckResult(
+            "profile.table", PASS, f"表格边框：{bordered}/{len(doc.tables)} 个表含可见边框"
+        )
+    return CheckResult("profile.table", FAIL, f"表格边框：{len(doc.tables)} 个表均无可见边框")
+
+
+def _check_profile_toc(doc) -> CheckResult:
+    n = count_toc_fields(doc)
+    if n:
+        return CheckResult("profile.toc", PASS, f"目录域：{n} 个")
+    return CheckResult("profile.toc", FAIL, "profile 要求目录，但文档中未发现 TOC 域")
+
+
+def compile_profile_checks(profile, docx_path) -> list:
+    """把 profile 的声明字段编译成可执行断言（profile.<field>）。
+
+    只覆盖 profile 真正声明了的字段；未声明的字段不凭空编造断言。
+    返回 [] 当且仅当 profile 为空（未传 --profile）。
+    """
+    out = []
+    if not profile:
+        return out
+    try:
+        doc = Document(docx_path)
+    except Exception as e:
+        return [CheckResult("profile.load", ERROR, f"无法打开文档以执行 profile 断言：{e}")]
+    page = profile.get("page") or {}
+    if page:
+        out.append(_check_page(page, doc))
+    styles = profile.get("styles") or {}
+    if styles.get("body"):
+        out.append(_check_body_font(styles["body"], doc))
+    if any(styles.get(k) for k in ("h1", "h2", "h3")):
+        out.append(_check_heading_styles(styles, doc))
+    table = profile.get("table") or {}
+    if table.get("border") and table["border"] != "none":
+        out.append(_check_table_borders(doc))
+    if profile.get("toc"):
+        out.append(_check_profile_toc(doc))
+    return out
+
+
+# =============================================================================
 # 证据生成
 # =============================================================================
 
@@ -717,6 +876,7 @@ def generate_evidence_package(
     baseline_dir: str = None,
     source_md: str = None,
     sample_visual: bool = False,
+    enforce_profile: bool = False,
 ):
     """生成证据包：report.json + 截图 + signature。"""
     os.makedirs(out_dir, exist_ok=True)
@@ -793,6 +953,22 @@ def generate_evidence_package(
             else:
                 # FAIL 与 ERROR 都算不合格：检查崩了不等于文档合格
                 report["summary"]["failed"] += 1
+
+        # 3b. profile 契约断言（仅在 --enforce-profile 时计入门禁；profile 即文档规范）
+        if enforce_profile:
+            for res in compile_profile_checks(profile, docx_path):
+                report["checks"][res.name] = {
+                    "status": res.status,
+                    "message": res.message,
+                    "evidence": res.evidence,
+                }
+                report["summary"]["total"] += 1
+                if res.status == PASS:
+                    report["summary"]["passed"] += 1
+                elif res.status == SKIP:
+                    report["summary"]["skipped"] += 1
+                else:
+                    report["summary"]["failed"] += 1
 
         # 4. 生成 PDF 截图证据（复用同一份导出 PDF）
         if shared_pdf is not None and pymupdf is not None:
@@ -910,6 +1086,11 @@ def main():
         help="Compare only first/middle/last page against the baseline (default: all pages)",
     )
     ap.add_argument(
+        "--enforce-profile",
+        action="store_true",
+        help="把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言（profile 即文档规范；默认只当 baseline 选择器）",
+    )
+    ap.add_argument(
         "--max-empty",
         type=int,
         default=0,
@@ -939,6 +1120,7 @@ def main():
         baseline_dir,
         a.source_md,
         a.sample_visual,
+        a.enforce_profile,
     )
 
     # 打印报告

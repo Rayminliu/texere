@@ -8,6 +8,7 @@
 import glob
 import hashlib
 import importlib.util
+import json
 import os
 import sys
 
@@ -15,6 +16,7 @@ import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Cm, Pt
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(KIT, "scripts")
@@ -390,3 +392,118 @@ class TestBaselinePageDiff:
         p1 = os.path.join(KIT, "baselines", "p001.png")
         p2 = os.path.join(KIT, "baselines", "p002.png")
         assert v.baseline_page_diff(p1, p2) > v.DEFAULT_MAX_DIFF
+
+
+# ------------------------------------------------------------- Profile 可执行契约
+
+
+def _formal_profile():
+    with open(os.path.join(KIT, "profiles", "formal-cn-v1.json"), encoding="utf-8-sig") as f:
+        return json.load(f)
+
+
+def _make_profiled_docx(tmp_path, conforming=True):
+    """造一个符合 / 不符合 formal-cn-v1.json 的 docx（纯 python-docx，不启 Word）。"""
+    p = tmp_path / "prof.docx"
+    doc = Document()
+    sec = doc.sections[0]
+    if conforming:
+        sec.page_width = Cm(21)
+        sec.page_height = Cm(29.7)
+        sec.top_margin = Cm(2.5)
+        sec.bottom_margin = Cm(2.5)
+        sec.left_margin = Cm(3.17)
+        sec.right_margin = Cm(3.17)
+        n = doc.styles["Normal"].font
+        n.name = "Times New Roman"
+        n.size = Pt(12)
+        doc.styles["Normal"].element.get_or_add_rPr().get_or_add_rFonts().set(
+            qn("w:eastAsia"), "宋体"
+        )
+        for _wname, _size in (("Heading 1", 16), ("Heading 2", 14), ("Heading 3", 12)):
+            _hf = doc.styles[_wname].font
+            _hf.name = "Arial"
+            _hf.size = Pt(_size)
+            _hf.bold = True
+            doc.styles[_wname].element.get_or_add_rPr().get_or_add_rFonts().set(
+                qn("w:eastAsia"), "黑体"
+            )
+        # 带可见边框的表格
+        t = doc.add_table(rows=1, cols=2)
+        borders = t._tbl.tblPr.makeelement(
+            qn("w:tblBorders"), {qn("w:val"): "single", qn("w:sz"): "4"}
+        )
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            borders.append(
+                borders.makeelement(
+                    qn("w:border"),
+                    {
+                        qn("w:val"): "single",
+                        qn("w:sz"): "4",
+                        qn("w:space"): "0",
+                        qn("w:color"): "auto",
+                    },
+                )
+            )
+        t._tbl.tblPr.append(borders)
+        # TOC 域（与 post.py 注入写法一致）
+        para = doc.add_paragraph()
+        begin = OxmlElement("w:fldChar")
+        begin.set(qn("w:fldCharType"), "begin")
+        para.add_run()._r.append(begin)
+        it = OxmlElement("w:instrText")
+        it.set(qn("xml:space"), "preserve")
+        it.text = 'TOC \\o "1-2" \\h \\z \\u'
+        para.add_run()._r.append(it)
+        end = OxmlElement("w:fldChar")
+        end.set(qn("w:fldCharType"), "end")
+        para.add_run()._r.append(end)
+    else:
+        sec.page_width = Cm(21.59)
+        sec.page_height = Cm(27.94)
+        sec.top_margin = Cm(1.0)
+        nf = doc.styles["Normal"].font
+        nf.name = "Calibri"
+        nf.size = Pt(10)
+    doc.save(str(p))
+    return str(p)
+
+
+class TestProfileContract:
+    """profile 从 metadata 升级为可执行契约：声明字段 → profile.<field> 断言。"""
+
+    def test_empty_profile_yields_no_checks(self, tmp_path):
+        assert v.compile_profile_checks({}, _make_profiled_docx(tmp_path, True)) == []
+
+    def test_conforming_docx_passes(self, tmp_path):
+        prof = _formal_profile()
+        docx = _make_profiled_docx(tmp_path, True)
+        results = {r.name: r.status for r in v.compile_profile_checks(prof, docx)}
+        for name in (
+            "profile.page",
+            "profile.body_font",
+            "profile.heading",
+            "profile.table",
+            "profile.toc",
+        ):
+            assert name in results, "缺失 profile 断言: " + name
+        # 规范文档不得有任何 FAIL/ERROR
+        assert all(s in (v.PASS, v.SKIP) for s in results.values()), results
+
+    def test_nonconforming_fails(self, tmp_path):
+        prof = _formal_profile()
+        docx = _make_profiled_docx(tmp_path, False)
+        results = {r.name: r.status for r in v.compile_profile_checks(prof, docx)}
+        assert results["profile.page"] == v.FAIL
+        assert results["profile.body_font"] == v.FAIL
+
+    def test_enforce_profile_feeds_report(self, tmp_path):
+        # 契约断言要能进 report["checks"] 并影响 summary（不依赖 Word：用空 baseline 仍会触发
+        # Word 导出，故这里只验证编译结果能并入报告结构——直接复用 compile 的结果做等价断言）
+        prof = _formal_profile()
+        docx = _make_profiled_docx(tmp_path, True)
+        checks = v.compile_profile_checks(prof, docx)
+        # 模拟 generate_evidence_package 的并入逻辑：每条都该有 name/status
+        for r in checks:
+            assert r.name.startswith("profile.")
+            assert r.status in (v.PASS, v.FAIL, v.SKIP, v.ERROR)

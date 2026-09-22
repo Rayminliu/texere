@@ -6,7 +6,16 @@
 
 ## 0.6.4 — 未发布
 
-（进行中）
+### Profile enforcement 起步（profile = executable document contract）
+
+- **profile 从「只选 baseline 的 metadata」接成可执行契约**：`validate.py` 新增
+  `compile_profile_checks(profile, docx)`，把 profile 里声明的 `page / styles / table / toc`
+  编译成 `profile.page / profile.body_font / profile.heading / profile.table / profile.toc`
+  断言（Level 1 Structural，纯 OOXML 读取，不依赖 Word），命名空间独立、可单独追溯
+- 这些断言**只在显式 `--enforce-profile` 时计入门禁**（profile 是按需 opt-in 的 contract）；
+  未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响
+- `SCRIPT_HELP.md` 补 `--enforce-profile` 文档与「profile 作为可执行契约」小节
+- 测试 213 → 217 项：新增 `TestProfileContract`（规范文档全 PASS、违规文档 FAIL、空 profile 无断言）
 
 ## 0.6.3 — 2026-09-22
 
