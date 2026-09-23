@@ -38,6 +38,18 @@ fidelity**，因此：
   「需要渲染器（三选一，默认 word）」；`--doctor` 现列三种渲染器可用性
 - **暂不新增渲染器、不声称「支持 WPS 验收」**：只声称「架构支持 WPS / LO renderer」，真机 corpus 验证留到真机阶段
 
+### 验收策略模型（policy.py）：Flexible input, explicit policy, deterministic verification（脊柱，未接入 validate.py）
+
+评审校准的产品哲学：确认要有，但不能把用户绑死在「逐项确认 / 严格 profile / 固定 renderer」。
+验收严格度应为**按属性四级**（ignore / observe / warn / enforce），而非「全严格 / 全不严格」二元。
+
+- 新增 `scripts/policy.py`：`Severity` 四级枚举、`PROPERTY_CHECKS` 属性→检查反查表、
+  三层模式预设（`free` / `advisory` / `strict`）、`resolve_policy` 覆盖分层、
+  `required_renderers`（renderer 矩阵验收）、`evaluate`（按严重度算摘要与结论）
+- 新增 `tests/test_policy.py`（9 项，纯函数、无需 Word）守住四级语义、反查、覆盖、矩阵
+- **尚未接入 validate.py**：Phase 2 把 `--enforce-profile` 的布尔门禁升级为按属性严重度；
+  并引入 `check` / `verify` / `certify` 与 override layering（模板检测 spec → 已批准约束 → 任务临时覆盖）
+
 ### Profile enforcement 作为可选 policy layer（opt-in，非 core acceptance）
 
 外部 review 校准了定位：`profile` 不该成为核心验收的前提——Texere 的核心验收本来就是
