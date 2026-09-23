@@ -1,8 +1,8 @@
 ---
 name: texere
-description: "The Chinese formal document compiler — Reference/Spec → Deterministic Document → Evidence. Renders Markdown into properly typeset Chinese formal documents (docx + PDF) with unified validation: 9 automated checks (package integrity, image embedding, TOC fields, page numbering, blank pages, Word acceptance, visual drift), structured report (report.json), and evidence package (screenshots + signature). Use when generating tenders, bids, grant applications, final reports, white papers from Markdown with explicit design contracts (profile.json or ref.docx). Also supports targeted edits to existing docx without re-typesetting. Should not be used for tracked changes, comments, watermarks, theses, or English documents."
+description: "The Chinese formal document compiler — Reference/Spec → Deterministic Document → Evidence. Renders Markdown into properly typeset Chinese formal documents (docx + PDF) with unified validation: 9 automated checks (package integrity, image embedding, TOC fields, page numbering, blank pages, renderer acceptance, visual drift), structured report (report.json), and evidence package (screenshots + signature). Use when generating tenders, bids, grant applications, final reports, white papers from Markdown with explicit design contracts (profile.json or ref.docx). Also supports targeted edits to existing docx without re-typesetting. Should not be used for tracked changes, comments, watermarks, theses, or English documents."
 license: MIT
-compatibility: Requires Windows with a local Microsoft Word (COM), pandoc 3.1 or newer, Python 3.10 or newer, python-docx and lxml. On Linux and macOS only the docx half works — the Word acceptance and PDF export chain is unavailable.
+compatibility: Requires a local renderer (Word / WPS / LibreOffice, select with `--renderer`) and pandoc 3.1+, Python 3.10+, python-docx and lxml. DOCX generation is cross-platform; PDF export and renderer acceptance need a renderer (Word / WPS on Windows, LibreOffice where available).
 ---
 
 # texere
@@ -24,7 +24,7 @@ check reports PASS / FAIL / SKIP / ERROR and SKIP is never counted as PASS).
 ## Quick start
 
 ```bash
-python scripts/render.py --doctor     # environment self-check: pandoc / deps / Word engine identity
+python scripts/render.py --doctor     # environment self-check: pandoc / deps / renderer engine identity
 python scripts/render.py --sample     # smoke test -> sample_out.docx/.pdf
 
 # Render Markdown → DOCX + PDF（--src 可以是目录，也可以是单个 .md 文件）
@@ -44,8 +44,8 @@ python -m pytest -q                   # 268 assertions (~7 min; measured 7m6s; v
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 
-Run from the repository root. Dependencies: `pip install -r requirements.txt`; pandoc and Microsoft
-Word are system-level (`--doctor` verifies both).
+Run from the repository root. Dependencies: `pip install -r requirements.txt`; pandoc and a
+renderer are system-level (`--doctor` verifies both).
 
 ## When to use / when not to
 
@@ -144,10 +144,10 @@ After any real render, the delivery gate is one command:
 python scripts/validate.py bid.docx --out evidence/
 ```
 
-Nine checks run against a **single** shared Word export: package integrity, source content
+Nine checks run against a **single** shared export from the selected renderer: package integrity, source content
 (`--source-md` body comparison, else `--expected-hash` artifact hash), image embedding, section
-count, TOC field, page numbering (footer region only, continuity), blank pages (threshold), Word
-acceptance, visual drift (baseline, **all pages** by default). Exit code 1 on FAIL or ERROR.
+count, TOC field, page numbering (footer region only, continuity), blank pages (threshold),
+renderer acceptance, visual drift (baseline, **all pages** by default). Exit code 1 on FAIL or ERROR.
 Output: `report.json` + sampled page screenshots + `signature` — a **checksum manifest** (docx + report
 hashes, plus how many checks were skipped). It is not a cryptographic signature: no key, so it proves
 *which artifact this evidence describes*, not that the evidence was not tampered with.

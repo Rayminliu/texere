@@ -128,7 +128,7 @@ Contributor tooling (ruff, pre-commit, the test suite) is in [Development](#deve
 
 ## Measured throughput
 
-On Windows with a Microsoft Word renderer, with Word acceptance and PDF export included:
+On Windows with a Microsoft Word renderer, with renderer acceptance and PDF export included:
 
 69 pages / 63 tables / 28 images → **19.0 s** end-to-end
 
@@ -156,7 +156,7 @@ Point `reference_doc` at the client-supplied `.docx` and their design stays in c
 |---|---|
 | page setup and margins | content from Markdown |
 | body / heading / table / caption styles | deterministic post-processing |
-| header (conditionally), table borders | Word acceptance + PDF export |
+| header (conditionally), table borders | renderer acceptance + PDF export |
 
 Covers and section structure are **not** inherited — texere builds those itself. Full inheritance matrix:
 [Reusing an existing template](#reusing-an-existing-template).

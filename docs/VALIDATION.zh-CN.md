@@ -36,7 +36,7 @@ evidence/
 | ✅ 目录域 | OOXML 里存在真实的 `TOC` 域（文档本就没有目录 → SKIP） |
 | ✅ 页码 | 页脚页码构成无缺口序列（识别不出页码格式 → SKIP） |
 | ✅ 空白页 | 不超阈值（默认允许 0 个） |
-| ✅ Word 验收 | 真 Word 能打开并成功导出 PDF |
+| ✅ 渲染器验收 | 所选渲染器能打开并成功导出 PDF |
 | ✅ 版式基线漂移 | 与基线逐页逐像素比对，默认全量 |
 
 **四种状态，SKIP 不等于 PASS。** 每项检查报 `PASS` / `FAIL` / `SKIP` / `ERROR` 之一。
@@ -56,7 +56,7 @@ Document Validation
 ✅ [PASS] toc_field: 目录域：1 个 TOC 域
 ✅ [PASS] page_numbering: 页码：69 页 (连续，检测到页码 1-69)
 ✅ [PASS] blank_pages: 空白页：0/69 (阈值：0)
-✅ [PASS] renderer_acceptance: Word 验收：OK
+✅ [PASS] renderer_acceptance: 渲染器验收：OK
 ⏭️ [SKIP] visual_drift: 跳过 (未提供基线目录)
 
 Summary

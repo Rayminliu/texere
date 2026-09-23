@@ -36,7 +36,7 @@ The report contains 9 automated checks:
 | ✅ TOC field | A real `TOC` field exists in the OOXML (document has no TOC → SKIP) |
 | ✅ Page numbering | Footer numbers form a gap-free sequence (no numbers detected → SKIP) |
 | ✅ Blank pages | Below threshold (default: 0 allowed) |
-| ✅ Word acceptance | Real Word opens and exports PDF successfully |
+| ✅ renderer acceptance | The selected renderer opens the file and exports PDF successfully |
 | ✅ Visual baseline drift | Per-page pixel comparison against the baseline — all pages by default |
 
 **Four statuses, and SKIP is not PASS.** Every check reports `PASS` / `FAIL` / `SKIP` / `ERROR`.
@@ -57,7 +57,7 @@ Document Validation
 ✅ [PASS] toc_field: 目录域：1 个 TOC 域
 ✅ [PASS] page_numbering: 页码：69 页 (连续，检测到页码 1-69)
 ✅ [PASS] blank_pages: 空白页：0/69 (阈值：0)
-✅ [PASS] renderer_acceptance: Word 验收：OK
+✅ [PASS] renderer_acceptance: 渲染器验收：OK
 ⏭️ [SKIP] visual_drift: 跳过 (未提供基线目录)
 
 Summary
