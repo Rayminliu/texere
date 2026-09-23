@@ -29,13 +29,13 @@
 """
 
 import argparse
+import concurrent.futures
 import glob
 import hashlib
 import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -47,6 +47,7 @@ except ImportError:
     pymupdf = None
 from docx import Document
 from docx.oxml.ns import qn
+from renderers import SUPPORTED_RENDERERS, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -487,46 +488,36 @@ def check_toc_field(docx_path: str) -> CheckResult:
         return CheckResult("toc_field", ERROR, f"目录域检查异常：{type(e).__name__} - {e}")
 
 
-def export_pdf_once(docx_path: str, pdf_path: str, timeout: int = 300) -> tuple[bool, str]:
-    """调 finalize.py 导一次 PDF，供所有基于 PDF 的检查共享。
+def export_pdf_once(
+    docx_path: str, pdf_path: str, timeout: int = 300, renderer=None
+) -> tuple[bool, str]:
+    """用渲染器导一次 PDF，供所有基于 PDF 的检查共享。
 
     旧实现里页码/空白页/Word 验收/视觉比对/截图各自启动一次 Word（一次 validate
-    要起 4-5 次 Word COM，慢且容易残留孤儿进程）；这里收敛为一次导出。
+    要起 4-5 次 Word COM，慢且容易残留孤儿进程）；这里收敛为一次导出，
+    且渲染器可插拔（word / libreoffice / wps），见 scripts/renderers.py。
     """
+    rndr = renderer or get_renderer("word")
     try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "finalize.py"),
-                docx_path,
-                pdf_path,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            env=UTF8_ENV,
-        )
-    except subprocess.TimeoutExpired:
-        return False, f"Word 导出超时 ({timeout}s)"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            res = ex.submit(rndr.render, docx_path, pdf_path).result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        return False, f"PDF 导出超时 ({timeout}s)"
     except Exception as e:
-        return False, f"Word 导出异常：{type(e).__name__} - {e}"
-    if result.returncode == 0 and os.path.exists(pdf_path):
+        return False, f"PDF 导出异常：{type(e).__name__} - {e}"
+    if res.ok and os.path.exists(pdf_path):
         return True, ""
-    err = (
-        (result.stderr or "").strip()
-        or (result.stdout or "").strip()
-        or f"exit={result.returncode}"
-    )
-    return False, err[:300]
+    err = (res.errors[0] if res.errors else "导出失败")[:300]
+    return False, err
 
 
-def check_word_acceptance(export_ok: bool, export_err: str) -> CheckResult:
-    """真机验收：Word 打开 + 导出 PDF（基于步骤 1 的共享导出结果）。"""
+def check_word_acceptance(
+    export_ok: bool, export_err: str, renderer_name: str = "Word"
+) -> CheckResult:
+    """真机验收：渲染器打开 + 导出 PDF（基于步骤 1 的共享导出结果）。"""
     if export_ok:
-        return CheckResult("word_acceptance", PASS, "Word 验收：OK")
-    return CheckResult("word_acceptance", FAIL, f"Word 验收失败：{export_err}")
+        return CheckResult("word_acceptance", PASS, f"{renderer_name} 验收：OK")
+    return CheckResult("word_acceptance", FAIL, f"{renderer_name} 验收失败：{export_err}")
 
 
 # 页脚行识别：整行匹配才认，避免把正文里的数字（如「2026 年 9 月」）当页码。
@@ -1031,6 +1022,7 @@ def generate_evidence_package(
     source_md: str = None,
     sample_visual: bool = False,
     enforce_profile: bool = False,
+    renderer=None,
 ):
     """生成证据包：report.json + 截图 + signature。"""
     os.makedirs(out_dir, exist_ok=True)
@@ -1051,8 +1043,10 @@ def generate_evidence_package(
     # 2. Word 只启动一次：导出共享 PDF，后面的页码/空白页/视觉比对/截图都用它
     tmp_dir = tempfile.mkdtemp(prefix="texere_validate_")
     pdf_path = os.path.join(tmp_dir, "verify.pdf")
+    rndr = renderer or get_renderer("word")
+    renderer_name = type(rndr).__name__
     try:
-        export_ok, export_err = export_pdf_once(docx_path, pdf_path)
+        export_ok, export_err = export_pdf_once(docx_path, pdf_path, renderer=rndr)
         shared_pdf = pdf_path if export_ok else None
 
         # 3. 执行所有检查
@@ -1072,7 +1066,7 @@ def generate_evidence_package(
             ("toc_field", check_toc_field, (docx_path,)),
             ("page_numbering", check_page_numbering, (shared_pdf,)),
             ("blank_pages", check_blank_pages, (shared_pdf, max_empty)),
-            ("word_acceptance", check_word_acceptance, (export_ok, export_err)),
+            ("word_acceptance", check_word_acceptance, (export_ok, export_err, renderer_name)),
             (
                 "visual_drift",
                 check_visual_drift,
@@ -1252,10 +1246,22 @@ def main():
         help="Maximum allowed blank pages (default: 0)",
     )
     ap.add_argument("--quiet", action="store_true", help="Suppress detailed output")
+    ap.add_argument(
+        "--renderer",
+        choices=list(SUPPORTED_RENDERERS),
+        default="word",
+        help="PDF 导出渲染器：word（默认，需本机 Word）/ libreoffice / wps",
+    )
     a = ap.parse_args()
 
     if not os.path.exists(a.docx):
         sys.exit(f"File not found: {a.docx}")
+
+    # 渲染器：解析并探测可用性（不可用也只是让 PDF 相关验收失败，不阻断 docx 检查）
+    renderer = get_renderer(a.renderer)
+    avail, why = type(renderer).available()
+    if not avail:
+        print("[warn] 所选渲染器不可用（%s）：%s；PDF 相关验收将失败" % (a.renderer, why))
 
     # 准备 profile
     profile = {}
@@ -1276,6 +1282,7 @@ def main():
         a.source_md,
         a.sample_visual,
         a.enforce_profile,
+        renderer=renderer,
     )
 
     # 打印报告

@@ -31,8 +31,9 @@ python scripts/render.py --version
 - `--src <dir|file.md>`: Markdown 源（目录按文件名序合并，也可直接给单个 .md 文件）（必需）
 - `--out <file>`: 输出 DOCX 文件路径（必需）
 - `--config <file>`: 配置文件路径（可选）
-- `--pdf`: 生成 PDF 格式（需要 Microsoft Word）
+- `--pdf`: 生成 PDF 格式（默认用本机 Word 渲染器，可用 `--renderer` 切换为 libreoffice / wps）
 - `--check`: 检查 PDF 视觉质量（需要 PyMuPDF）
+- `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word）
 - `--doctor`: 环境自检
 - `--sample`: 运行样本文档测试
 - `--version`: 显示版本号
@@ -93,6 +94,7 @@ python scripts/validate.py bid.docx --quiet
 - `--max-empty <n>`: 允许的最大空白页数（默认：0）
 - `--enforce-profile`: 把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言
   （profile 即文档规范；默认只把 profile 当 baseline 选择器，不强制）
+- `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word；PDF 相关验收随之切换）
 - `--quiet`: 静默模式
 
 ### 验证项（9 项）
@@ -335,11 +337,47 @@ python scripts/finalize.py <in.docx> [out.pdf]
 out.pdf 可省略，默认取输入同名 `.pdf`（长中文名不用再手打）。
 
 ### 功能
-- Word COM 打开文档（验证结构完整性）
-- 刷新目录域
-- 重新分页
-- 导出为 PDF
-- 保存并关闭文档
+- 调用 `scripts/renderers.py` 里的 `WordRenderer`（实现统一 `RendererAdapter` 契约）
+  完成 Word COM 验收 + 导出 PDF；`finalize.py` 现在只是薄 CLI 壳，**行为不变**
+- 验收信号：Word 打不开 = OOXML 结构有问题（立即失败）
+- 默认**只读验收**：在临时副本上刷新目录域 / 重排 / 导 PDF，绝不写回输入 docx；
+  只有 `--save-updated-fields` 才把刷新后的域写回原文件（render --pdf 交付物需要）
+- 输出：页数 / 字数 / 表数 / 图数 / 节数
+
+### 渲染器抽象（Core vs Renderer）
+Texere 核心（compile / OOXML / source / image / profile / metadata / evidence）
+**不依赖任何 Office**。只有「真机验收 + 出 PDF」需要具体渲染器，这一层就是
+`RendererAdapter`：`WordRenderer`（当前默认）/ `LibreOfficeRenderer`（soffice headless，
+跨平台 CI 友好）/ `WPSRenderer`（WPS Writer COM）——三者只是不同的「事实渲染器」。
+`page_numbering` / `blank_pages` / `visual_drift` 这些 PDF 派生检查只消费 PDF、绝不感知
+渲染器——换渲染器不会改变它们的结论，这正是 renderer-agnostic 的护栏
+（见 `tests/test_renderer.py`）。
+
+统一入口是 `get_renderer(name)`（name ∈ `word` / `libreoffice` / `wps`），每个渲染器
+自带 `available()` 能力探测。`render.py` 与 `validate.py` 都暴露 `--renderer` 选项；
+不指定时默认 `word`。`finalize.py` 现在只是 `WordRenderer` 的薄 CLI 壳，仍可单独调用：
+
+```bash
+python scripts/finalize.py <doc.docx> <out.pdf> [--save-updated-fields]
+```
+
+#### Renderer 已知边界（只记录不实现）
+
+- **COM 渲染器（Word / WPS）的超时是 best-effort**：`WordRenderer` / `WPSRenderer`
+  在进程内跑 COM，线程级超时（`validate.export_pdf_once` 的 `ThreadPoolExecutor`）
+  能返回结构化错误，但**无法硬杀卡死的 COM 进程**——彻底消 zombie 需要进程级隔离
+  （把渲染放进可被 `terminate` 的子进程）。当前 `validate` 走的是 WordRenderer 默认路径，
+  单次 `validate` 通常足够；高并发 / 长文档场景若遇僵尸，优先用 LibreOffice 后端
+  （子进程，超时会被强杀，见 `renderers._kill_process_tree`）。
+- **`LibreOfficeRenderer` 不回写刷新后的域**：`save_updated_fields=True` 仅 Word / WPS
+  支持；LO 出 PDF 后会带 warning，交付 docx 请仍走 Word / WPS。
+- **跨渲染器视觉一致性未实测**：同一份 docx 经 Word / LO / WPS 出的 PDF 在字体、分页、
+  页眉页脚上可能有差异，尚未建立 compatibility corpus（见 roadmap ⑥）。
+- **Word / WPS COM 退出期回溯（pythoncom atexit）**：本进程内只要跑过任何 Word / WPS
+  渲染，解释器退出期都可能打印一条 COM teardown 访问违规回溯（stderr 噪音）；
+  **pytest 退出码仍为 0，不影响判定**，是进程级隔离要根除的目标。并发 render 会更响，
+  故 `test_word_concurrent_renders_isolated` 默认跳过，需 `TEXERE_COM_CONCURRENCY=1`
+  显式开启才能复现 / 探测。
 
 ---
 

@@ -22,6 +22,8 @@ import sys
 import tempfile
 from datetime import datetime
 
+from renderers import SUPPORTED_RENDERERS, get_renderer
+
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -161,33 +163,6 @@ def _pandoc():
     return exe, m.group(1) if m else "?"
 
 
-def _word_engine():
-    """实测验收引擎身份，返回 (available, text)。
-
-    available=False 表示 --pdf/--check 所需的 Word 不可用（缺 pywin32 或启动失败），
-    但 docx-only 渲染仍可工作，所以 doctor 不因它判整体失败，只在状态里明确标出——
-    不能再像以前那样把第三字段写死 True 让失败看起来像通过。
-    """
-    try:
-        import pythoncom
-        import win32com.client as win32
-    except ImportError:
-        return False, "未安装 pywin32，跳过探测（--pdf 需要它）"
-    try:
-        pythoncom.CoInitialize()
-        try:
-            w = win32.DispatchEx("Word.Application")
-            name = "%s %s" % (w.Name, w.Version)
-            path = w.Path
-            w.Quit()
-        finally:
-            pythoncom.CoUninitialize()
-    except Exception as e:
-        return False, "启动失败（%s：%s）" % (type(e).__name__, e)
-    tag = "" if "Microsoft" in name else "  [非 Microsoft Word，验收结果仅供参考]"
-    return True, "%s  %s%s" % (name, path, tag)
-
-
 def doctor():
     """环境自检：pandoc / Python 依赖 / Word。缺核心依赖时退出码 1。"""
     rows = []
@@ -207,8 +182,11 @@ def doctor():
         except Exception:
             rows.append((label, "缺失" + ("（核心）" if core else "（可选）"), not core))
 
-    w_ok, w_text = _word_engine()
-    rows.append(("Word 引擎", w_text, w_ok))
+    for _name in SUPPORTED_RENDERERS:
+        _r = get_renderer(_name)
+        _ok, _why = type(_r).available()
+        rows.append(("渲染器:%s" % _name, _why, _ok))
+    word_ok, word_why = type(get_renderer("word")).available()
 
     def dw(s):  # 中文按 2 列宽计算
         return len(s) + sum(1 for c in s if ord(c) > 127)
@@ -229,17 +207,18 @@ def doctor():
     # 避免用户把「docx 可用」误读成「完整 Texere 环境就绪」。
     print("\n管线就绪度：")
     print("  DOCX 渲染      %s" % ("READY" if not missing else "NOT READY"))
-    print("  PDF 导出       %s" % ("READY" if w_ok else "NOT READY"))
-    print("  验收(--check)  %s" % ("READY" if w_ok else "NOT READY"))
-    if not w_ok:
+    print("  PDF 导出       %s" % ("READY" if word_ok else "NOT READY"))
+    print("  验收(--check)  %s" % ("READY" if word_ok else "NOT READY"))
+    if not word_ok:
         print(
-            "\n注意：Word 验收引擎不可用（%s）；--pdf/--check 将失败，仅 docx 渲染可用。" % w_text
+            "\n注意：默认渲染器（Word）不可用（%s）；--pdf/--check 将失败，仅 docx 渲染可用。"
+            % word_why
         )
     print("\nOK：核心依赖齐备。")
     return 0
 
 
-def preflight(want_pdf, want_check):
+def preflight(want_pdf, want_check, renderer_name="word"):
     """渲染前的快速预检，把裸异常换成可行动提示。"""
     if not shutil.which("pandoc"):
         sys.exit(
@@ -252,12 +231,13 @@ def preflight(want_pdf, want_check):
     except ImportError:
         sys.exit("缺少 python-docx：pip install -r requirements.txt")
     if want_pdf:
-        try:
-            importlib.import_module("win32com.client")
-        except ImportError:
+        rndr = get_renderer(renderer_name)
+        ok, why = type(rndr).available()
+        if not ok:
             sys.exit(
-                "缺少 pywin32，无法做 Word 验收与导 PDF：\n"
-                "  pip install pywin32   或去掉 --pdf（仍可正常产出 docx）"
+                "所选渲染器不可用（%s）：%s\n"
+                "  --renderer word 需本机 Word + pywin32；libreoffice 需 soffice；"
+                "wps 需本机 WPS Office。或去掉 --pdf（仍可正常产出 docx）" % (renderer_name, why)
             )
     if want_check and not want_pdf:
         print("[warn] --check 依赖 --pdf 产出的 PDF，已忽略 --check")
@@ -268,10 +248,10 @@ def preflight(want_pdf, want_check):
             sys.exit("缺少 PyMuPDF，无法做 PDF 目视验收：\n  pip install PyMuPDF   或去掉 --check")
 
 
-def render(src_dir, out_docx, config_path, want_pdf, want_check):
+def render(src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word"):
     import json
 
-    preflight(want_pdf, want_check)
+    preflight(want_pdf, want_check, renderer_name)
     cfg = {}
     if config_path and os.path.exists(config_path):
         cfg = json.load(open(config_path, encoding="utf-8-sig"))
@@ -377,15 +357,15 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check):
 
     if want_pdf:
         pdf = os.path.splitext(out_docx)[0] + ".pdf"
-        run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "finalize.py"),
-                out_docx,
-                pdf,
-                "--save-updated-fields",
-            ]
-        )
+        rndr = get_renderer(renderer_name)
+        res = rndr.render(out_docx, pdf, save_updated_fields=True)
+        if not res.ok:
+            sys.exit(
+                "PDF 导出失败（%s）：%s"
+                % (renderer_name, (res.errors[0] if res.errors else "未知错误"))
+            )
+        for w in res.warnings:
+            print("[warn] %s" % w)
         if want_check:
             run([sys.executable, os.path.join(KIT, "scripts", "check_pdf.py"), pdf])
     shutil.rmtree(tmp, ignore_errors=True)
@@ -418,6 +398,12 @@ def main():
     ap.add_argument("--config")
     ap.add_argument("--pdf", action="store_true")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument(
+        "--renderer",
+        choices=list(SUPPORTED_RENDERERS),
+        default="word",
+        help="PDF 导出渲染器：word（默认，需本机 Word）/ libreoffice / wps",
+    )
     ap.add_argument("--sample", action="store_true")
     ap.add_argument(
         "--doctor",
@@ -436,7 +422,7 @@ def main():
         atexit.register(shutil.rmtree, tmp, ignore_errors=True)
         shutil.copy(os.path.join(KIT, "assets", "sample.md"), os.path.join(tmp, "01_sample.md"))
         out = os.path.join(KIT, "sample_out.docx")
-        render(tmp, out, os.path.join(KIT, "assets", "sample_config.json"), True, True)
+        render(tmp, out, os.path.join(KIT, "assets", "sample_config.json"), True, True, "word")
         print("sample ok ->", out)
         return
 
@@ -447,7 +433,7 @@ def main():
     if a.check and not a.pdf:
         print("[note] --check 依赖 PDF，已自动启用 --pdf")
         a.pdf = True
-    render(a.src, a.out, a.config, a.pdf, a.check)
+    render(a.src, a.out, a.config, a.pdf, a.check, a.renderer)
 
 
 if __name__ == "__main__":

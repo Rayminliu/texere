@@ -79,6 +79,7 @@ def test_script_help_docs_have_no_invented_options(doc_text):
         real |= _options_of(os.path.join(SCRIPTS_DIR, s))
     # 手解 argv 的脚本，显式登记它们的真实选项
     real |= {"--update", "--dpi", "--max-diff", "--max-empty"}  # snapshot / check_pdf
+    real |= {"--save-updated-fields"}  # finalize.py 手解：写回刷新后的域
     documented = set(re.findall(r"`(--[a-z][a-z0-9-]*)`", doc_text))
     fake = sorted(o for o in documented if o not in real)
     assert not fake, "文档写了代码里不存在的参数: %s" % fake

@@ -6,6 +6,24 @@
 
 ## 0.6.4 — 未发布
 
+### Renderer 抽象收尾：validate 直连渲染器 + LibreOffice/WPS 渲染器 + CLI 选择
+
+把「docx → PDF」从核心彻底抽成可插拔的 `RendererAdapter`，核心（compile / OOXML /
+source / image / profile / metadata / evidence）不再依赖任何 Office：
+
+- **`validate.py` 去掉调 `finalize.py` 的子进程往返**：`export_pdf_once` 现在直接消费
+  `WordRenderer.render()`（保留线程级超时安全网），`word_acceptance` 检查消息随渲染器名
+  动态变化；只收敛为一次导出，PDF 派生检查（page_numbering / blank_pages / visual_drift）仍只吃 PDF
+- **新增 `LibreOfficeRenderer`（soffice headless，跨平台 CI 友好）与 `WPSRenderer`
+  （WPS Writer COM: KWPS.Application）**，`get_renderer(name)` 工厂统一入口，三者各自带
+  `available()` 能力探测
+- **`render.py` / `validate.py` 暴露 `--renderer word|libreoffice|wps`**（默认 word）；
+  `render.py --doctor` 改为列出三种渲染器的可用性，`preflight` 改用渲染器探测替代硬编码 pywin32 检查
+- **`finalize.py` 降级为 `WordRenderer` 的薄 CLI 壳**（仍可单独调用，人读输出不变）
+- 测试 230 → 237 项：新增渲染器工厂 / 可插拔接缝（注入 `FakeRenderer` 证明 validate 不再
+  shell finalize 或起 Word）/ LibreOffice·WPS 可用性 skip 测试；renderer-agnostic 护栏守住
+  「换渲染器不改结论」
+
 ### Profile enforcement 作为可选 policy layer（opt-in，非 core acceptance）
 
 外部 review 校准了定位：`profile` 不该成为核心验收的前提——Texere 的核心验收本来就是
@@ -63,6 +81,23 @@ customer-specific policy layer，绝不替代原有 acceptance：
   以及 declared-only 字段清单
 - 测试 219 → 226 项：新增 `TestEvidenceEnrichment`（5 个 profile 检查的 evidence 形状 +
   `json.dumps` 可序列化守护 + image 复用单次扫描守护）
+
+### Renderer 抽象（Core vs Renderer 抽离，行为 0 变化）
+
+把「docx → PDF」从核心里抽出来，Word 从核心依赖降级为「一个 renderer adapter」——这是
+Texere 从「Word automation tool」走向「Document acceptance engine」的第一步：
+
+- 新增 `scripts/renderers.py`：`RenderResult` + `RendererAdapter`（ABC）+ `WordRenderer`
+  （原 `finalize.py` 的 Word/COM 逻辑迁入）+ `FakeRenderer`（无 Office 的测试 / CI 渲染器）
+- `finalize.py` 改为薄 CLI 壳，只做参数解析与人读输出，**输出格式逐行不变**（行为 0 变化）
+- `validate.py` 的 `export_pdf_once` 仍经 `finalize.py` 出 PDF，核心验证逻辑完全未动——
+  本次只是把渲染器实现挪了位置，不改变任何检查结论或 `report.json` 结构
+- `SCRIPT_HELP.md` 补「渲染器抽象（Core vs Renderer）」：核心不依赖 Office，PDF 派生检查
+  （`page_numbering` / `blank_pages` / `visual_drift`）只读 PDF、绝不感知渲染器
+- 测试 +4：新增 `test_renderer.py`，含 renderer-agnostic 护栏——用 PyMuPDF 合成 PDF 证明
+  三个 PDF 派生检查只消费 `pdf_path`、与具体渲染器无关（换 Word / WPS / LO / Fake 出同一
+  PDF 结论不变）。这是后续接 LibreOffice / WPS 渲染器的硬前提
+- 断言数 226 → 230
 
 ## 0.6.3 — 2026-09-22
 
