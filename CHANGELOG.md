@@ -21,6 +21,15 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 0.6.5 — 2026-09-23 (docs-only)
+
+发布前最后一次文档契约收口（无代码 / 行为变化）：把 SKILL.md front matter、
+docs/VALIDATION.md（中英）、README（中英）里残留的 `Word acceptance` / `Word 验收`
+统一为 `renderer acceptance` / `渲染器验收`，与 `validate.py` 的 `renderer_acceptance`
+检查及 README 已声明的 Word / WPS / LibreOffice 多 renderer 架构对齐。
+仅在与 Microsoft Word 保真强相关处保留 Word 口径。版本号自 0.6.4 起已对齐，
+本补丁不改动版本语义，仅修正文档漂移。
+
 ## 0.6.4 — 2026-09-23 (stable)
 
 ### Renderer 抽象收尾：validate 直连渲染器 + LibreOffice/WPS 渲染器 + CLI 选择
