@@ -98,7 +98,7 @@ def test_export_pdf_once_uses_injected_renderer_not_word(tmp_path):
     docx = tmp_path / "in.docx"
     docx.write_bytes(b"docx")  # 渲染器只看路径，不解析内容
     pdf = tmp_path / "verify.pdf"
-    ok, err = v.export_pdf_once(str(docx), str(pdf), renderer=r.FakeRenderer(str(src)))
+    ok, err, _ = v.export_pdf_once(str(docx), str(pdf), renderer=r.FakeRenderer(str(src)))
     assert ok is True, err
     assert pdf.exists()
     assert err == ""
@@ -123,3 +123,33 @@ def test_wps_renderer_skips_when_missing():
     if not ok:
         pytest.skip("本环境未装 WPS Office（KWPS.Application）：%s" % why)
     assert "WPS" in why
+
+
+def test_renderer_identity_recorded_in_evidence(tmp_path):
+    # 评审优先级 #2：renderer 身份（name/version/engine_path）必须进 report 的 metadata，
+    # 否则 evidence 缺 provenance——别人看到 PASS 也不知道是 Word / WPS / LO 出的。
+    # 用 FakeRenderer 即可在无 Word 的 CI 上守住这条不变量。
+    import docx as docxmod
+
+    src_pdf = tmp_path / "src.pdf"
+    _make_synthetic_pdf(
+        src_pdf
+    )  # 合法 PDF：FakeRenderer 复制后，generate_evidence_package 的截图步才能打开
+    docx_path = tmp_path / "in.docx"
+    docxmod.Document().save(str(docx_path))
+    rndr = r.FakeRenderer(str(src_pdf))
+    report = v.generate_evidence_package(
+        str(docx_path),
+        str(tmp_path / "evidence"),
+        {},
+        None,
+        0,
+        None,
+        None,
+        False,
+        False,
+        renderer=rndr,
+    )
+    meta = report["metadata"]["renderer"]
+    assert meta["name"] == "Fake"  # FakeRenderer 自报 "Fake"
+    assert "version" in meta and "engine_path" in meta

@@ -47,7 +47,7 @@ except ImportError:
     pymupdf = None
 from docx import Document
 from docx.oxml.ns import qn
-from renderers import SUPPORTED_RENDERERS, get_renderer
+from renderers import SUPPORTED_RENDERERS, RenderResult, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -490,34 +490,54 @@ def check_toc_field(docx_path: str) -> CheckResult:
 
 def export_pdf_once(
     docx_path: str, pdf_path: str, timeout: int = 300, renderer=None
-) -> tuple[bool, str]:
+) -> tuple[bool, str, "RenderResult"]:
     """用渲染器导一次 PDF，供所有基于 PDF 的检查共享。
 
     旧实现里页码/空白页/Word 验收/视觉比对/截图各自启动一次 Word（一次 validate
     要起 4-5 次 Word COM，慢且容易残留孤儿进程）；这里收敛为一次导出，
     且渲染器可插拔（word / libreoffice / wps），见 scripts/renderers.py。
+    返回三元组 (ok, err, result)：result 是渲染器产出的 RenderResult——即使导出
+    失败也带 renderer_name / engine_path，供 evidence 记录 provenance。
     """
     rndr = renderer or get_renderer("word")
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
             res = ex.submit(rndr.render, docx_path, pdf_path).result(timeout=timeout)
     except concurrent.futures.TimeoutError:
-        return False, f"PDF 导出超时 ({timeout}s)"
+        res = RenderResult(
+            ok=False,
+            pdf=None,
+            renderer_name=type(rndr).__name__,
+            warnings=[],
+            errors=[f"PDF 导出超时 ({timeout}s)"],
+        )
+        return False, f"PDF 导出超时 ({timeout}s)", res
     except Exception as e:
-        return False, f"PDF 导出异常：{type(e).__name__} - {e}"
+        res = RenderResult(
+            ok=False,
+            pdf=None,
+            renderer_name=type(rndr).__name__,
+            warnings=[],
+            errors=[f"{type(e).__name__}: {e}"],
+        )
+        return False, f"PDF 导出异常：{type(e).__name__} - {e}", res
     if res.ok and os.path.exists(pdf_path):
-        return True, ""
+        return True, "", res
     err = (res.errors[0] if res.errors else "导出失败")[:300]
-    return False, err
+    return False, err, res
 
 
-def check_word_acceptance(
+def check_renderer_acceptance(
     export_ok: bool, export_err: str, renderer_name: str = "Word"
 ) -> CheckResult:
-    """真机验收：渲染器打开 + 导出 PDF（基于步骤 1 的共享导出结果）。"""
+    """真机验收：渲染器打开 + 导出 PDF（基于步骤 1 的共享导出结果）。
+
+    名称随渲染器走（Word / WPS / LibreOffice），不再写死 word_acceptance——
+    否则 --renderer wps 时检查名仍叫 word_acceptance 就是语义撒谎。
+    """
     if export_ok:
-        return CheckResult("word_acceptance", PASS, f"{renderer_name} 验收：OK")
-    return CheckResult("word_acceptance", FAIL, f"{renderer_name} 验收失败：{export_err}")
+        return CheckResult("renderer_acceptance", PASS, f"{renderer_name} 验收：OK")
+    return CheckResult("renderer_acceptance", FAIL, f"{renderer_name} 验收失败：{export_err}")
 
 
 # 页脚行识别：整行匹配才认，避免把正文里的数字（如「2026 年 9 月」）当页码。
@@ -1044,10 +1064,17 @@ def generate_evidence_package(
     tmp_dir = tempfile.mkdtemp(prefix="texere_validate_")
     pdf_path = os.path.join(tmp_dir, "verify.pdf")
     rndr = renderer or get_renderer("word")
-    renderer_name = type(rndr).__name__
     try:
-        export_ok, export_err = export_pdf_once(docx_path, pdf_path, renderer=rndr)
+        export_ok, export_err, render_res = export_pdf_once(docx_path, pdf_path, renderer=rndr)
+        renderer_name = render_res.renderer_name
         shared_pdf = pdf_path if export_ok else None
+        # renderer 身份进 evidence：别人看到 PASS/FAIL 也能知道是 Word / WPS / LO 出的，
+        # 否则 evidence 缺 provenance（评审：Build Manifest / Evidence）。
+        report["metadata"]["renderer"] = {
+            "name": render_res.renderer_name,
+            "version": render_res.renderer_version,
+            "engine_path": render_res.engine_path,
+        }
 
         # 3. 执行所有检查
         md_ref_text = None
@@ -1066,7 +1093,11 @@ def generate_evidence_package(
             ("toc_field", check_toc_field, (docx_path,)),
             ("page_numbering", check_page_numbering, (shared_pdf,)),
             ("blank_pages", check_blank_pages, (shared_pdf, max_empty)),
-            ("word_acceptance", check_word_acceptance, (export_ok, export_err, renderer_name)),
+            (
+                "renderer_acceptance",
+                check_renderer_acceptance,
+                (export_ok, export_err, renderer_name),
+            ),
             (
                 "visual_drift",
                 check_visual_drift,

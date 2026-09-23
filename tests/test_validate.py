@@ -229,7 +229,7 @@ class TestWordAcceptance:
             text=True,
         )
 
-        assert "word_acceptance" in result.stdout
+        assert "renderer_acceptance" in result.stdout
         assert "PASS" in result.stdout
 
 
@@ -556,7 +556,7 @@ class TestReportStructure:
             "toc_field",
             "page_numbering",
             "blank_pages",
-            "word_acceptance",
+            "renderer_acceptance",
             "visual_drift",
         ]
 

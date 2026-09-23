@@ -2,7 +2,7 @@
 
 # texere —— 从 Markdown 生成可验收的中文 Word 文档
 
-Markdown + Word 模板 → DOCX → 真 Word → PDF → 版式回归 → 证据。
+Markdown + Word 模板 → DOCX → 渲染器(Word/WPS/LibreOffice) → PDF → 版式回归 → 证据。
 
 ```text
 Markdown  +  ref.docx / profile.json        设计契约
@@ -11,14 +11,14 @@ Markdown  +  ref.docx / profile.json        设计契约
      texere                                 pandoc → 确定性 OOXML 后处理
         │
         ▼
-     DOCX ──► Microsoft Word (COM) ──► PDF
+     DOCX ──► 渲染器 (Word / WPS / LibreOffice) ──► PDF
         │
         ▼
    9 项检查 · 逐页版式回归 · 证据包
 ```
 
-生成中文标书、正式报告、申报书等正式文档，**不只相信 DOCX 结构本身**——产物要在真 Word 里打开、
-导出 PDF，并与版式基线逐页比对。
+生成中文标书、正式报告、申报书等正式文档，**不只相信 DOCX 结构本身**——产物要在所选渲染器
+（真 Word / WPS / LibreOffice）里打开、导出 PDF，并与版式基线逐页比对。
 
 ### 看看产物
 
@@ -49,8 +49,9 @@ Markdown  +  ref.docx / profile.json        设计契约
 | 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 | 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 |
 | ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
 
-> **运行平台**：Windows + 本机 Microsoft Word。docx 之后的每一步——Word 验收、PDF 导出、9 项验证器——
-> 都走 Word COM。Linux / macOS 只有 docx 那一半能跑（见[已知边界](#已知边界)）。
+> **运行平台**：DOCX 生成本身跨平台。PDF / 渲染器验收需要一个渲染器——
+> **Word**（Windows + 本机 Microsoft Word）、**LibreOffice**（soffice，任意系统）、**WPS**（Windows + WPS Office）。
+> 用 `--renderer word|libreoffice|wps` 选（默认 word）。本机没装任何渲染器时，只有 docx 那一半能跑（见[已知边界](#已知边界)）。
 
 **目录** · [快速开始](#快速开始) · [看看产物](#看看产物) · [工作流](#用法) ·
 [验证与证据包](#验证与证据包) · [编辑已有 docx](#编辑已有-docx) · [文档](#文档地图)
@@ -86,18 +87,18 @@ python scripts/render.py --src examples/tender --out 标书.docx `
     --config examples/tender/config.json --pdf --check
 ```
 
-第三条命令渲染一份真实投标文件、在 Word 里验收、导出 PDF 并检查产物——**不用先配任何东西**。
+第三条命令渲染一份真实投标文件、在所选渲染器（默认 Word）里验收、导出 PDF 并检查产物——**不用先配任何东西**。
 只有 `--doctor` 报错时才需要往下看。
 
-**如果 `--doctor` 报错**——`pandoc` 必需；`--pdf` 与验证器需要本机 Word：
+**如果 `--doctor` 报错**——`pandoc` 必需；`--pdf` 与验证器需要本机渲染器（默认 Word；可 `--renderer` 选 LibreOffice / WPS）：
 
 | 依赖 | 用途 | 安装 |
 |---|---|---|
 | pandoc >= 3.1 | **必需**，md → docx | `winget install --id JohnMacFarlane.Pandoc` |
 | python-docx、lxml | **必需**，docx 读写与 OOXML 处理 | 见下 |
-| pywin32 | 仅 `--pdf`（Word 验收 + 导 PDF） | 见下 |
+| pywin32 | 仅 `--pdf` 的 Word / WPS 渲染器（COM）；选 LibreOffice 则不需要 | 见下 |
 | PyMuPDF | 仅 `--check`（PDF 目视验收） | 见下 |
-| Microsoft Word | 仅 `--pdf` | 系统级，pip / uv 都装不了 |
+| Microsoft Word / WPS / LibreOffice | 仅 `--pdf`（三选一，用 `--renderer` 指定） | 系统级，pip / uv 都装不了（LO 走系统包管理器） |
 
 ```powershell
 winget install --id JohnMacFarlane.Pandoc
@@ -109,13 +110,13 @@ pip install -r requirements.txt      # 纯 pip；版本由 uv.lock 导出锁死
 > 而且工具要靠相对路径（从各脚本自身位置出发）找到 `assets/ref.docx` / `scripts/` / `assets/sample.md`）。
 > 把文件夹放好，**直接跑脚本**即可。
 
-`--doctor` 会**实测 Word 引擎身份**（走 COM 直接问）。不读注册表——注册表里的 `CurVer`
+`--doctor` 会**实测三种渲染器的可用性**（默认 Word 走 COM；LibreOffice 查 soffice；WPS 查 KWPS）。不读注册表——注册表里的 `CurVer`
 可能是旧 Office 卸载后的残留值，会误报。
 贡献者工具（ruff、pre-commit、测试套件）见[开发](#开发)。
 
 ## 规模实测
 
-在 Windows + Microsoft Word 上实测，含 Word 验收与导 PDF：
+在 Windows + Microsoft Word 渲染器上实测，含 Word 验收与导 PDF：
 
 69 页 / 63 表 / 28 图 → **19.0 秒** 端到端
 
@@ -130,7 +131,7 @@ Pandoc 生成 DOCX，texere 在此之外还做五件事：
 
 1. 把 Word 模板当作版式契约（`ref.docx` / `profile.json`）；
 2. 做确定性的 OOXML 后处理——封面、目录域、分节页码、表格样式；
-3. 在**真 Microsoft Word** 里打开产物并导出 PDF——「能被解析」不等于「能被接受」；
+3. 在**所选渲染器（真 Word / WPS / LibreOffice）**里打开产物并导出 PDF——「能被解析」不等于「能被接受」；
 4. 检查渲染后的产物——页码连续性、空白页、逐页版式回归；
 5. 为结果产出证据：`report.json` + 截图 + 校验清单。
 
@@ -142,7 +143,7 @@ Pandoc 生成 DOCX，texere 在此之外还做五件事：
 |---|---|
 | 页面设置与页边距 | 来自 Markdown 的内容 |
 | 正文 / 标题 / 表格 / 题注样式 | 确定性后处理 |
-| 页眉（有条件）、表格框线 | Word 验收 + PDF 导出 |
+| 页眉（有条件）、表格框线 | 渲染器验收 + PDF 导出 |
 
 封面与分节结构**不继承**——那两部分由 texere 自己生成。完整继承矩阵见
 [复用已有模板](#复用已有模板)。
@@ -176,7 +177,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # 模板 �
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # 重建排版模板
 python scripts/snapshot.py 标书.pdf --update                     # 录版式基线（确认版式无误后）
 python scripts/snapshot.py 标书.pdf                              # 回归比对，漂移即 exit 1
-python -m pytest -q                                              # 258 项断言，约 7 分钟（实测 7 分 6 秒，需本机 Word）
+python -m pytest -q                                              # 259 项断言，约 7 分钟（实测 7 分 6 秒，需本机渲染器，默认 Word）
 ```
 
 可运行示例——每个目录自带 Markdown + config，一条命令跑通（见 [examples/README.md](examples/README.md)）：
@@ -323,7 +324,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 - **grid table 对空格敏感**：每行竖线必须严格对齐，否则会解析错乱（实测过末尾多出一个 `|`）。
   注意 pandoc 按**显示宽度**对齐——中文占 2 列，「等宽编辑器里看着齐」仍可能解析成单列坏表；
   改完务必渲染验证，或用脚本按显示宽度对齐；
-- **Windows + Word 绑定**：见顶部「运行平台」。解析与排版逻辑不依赖 Word，PDF 导出和一半验收链条依赖；
+- **渲染器绑定，而非 Word 绑定**：见顶部「运行平台」。解析与排版逻辑不依赖任何 Office，PDF 导出和一半验收链条走你选的渲染器（`--renderer word|libreoffice|wps`）。`LibreOffice` 是便携选项，`Word`/`WPS` 是中文 Office 保真选项；
 - `--check` 会把「内容稀疏但合法的页面」也算作近空白页：表单尾页的签字盖章区、
   大表格前的单独标题页等。这类是误报，用 `--max-empty N` 放宽；
 - 快照基线依赖本机 Word 版本与字体，**换机器后先 `snapshot.py --update` 重录**，
@@ -335,7 +336,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 ```bash
 pip install ruff pre-commit && pre-commit install      # ruff 一个工具顶 flake8 + black + isort
 pre-commit run --all-files                             # lint + 格式 + 不启 Word 的测试子集
-python -m pytest -q                                    # 全量：258 项断言，约 7 分钟（实测 7 分 6 秒）
+python -m pytest -q                                    # 全量：259 项断言，约 7 分钟（实测 7 分 6 秒）
 ```
 
 > **没有托管 CI。** 验收类用例要通过 COM 驱动一台真 Microsoft Word，托管 runner 给不了——
@@ -382,7 +383,7 @@ python -m pytest -q                                    # 全量：258 项断言�
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `SCRIPT_HELP.md`（CLI）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——各有 `.zh-CN` 镜像 |
 | `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 258 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
+| `tests/` | 259 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 许可

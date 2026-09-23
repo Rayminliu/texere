@@ -2,7 +2,7 @@ English | [简体中文](README.zh-CN.md)
 
 # texere — verified Chinese Word documents, from Markdown
 
-Markdown + a Word template → DOCX → real Microsoft Word → PDF → visual regression → evidence.
+Markdown + a Word template → DOCX → a renderer (Word / WPS / LibreOffice) → PDF → visual regression → evidence.
 
 ```text
 Markdown  +  ref.docx / profile.json        the design contract
@@ -11,14 +11,14 @@ Markdown  +  ref.docx / profile.json        the design contract
      texere                                 pandoc → deterministic OOXML post-processing
         │
         ▼
-     DOCX ──► Microsoft Word (COM) ──► PDF
+     DOCX ──► renderer (Word / WPS / LibreOffice) ──► PDF
         │
         ▼
    9 checks · per-page visual regression · evidence package
 ```
 
 Generate Chinese tenders, official reports, grant applications and other formal documents **without trusting
-DOCX structure alone** — the result is opened in real Word, exported to PDF, and compared page by page
+DOCX structure alone** — the result is opened in the chosen renderer (real Word by default), exported to PDF, and compared page by page
 against a layout baseline.
 
 ### See the result
@@ -52,9 +52,10 @@ ships its Markdown + config and runs with one command; regenerate these with
 | Contract (`contract/`) — clause sections, in-cell line breaks, signature block | Table styling (`tables/`) — multi-level headers, merged cells, column widths |
 | ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
 
-> **Platform**: Windows + a local Microsoft Word install. Everything past the docx — Word acceptance, PDF export,
-> the 9-check validator — runs through Word COM. On Linux/macOS only the docx half works (see
-> [Known limitations](#known-limitations)).
+> **Platform**: DOCX generation is cross-platform. PDF / renderer acceptance needs a renderer —
+> **Word** (Windows + Microsoft Word), **LibreOffice** (soffice, any OS), or **WPS** (Windows + WPS Office).
+> Pick one with `--renderer word|libreoffice|wps` (default `word`). On a machine with no renderer installed,
+> only the docx half runs (see [Known limitations](#known-limitations)).
 
 **Contents** · [Quick start](#quick-start) · [Examples](#see-the-result) ·
 [Workflows](#usage) · [Validation](#validation-and-evidence-package) ·
@@ -95,18 +96,18 @@ python scripts/render.py --src examples/tender --out bid.docx `
     --config examples/tender/config.json --pdf --check
 ```
 
-That third command renders a real tender document, accepts it in Word, exports the PDF and checks the
+That third command renders a real tender document, accepts it in the chosen renderer (Word by default), exports the PDF and checks the
 result — nothing to configure first. Read on only if `--doctor` complains.
 
-**If `--doctor` complains** — `pandoc` is required; `--pdf` and the validator need a local Word:
+**If `--doctor` complains** — `pandoc` is required; `--pdf` and the validator need a renderer (default Word; pick LibreOffice/WPS with `--renderer`):
 
 | Dependency | Purpose | Install |
 |---|---|---|
 | pandoc >= 3.1 | **Required**, md → docx | `winget install --id JohnMacFarlane.Pandoc` |
 | python-docx, lxml | **Required**, docx I/O and OOXML handling | see below |
-| pywin32 | `--pdf` only (Word acceptance + PDF export) | see below |
+| pywin32 | `--pdf` only (Word / WPS acceptance + PDF export; not needed for LibreOffice) | see below |
 | PyMuPDF | `--check` only (PDF visual acceptance) | see below |
-| Microsoft Word | `--pdf` only | system-level; neither pip nor uv can install it |
+| Microsoft Word / WPS / LibreOffice | `--pdf` only (pick one via `--renderer`) | system-level; neither pip nor uv can install Word/WPS; LibreOffice via package manager |
 
 ```powershell
 winget install --id JohnMacFarlane.Pandoc
@@ -119,13 +120,13 @@ pip install -r requirements.txt      # plain pip; versions are exported from uv.
 > relative path from each script's own location).
 > Put the folder anywhere and run the scripts in place.
 
-`--doctor` **identifies the Word engine by actually launching it via COM**. It does not read the registry:
+`--doctor` **probes the renderers you can use**: it launches the default Word via COM and checks for `soffice` (LibreOffice) / `KWPS` (WPS) on PATH. It does not read the registry:
 a stale `CurVer` key left over from an uninstalled Office can make that report lie.
 Contributor tooling (ruff, pre-commit, the test suite) is in [Development](#development).
 
 ## Measured throughput
 
-On Windows + Microsoft Word, with Word acceptance and PDF export included:
+On Windows with a Microsoft Word renderer, with Word acceptance and PDF export included:
 
 69 pages / 63 tables / 28 images → **19.0 s** end-to-end
 
@@ -188,7 +189,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 258 assertions, ~7 min (measured 7m6s, needs local Word)
+python -m pytest -q                                              # 259 assertions, ~7 min (measured 7m6s, needs a renderer — defaults to Word)
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -350,8 +351,10 @@ Follow these when editing the template or hand-writing content:
   (we have hit a stray trailing `|`). Note that pandoc aligns columns by **display width** — a CJK
   character counts as two columns, so "looks aligned in a monospace editor" can still produce a broken
   (single-column) table. Verify by rendering, or align programmatically.
-- **Windows + Word bound**: see the Platform note at the top. Parsing and typesetting don't need Word;
-  the PDF export and half of the acceptance chain do.
+- **Renderer-bound, not Word-bound**: see the Platform note at the top. Parsing and typesetting don't need
+  any Office; the PDF export and half of the acceptance chain run through whichever renderer you pick
+  (`--renderer word|libreoffice|wps`). `LibreOffice` is the portable option; `Word`/`WPS` are the
+  Chinese-Office fidelity options.
 - `--check` also flags pages that are legitimately sparse: the signature block at the end of a form, a
   heading alone before a large table. Those are false positives — relax with `--max-empty N`.
 - Snapshot baselines depend on the local Word version and fonts. **After switching machines, re-record with
@@ -364,7 +367,7 @@ Follow these when editing the template or hand-writing content:
 ```bash
 pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + black + isort
 pre-commit run --all-files                             # lint + format + a Word-free test subset
-python -m pytest -q                                    # full suite: 258 assertions, ~7 min (measured 7m6s)
+python -m pytest -q                                    # full suite: 259 assertions, ~7 min (measured 7m6s)
 ```
 
 > **There is no hosted CI.** The acceptance tests drive a real Microsoft Word over COM, which no hosted
@@ -412,7 +415,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` (CLI), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — each with a `.zh-CN` mirror |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 258 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
+| `tests/` | 259 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## License

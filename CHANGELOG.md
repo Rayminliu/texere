@@ -24,6 +24,20 @@ source / image / profile / metadata / evidence）不再依赖任何 Office：
   shell finalize 或起 Word）/ LibreOffice·WPS 可用性 skip 测试；renderer-agnostic 护栏守住
   「换渲染器不改结论」
 
+### Renderer 身份进入 evidence + 文档漂移修正（架构已脱离 Word，但产品层 fidelity 未证）
+
+评审校准后的边界：架构上 `Core` 已不依赖任何 Office，`RendererAdapter` 把 docx→PDF 抽成
+可插拔（Word / LibreOffice / WPS），`page_numbering` / `blank_pages` / `visual_drift` 只消费 PDF、
+与具体 renderer 无关（契约测试用 `FakeRenderer` 守住）。但**产品层尚未证明 WPS / LO 的中文正式文档
+fidelity**，因此：
+
+- **renderer 身份进 evidence**：`validate.export_pdf_once` 现在返回 `RenderResult`，`report["metadata"]["renderer"]`
+  记录 `{name, version, engine_path}`——别人看到 PASS/FAIL 也知道是 Word / WPS / LO 出的，provenance 不再靠猜
+- **`word_acceptance` → `renderer_acceptance`**：检查名随渲染器走，不再写死 Word（否则 `--renderer wps` 时名称仍在撒谎）
+- **文档漂移修正**：两份 README 的「运行平台 / 架构图 / Quick Start / 依赖表」从「需要本机 Word」改为
+  「需要渲染器（三选一，默认 word）」；`--doctor` 现列三种渲染器可用性
+- **暂不新增渲染器、不声称「支持 WPS 验收」**：只声称「架构支持 WPS / LO renderer」，真机 corpus 验证留到真机阶段
+
 ### Profile enforcement 作为可选 policy layer（opt-in，非 core acceptance）
 
 外部 review 校准了定位：`profile` 不该成为核心验收的前提——Texere 的核心验收本来就是

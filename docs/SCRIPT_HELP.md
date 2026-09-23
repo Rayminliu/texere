@@ -115,7 +115,7 @@ python scripts/validate.py bid.docx --quiet
 5. ✅ TOC field - OOXML 里是否存在真实 `TOC` 域；文档本就没有目录 → SKIP
 6. ✅ Page numbering - 页码连续性；识别不出页脚页码格式 → SKIP
 7. ✅ Blank pages - 空白页数量
-8. ✅ Word acceptance - Word 真机验收
+8. ✅ Renderer acceptance - 渲染器真机验收（随 --renderer：Word / WPS / LibreOffice）
 9. ✅ Visual drift - 与基线逐页比对（默认全量；`--sample-visual` 才抽样）；
 
 ### Profile 作为可执行契约（`--enforce-profile`）
