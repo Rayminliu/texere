@@ -4,6 +4,8 @@ English | [简体中文](README.zh-CN.md)
 
 Markdown + a Word template → DOCX → a renderer (Word / WPS / LibreOffice) → PDF → visual regression → evidence.
 
+> **Status: Maintenance mode.** Core architecture and validation workflow are considered stable. Future changes are primarily bug fixes, compatibility fixes, and documentation updates.
+
 ```text
 Markdown  +  ref.docx / profile.json        the design contract
         │
@@ -68,7 +70,7 @@ ships its Markdown + config and runs with one command; regenerate these with
 - Markdown → docx / PDF, with cover page, TOC field, per-section page numbers and headers
 - Table typesetting — borders, header rows, repeating headers, zebra stripes
 - Caption conventions for tables and figures
-- One-command pre-delivery acceptance: does Word open it, are there blank pages, did the layout drift
+- One-command pre-delivery acceptance: does the selected renderer open it, are there blank pages, did the layout drift
 - **Targeted edits to an existing docx** — text, paragraphs, table cells, headers/footers — without
   re-typesetting the rest
 
@@ -237,7 +239,7 @@ python scripts/validate.py bid.docx --out evidence/
 ```
 
 Produces `report.json`, sampled page screenshots and a checksum manifest. Nine checks run against a
-**single** shared Word export. Every check reports `PASS` / `FAIL` / `SKIP` / `ERROR`: `SKIP` means a
+**single** shared export from the selected renderer. Every check reports `PASS` / `FAIL` / `SKIP` / `ERROR`: `SKIP` means a
 precondition was missing so the check never ran, and it is **not** counted as passed — only `FAIL` and
 `ERROR` set exit code 1. Check-by-check table, the manual gate and caveats:
 [`docs/VALIDATION.md`](docs/VALIDATION.md).
@@ -324,7 +326,7 @@ they are what `render.py --sample` and every example uses — and open the refer
 2. **Contract, not guesswork** — The profile declares fonts, spacing, borders, headers, footers, captions.
    Agents can read it; humans can audit it. No hidden assumptions.
 3. **Evidence, not hope** — One command validates everything: package integrity, image embedding, TOC fields,
-   page numbering, blank pages, Word acceptance, visual drift. Output: `report.json` + screenshots + a checksum
+   page numbering, blank pages, renderer acceptance, visual drift. Output: `report.json` + screenshots + a checksum
    manifest (see [Evidence](#validation-and-evidence-package)).
 
 ## Design principles
