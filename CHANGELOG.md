@@ -4,6 +4,23 @@
 `ref.docx` 模板一旦改动会体现在次版本号上，因为输出版式可能随之变化
 （可用 `snapshot.py` 回归）。
 
+## 状态：维护模式（0.6.4 起）
+
+0.6.4 是最后一轮大规模架构更新。核心模型已收敛为：
+
+    Template = 设计源  ·  Baseline = 观测真相  ·  Validator = 产物不变量
+    Profile  = 显式策略  ·  Renderer  = 可插拔后端  ·  Evidence  = 事实记录
+
+此后进入 maintenance mode，更新从 roadmap 驱动改为**问题驱动**：
+
+- **功能开发：停止**（不再排 0.7 / 0.8 … 的功能路线图）
+- **Bug 修复：开启**（DOCX / PDF / OOXML 边界情况）
+- **兼容性维护：开启**（新版本 Word / WPS / LibreOffice / Python / python-docx 导致的行为变化）
+- **依赖 / 安全：开启**（依赖库出现安全问题或不兼容）
+- **新功能：仅在确有未覆盖、且值得进入核心的真实需求时**
+
+目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
+
 ## 0.6.4 — 未发布
 
 ### Renderer 抽象收尾：validate 直连渲染器 + LibreOffice/WPS 渲染器 + CLI 选择
