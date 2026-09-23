@@ -145,7 +145,7 @@ def test_export_pdf_once_timeout_is_structured(tmp_path):
     docx = tmp_path / "in.docx"
     docx.write_bytes(b"x")
     pdf = tmp_path / "out.pdf"
-    ok, err = v.export_pdf_once(str(docx), str(pdf), timeout=1, renderer=_HangingRenderer())
+    ok, err, _ = v.export_pdf_once(str(docx), str(pdf), timeout=1, renderer=_HangingRenderer())
     assert ok is False
     assert "超时" in err
     assert not (os.path.exists(pdf) and os.path.getsize(pdf) == 0)
@@ -175,7 +175,7 @@ def test_export_pdf_once_concurrent_no_pollution(tmp_path):
     for t in threads:
         t.join(timeout=30)
     for i in range(n):
-        ok, err = results[i]
+        ok, err, _ = results[i]
         assert ok, err
         assert open(pdfs[i], "rb").read() == open(srcs[i], "rb").read()
 
