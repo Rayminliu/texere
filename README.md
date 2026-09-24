@@ -6,17 +6,33 @@ Markdown + a Word template → DOCX → a renderer (Word / WPS / LibreOffice) �
 
 > **Status: Maintenance mode.** Core architecture and validation workflow are considered stable. Future changes are primarily bug fixes, compatibility fixes, and documentation updates.
 
-```text
-Markdown  +  ref.docx / profile.json        the design contract
-        │
-        ▼
-     texere                                 pandoc → deterministic OOXML post-processing
-        │
-        ▼
-     DOCX ──► renderer (Word / WPS / LibreOffice) ──► PDF
-        │
-        ▼
-   9 checks · per-page visual regression · evidence package
+```mermaid
+flowchart LR
+    subgraph IN["Author / source"]
+        md["Markdown spec<br/>+ ref.docx / profile.json"]
+    end
+    subgraph CORE["Texere core"]
+        merge["Merge + TOC"]
+        pandoc["Pandoc<br/>--reference-doc + --lua-filter"]
+        post["post.py<br/>OOXML real fields · page numbers · blank-page guards"]
+        docx["DOCX"]
+    end
+    subgraph REND["Renderer"]
+        renderer["Renderer → PDF<br/>Word / WPS / LibreOffice · --renderer"]
+    end
+    subgraph VERIFY["Acceptance & evidence"]
+        validate["validate.py<br/>9 checks · four states"]
+        evidence["Evidence<br/>report.json + screenshots + baseline"]
+    end
+    md --> merge --> pandoc --> post --> docx --> renderer --> validate --> evidence
+    classDef inStyle fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+    classDef coreStyle fill:#eff6ff,stroke:#3b82f6,color:#0c2a5e;
+    classDef rendStyle fill:#f0fdf4,stroke:#22c55e,color:#0f3d1e;
+    classDef verifyStyle fill:#fef2f2,stroke:#ef4444,color:#5b1010;
+    class md inStyle;
+    class merge,pandoc,post,docx coreStyle;
+    class renderer rendStyle;
+    class validate,evidence verifyStyle;
 ```
 
 Write Chinese tenders, reports and grant applications in Markdown and hand the most time-consuming part —

@@ -6,17 +6,33 @@ Markdown + Word 模板 → DOCX → 渲染器(Word/WPS/LibreOffice) → PDF → 
 
 > **项目状态：维护模式。** 核心架构与验收流程已稳定；后续主要处理缺陷、兼容性问题和文档修正。
 
-```text
-Markdown  +  ref.docx / profile.json        设计契约
-        │
-        ▼
-     texere                                 pandoc → 确定性 OOXML 后处理
-        │
-        ▼
-     DOCX ──► 渲染器 (Word / WPS / LibreOffice) ──► PDF
-        │
-        ▼
-   9 项检查 · 逐页版式回归 · 证据包
+```mermaid
+flowchart LR
+    subgraph IN["作者 / 内容源"]
+        md["Markdown 规格<br/>+ ref.docx / profile.json"]
+    end
+    subgraph CORE["Texere 核心"]
+        merge["Merge + TOC"]
+        pandoc["Pandoc<br/>--reference-doc + --lua-filter"]
+        post["post.py<br/>OOXML 真实字段 · 页码 · 空白页"]
+        docx["DOCX"]
+    end
+    subgraph REND["渲染器"]
+        renderer["Renderer → PDF<br/>Word / WPS / LibreOffice · --renderer"]
+    end
+    subgraph VERIFY["验收与证据"]
+        validate["validate.py<br/>9 项检查 · 四态"]
+        evidence["Evidence<br/>report.json + 截图 + baseline"]
+    end
+    md --> merge --> pandoc --> post --> docx --> renderer --> validate --> evidence
+    classDef inStyle fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+    classDef coreStyle fill:#eff6ff,stroke:#3b82f6,color:#0c2a5e;
+    classDef rendStyle fill:#f0fdf4,stroke:#22c55e,color:#0f3d1e;
+    classDef verifyStyle fill:#fef2f2,stroke:#ef4444,color:#5b1010;
+    class md inStyle;
+    class merge,pandoc,post,docx coreStyle;
+    class renderer rendStyle;
+    class validate,evidence verifyStyle;
 ```
 
 用 Markdown 写中文标书、报告、申报书，把最花时间的排版与验收交给一条命令——产物在所选渲染器
