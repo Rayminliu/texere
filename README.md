@@ -19,9 +19,13 @@ Markdown  +  ref.docx / profile.json        the design contract
    9 checks · per-page visual regression · evidence package
 ```
 
-Generate Chinese tenders, official reports, grant applications and other formal documents **without trusting
-DOCX structure alone** — the result is opened in the chosen renderer (real Word by default), exported to PDF, and compared page by page
-against a layout baseline.
+Write Chinese tenders, reports and grant applications in Markdown and hand the most time-consuming part —
+typesetting and acceptance — to one command: the result is opened in the chosen renderer (real Word by default),
+exported to PDF, and compared page by page against a layout baseline. Don't trust "it read back fine"; trust a real render.
+
+**Contents** · [Quick start](#quick-start) · [Examples](#see-the-result) ·
+[Workflows](#usage) · [Validation](#validation-and-evidence-package) ·
+[Editing](#editing-an-existing-docx) · [Docs](#documentation-map)
 
 ### See the result
 
@@ -59,11 +63,7 @@ ships its Markdown + config and runs with one command; regenerate these with
 > Pick one with `--renderer word|libreoffice|wps` (default `word`). On a machine with no renderer installed,
 > only the docx half runs (see [Known limitations](#known-limitations)).
 
-**Contents** · [Quick start](#quick-start) · [Examples](#see-the-result) ·
-[Workflows](#usage) · [Validation](#validation-and-evidence-package) ·
-[Editing](#editing-an-existing-docx) · [Docs](#documentation-map)
-
-## What it does and doesn't do
+## 🔧 What it does and doesn't do
 
 **Does**
 
@@ -89,7 +89,9 @@ are in [Known limitations](#known-limitations).
 > Markdown → docx converter — that is what pandoc is. Enabling the `caption_words` option lets you
 > work with non-Chinese caption keywords, but the typographic defaults stay Chinese.
 
-## Quick start
+## 🚀 Quick start
+
+> **This repository is a collection of scripts, not a pip-installable package** — drop the folder anywhere and run the scripts in place (`pip install .` fails: no build backend, and the tool resolves `assets/ref.docx` / `scripts/` by relative path from each script).
 
 ```powershell
 python scripts/render.py --doctor     # is my environment ready?
@@ -100,6 +102,8 @@ python scripts/render.py --src examples/tender --out bid.docx `
 
 That third command renders a real tender document, accepts it in the chosen renderer (Word by default), exports the PDF and checks the
 result — nothing to configure first. Read on only if `--doctor` complains.
+
+No renderer installed? Run `python scripts/render.py --sample` (without `--pdf`) to get a docx you can open anywhere; do the rendering and acceptance once Word / WPS / LibreOffice is available.
 
 **If `--doctor` complains** — `pandoc` is required; `--pdf` and the validator need a renderer (default Word; pick LibreOffice/WPS with `--renderer`):
 
@@ -117,16 +121,11 @@ pip install -r requirements.txt      # plain pip; versions are exported from uv.
                                      # (uv users: `uv sync --all-extras`)
 ```
 
-> **This repository is a collection of scripts, not a pip-installable package** — `pip install .` fails
-> (there is no build backend, and the tool resolves `assets/ref.docx` / `scripts/` / `assets/sample.md` by
-> relative path from each script's own location).
-> Put the folder anywhere and run the scripts in place.
-
 `--doctor` **probes the renderers you can use**: it launches the default Word via COM and checks for `soffice` (LibreOffice) / `KWPS` (WPS) on PATH. It does not read the registry:
 a stale `CurVer` key left over from an uninstalled Office can make that report lie.
 Contributor tooling (ruff, pre-commit, the test suite) is in [Development](#development).
 
-## Measured throughput
+## 📊 Measured throughput
 
 On Windows with a Microsoft Word renderer, with renderer acceptance and PDF export included:
 
@@ -138,7 +137,7 @@ Both runs produced a 2.9 MB docx and matched item by item (page count, word coun
 sampled page pixels), with no orphaned Word processes. Reproducible examples and benchmark details
 → [`examples/`](examples/README.md).
 
-## Why not pandoc alone?
+## 💡 Why not pandoc alone?
 
 Pandoc generates DOCX. texere additionally:
 
@@ -148,7 +147,7 @@ Pandoc generates DOCX. texere additionally:
 4. checks the rendered artifact — page numbering, blank pages, per-page visual regression;
 5. produces evidence for the result: `report.json` + screenshots + a checksum manifest.
 
-## Have an existing Word template? Keep it.
+## 📄 Have an existing Word template? Keep it.
 
 Point `reference_doc` at the client-supplied `.docx` and their design stays in charge:
 
@@ -161,7 +160,7 @@ Point `reference_doc` at the client-supplied `.docx` and their design stays in c
 Covers and section structure are **not** inherited — texere builds those itself. Full inheritance matrix:
 [Reusing an existing template](#reusing-an-existing-template).
 
-## Usage
+## 🛠️ Usage
 
 The five flows you'll actually run; every flag for every script lives in
 [`docs/SCRIPT_HELP.md`](docs/SCRIPT_HELP.md).
@@ -232,7 +231,7 @@ That guarantee is enforced by `tests/test_postprocess.py::test_never_touches_tex
 output character comes from the source. Full contract, the `content_fixes` mechanism and the removed
 auto-numbering feature → [`SKILL.md`](SKILL.md).
 
-## Validation and evidence package
+## ✅ Validation and evidence package
 
 ```bash
 python scripts/validate.py bid.docx --out evidence/
@@ -244,7 +243,7 @@ precondition was missing so the check never ran, and it is **not** counted as pa
 `ERROR` set exit code 1. Check-by-check table, the manual gate and caveats:
 [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
-## Editing an existing docx
+## ✂️ Editing an existing docx
 
 A **separate chain** from rendering, with the opposite contract: **change only what is asked; leave every
 other byte alone** — never inject a cover, TOC, page numbers or re-typeset styles.
@@ -258,7 +257,7 @@ python scripts/patch.py bid.docx patch.json --dry-run --apply   # declarative Pa
 
 Operations, the Patch schema and re-typesetting: [`docs/EDITING.md`](docs/EDITING.md).
 
-## Reusing an existing template
+## ♻️ Reusing an existing template
 
 Point `reference_doc` at any docx — a client-mandated bid template, or one of your own — and **more is
 inherited than the previous README claimed**. Measured with a template carrying 3 cm margins, 楷体 14pt
@@ -297,7 +296,7 @@ page-number format and table styling cannot be inferred — they are listed as i
 > **Distillation, not conversion.** The script does not try to "understand" a template. It splits the
 > template into config fields and lets you decide — the same division of labour as the rest of the tool.
 
-## Configuration and tables
+## ⚙️ Configuration and tables
 
 Reference material lives in the docs, so this manual can stay a product page. Start with the defaults —
 they are what `render.py --sample` and every example uses — and open the reference when you need a key:
@@ -307,7 +306,7 @@ they are what `render.py --sample` and every example uses — and open the refer
 | Every `config.json` field, every `style` key | [`docs/CONFIG.md`](docs/CONFIG.md) |
 | Table syntax, grid tables, visual control | [`docs/TABLES.md`](docs/TABLES.md) |
 
-## Tender/bid notes
+## 📑 Tender/bid notes
 
 1. **When the client mandates a template, theirs wins** — see
    [Reusing an existing template](#reusing-an-existing-template) for what gets inherited. What that section
@@ -319,7 +318,7 @@ they are what `render.py --sample` and every example uses — and open the refer
 3. Before delivery, run `--pdf --check` and look through the page images: Word opens it, no blank pages,
    header rows shaded, captions centred. Only then package it.
 
-## Three pillars
+## 🏛️ Three pillars
 
 1. **Compiler, not converter** — Markdown → Semantic IR → Layout Spec → DOCX. Every visual rule is explicit
    in a design contract (`ref.docx` + `profile.json`), not magic.
@@ -329,7 +328,7 @@ they are what `render.py --sample` and every example uses — and open the refer
    page numbering, blank pages, renderer acceptance, visual drift. Output: `report.json` + screenshots + a checksum
    manifest (see [Evidence](#validation-and-evidence-package)).
 
-## Design principles
+## 🎨 Design principles
 
 Follow these when editing the template or hand-writing content:
 
@@ -340,7 +339,7 @@ Follow these when editing the template or hand-writing content:
 5. CJK/Latin mixing: 宋体 for Chinese, Times New Roman for digits and Latin.
 6. Before delivery: open in real Word and look at the rendered pages. Never trust "it read back fine".
 
-## Known limitations
+## ⚠️ Known limitations
 
 - The TOC is a Word field; if it is not refreshed on first open, select all and press F9 (the document sets
   `updateFields`, so it usually refreshes itself).
@@ -364,7 +363,7 @@ Follow these when editing the template or hand-writing content:
   same document twice gives 0.00 %, changing one header line gives 0.16 %).
 - Quarto is not used: its 1.10.x docx output drops table bodies when captions are auto-numbered.
 
-## Development
+## 🧪 Development
 
 ```bash
 pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + black + isort
@@ -375,7 +374,7 @@ python -m pytest -q                                    # full suite: 268 asserti
 > **There is no hosted CI.** The acceptance tests drive a real Microsoft Word over COM, which no hosted
 > runner provides — pre-commit covers the Word-free subset locally; run the full suite before pushing.
 
-## Documentation map
+## 🗺️ Documentation map
 
 Every piece of information lives in exactly **one** place; the other files link instead of duplicating
 (the parts that can be machine-checked are enforced by `tests/test_docs_sync.py`):
@@ -420,6 +419,6 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `tests/` | 268 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
-## License
+## 📜 License
 
 MIT — see [LICENSE](LICENSE).

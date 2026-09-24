@@ -19,8 +19,11 @@ Markdown  +  ref.docx / profile.json        设计契约
    9 项检查 · 逐页版式回归 · 证据包
 ```
 
-生成中文标书、正式报告、申报书等正式文档，**不只相信 DOCX 结构本身**——产物要在所选渲染器
-（真 Word / WPS / LibreOffice）里打开、导出 PDF，并与版式基线逐页比对。
+用 Markdown 写中文标书、报告、申报书，把最花时间的排版与验收交给一条命令——产物在所选渲染器
+（真 Word / WPS / LibreOffice）里打开、导出 PDF，并与版式基线逐页比对；不信“读回正常”，只看真渲染。
+
+**目录** · [快速开始](#快速开始) · [看看产物](#看看产物) · [用法](#用法) ·
+[验证与证据包](#验证与证据包) · [编辑已有 docx](#编辑已有-docx) · [文档地图](#文档地图)
 
 ### 看看产物
 
@@ -55,10 +58,7 @@ Markdown  +  ref.docx / profile.json        设计契约
 > **Word**（Windows + 本机 Microsoft Word）、**LibreOffice**（soffice，任意系统）、**WPS**（Windows + WPS Office）。
 > 用 `--renderer word|libreoffice|wps` 选（默认 word）。本机没装任何渲染器时，只有 docx 那一半能跑（见[已知边界](#已知边界)）。
 
-**目录** · [快速开始](#快速开始) · [看看产物](#看看产物) · [工作流](#用法) ·
-[验证与证据包](#验证与证据包) · [编辑已有 docx](#编辑已有-docx) · [文档](#文档地图)
-
-## 能力边界
+## 🔧 能力边界
 
 **做**
 
@@ -80,7 +80,9 @@ Markdown  +  ref.docx / profile.json        设计契约
 > 它不是通用 Markdown → docx 转换器（那是 pandoc 的活）。配 `caption_words` 可以适配非中文题注关键字，
 > 但排版默认值始终是中文惯例。
 
-## 快速开始
+## 🚀 快速开始
+
+> **本仓库是脚本集合，不是可 `pip install` 的包**——把文件夹放好，直接跑脚本即可（`pip install .` 会失败：没有构建后端，且工具靠脚本自身相对路径找 `assets/ref.docx` / `scripts/`）。
 
 ```powershell
 python scripts/render.py --doctor     # 我的环境准备好了吗？
@@ -91,6 +93,8 @@ python scripts/render.py --src examples/tender --out 标书.docx `
 
 第三条命令渲染一份真实投标文件、在所选渲染器（默认 Word）里验收、导出 PDF 并检查产物——**不用先配任何东西**。
 只有 `--doctor` 报错时才需要往下看。
+
+没装任何渲染器？先 `python scripts/render.py --sample`（不带 `--pdf`）拿一份 docx 看效果；渲染与验收等装了 Word / WPS / LibreOffice 再做。
 
 **如果 `--doctor` 报错**——`pandoc` 必需；`--pdf` 与验证器需要本机渲染器（默认 Word；可 `--renderer` 选 LibreOffice / WPS）：
 
@@ -108,15 +112,11 @@ pip install -r requirements.txt      # 纯 pip；版本由 uv.lock 导出锁死
                                      # 用 uv 的话：uv sync --all-extras
 ```
 
-> **本仓库是「脚本集合」，不是可 pip 安装的包**——`pip install .` 会失败（没有构建后端，
-> 而且工具要靠相对路径（从各脚本自身位置出发）找到 `assets/ref.docx` / `scripts/` / `assets/sample.md`）。
-> 把文件夹放好，**直接跑脚本**即可。
-
 `--doctor` 会**实测三种渲染器的可用性**（默认 Word 走 COM；LibreOffice 查 soffice；WPS 查 KWPS）。不读注册表——注册表里的 `CurVer`
 可能是旧 Office 卸载后的残留值，会误报。
 贡献者工具（ruff、pre-commit、测试套件）见[开发](#开发)。
 
-## 规模实测
+## 📊 规模实测
 
 在 Windows + Microsoft Word 渲染器上实测，含渲染器验收与导 PDF：
 
@@ -127,7 +127,7 @@ pip install -r requirements.txt      # 纯 pip；版本由 uv.lock 导出锁死
 两次均产出 2.9 MB 的 docx，且逐项一致（页数、字数、表格、图片、抽查页像素），Word 进程无残留。
 可复现示例与基准细节 → [`examples/`](examples/README.md)。
 
-## 为什么不只是 Pandoc？
+## 💡 为什么不只是 Pandoc？
 
 Pandoc 生成 DOCX，texere 在此之外还做五件事：
 
@@ -137,7 +137,7 @@ Pandoc 生成 DOCX，texere 在此之外还做五件事：
 4. 检查渲染后的产物——页码连续性、空白页、逐页版式回归；
 5. 为结果产出证据：`report.json` + 截图 + 校验清单。
 
-## 已有 Word 模板？继续用它。
+## 📄 已有 Word 模板？继续用它。
 
 把 `reference_doc` 指向甲方给的 `.docx`，版式仍然由它说了算：
 
@@ -150,7 +150,7 @@ Pandoc 生成 DOCX，texere 在此之外还做五件事：
 封面与分节结构**不继承**——那两部分由 texere 自己生成。完整继承矩阵见
 [复用已有模板](#复用已有模板)。
 
-## 用法
+## 🛠️ 用法
 
 下面五是真要跑的流程；每个脚本的完整参数在 [`docs/SCRIPT_HELP.md`](docs/SCRIPT_HELP.md)。
 
@@ -214,7 +214,7 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
 开 `content_fixes` 替换表时才会；表为空时，输出文字逐字来自源文件。完整契约、`content_fixes`
 机制与已移除的自动编号功能 → [`SKILL.md`](SKILL.md)。
 
-## 验证与证据包
+## ✅ 验证与证据包
 
 ```bash
 python scripts/validate.py 标书.docx --out evidence/
@@ -225,7 +225,7 @@ python scripts/validate.py 标书.docx --out evidence/
 只有 `FAIL` 与 `ERROR` 会让退出码变成 1。逐项明细、人工门槛与注意事项见
 [`docs/VALIDATION.zh-CN.md`](docs/VALIDATION.zh-CN.md)。
 
-## 编辑已有 docx
+## ✂️ 编辑已有 docx
 
 **独立于渲染链路**的第二条链，契约正好相反：**只改你指定的地方，其余字节原样保留**——
 绝不注入封面 / 目录 / 页码，也不重排样式。
@@ -239,7 +239,7 @@ python scripts/patch.py 标书.docx patch.json --dry-run --apply   # 声明式 P
 
 操作清单、Patch schema 与「重排而非编辑」见 [`docs/EDITING.zh-CN.md`](docs/EDITING.zh-CN.md)。
 
-## 复用已有模板
+## ♻️ 复用已有模板
 
 把 `reference_doc` 指向任意 docx（甲方强制模板，或你自己攒的模板），**能继承的比之前文档里写的多**。
 用一份「3cm 页边距 + 楷体 14pt 正文 + 自定义页眉」的模板实测：
@@ -277,7 +277,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 > **是蒸馏，不是转换。** 脚本不去"理解"模板，它把模板拆成 config 字段，决定权在你——
 > 这跟整个工具的分工方式一致。
 
-## 配置与表格
+## ⚙️ 配置与表格
 
 参考类内容下沉到 docs，本手册才能保持「产品首页」的定位。默认值已经够跑通
 `render.py --sample` 和所有示例，需要查某个键时再翻参考：
@@ -287,7 +287,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 | `config.json` 全部字段、`style` 全部键 | [`docs/CONFIG.zh-CN.md`](docs/CONFIG.zh-CN.md) |
 | 表格写法、grid table、视觉控制 | [`docs/TABLES.zh-CN.md`](docs/TABLES.zh-CN.md) |
 
-## 标书场景注意
+## 📑 标书场景注意
 
 1. **招标方给了强制格式模板时，以对方为准**——能继承哪些见[复用已有模板](#复用已有模板)。
    那一节替不了你的部分：封面、密封、签字页、页码规则仍要对着招标文件人工核对，
@@ -297,7 +297,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 3. 交付前跑 `--pdf --check` 并肉眼过一遍渲染图：所选渲染器能打开、无空白页、表头灰底、题注居中，
    四条都过再封包。
 
-## 三条支柱
+## 🏛️ 三条支柱
 
 1. **是编译器，不是转换器** —— Markdown → 语义 IR → 版式规格 → DOCX。每条视觉规则都明写在设计契约里
    （`ref.docx` + `profile.json`），没有魔法。
@@ -306,7 +306,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 3. **是证据，不是希望** —— 一条命令验完：包完整性、图片嵌入、目录域、页码、空白页、渲染器验收、版式漂移。
    产出 `report.json` + 页面截图 + 校验清单（见[证据包](#验证与证据包)）。
 
-## 设计原则
+## 🎨 设计原则
 
 改模板或手写内容时遵守：
 
@@ -317,7 +317,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 5. 中西混排：中文宋体、数字西文 Times New Roman；
 6. 交付前在所选渲染器中打开并目视渲染结果；需要 Word 保真时再用真 Word 验收，不信任何"读回正常"。
 
-## 已知边界
+## ⚠️ 已知边界
 
 - 目录为 Word 域，首次打开若未刷新请全选按 F9（已设 `updateFields`，通常自动）；
 - 图表编号为**手写**：插删图表后需要人工对号（见[契约](#契约只改版式不改内容)）；
@@ -333,7 +333,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
   否则会满屏漂移；阈值默认 0.1%（实测同文档重复导出为 0.00%，改一处页眉为 0.16%）；
 - 不使用 Quarto：其 1.10.x 的 docx 对带自动编号题注的表格会丢失表体。
 
-## 开发
+## 🧪 开发
 
 ```bash
 pip install ruff pre-commit && pre-commit install      # ruff 一个工具顶 flake8 + black + isort
@@ -344,7 +344,7 @@ python -m pytest -q                                    # 全量：268 项断言�
 > **没有托管 CI。** 验收类用例要通过 COM 驱动一台真 Microsoft Word，托管 runner 给不了——
 > 本地靠 pre-commit 覆盖无 Word 的那部分，全量套件推送前手动跑。
 
-## 文档地图
+## 🗺️ 文档地图
 
 每条信息只住在**一个**地方，其余文档只指路不复述（能机器查的那部分已由 `tests/test_docs_sync.py` 把守）：
 
@@ -388,6 +388,6 @@ python -m pytest -q                                    # 全量：268 项断言�
 | `tests/` | 268 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
-## 许可
+## 📜 许可
 
 MIT，见 [LICENSE](LICENSE)。

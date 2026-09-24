@@ -290,7 +290,10 @@ def _slug(title):
             out.append("-")
         elif ch == "_" or unicodedata.category(ch).startswith(("L", "N")):
             out.append(ch)
-    return "".join(out)
+    s = "".join(out)
+    # 与 GitHub 的锚点生成对齐：丢弃 emoji（非 L/N/_ 字符）后，其后的空格会变成首尾
+    # 连字符；GitHub 会一并去掉。不处理的话，带 emoji 的标题会被误判为死链。
+    return re.sub(r"-{2,}", "-", s).strip("-")
 
 
 def _headings_and_slugs(path):
