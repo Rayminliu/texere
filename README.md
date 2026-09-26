@@ -3,6 +3,12 @@ English | [简体中文](README.zh-CN.md)
 # texere — verified Chinese Word documents, from Markdown
 
 [![CI](https://github.com/Rayminliu/texere/actions/workflows/ci.yml/badge.svg)](https://github.com/Rayminliu/texere/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/Rayminliu/texere)](https://github.com/Rayminliu/texere/tags)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![pandoc](https://img.shields.io/badge/pandoc-3.11%2B-blue)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
 Markdown + a Word template → DOCX → a renderer (Word / WPS / LibreOffice) → PDF → visual regression → evidence.
 
