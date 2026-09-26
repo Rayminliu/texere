@@ -1,0 +1,87 @@
+name: CI
+
+# 分层 CI 策略——为什么这样写才绿：
+#
+# 托管 runner 没有 Microsoft Word COM，也没有本机的版式基线，所以 CI 绝不碰：
+#   1. PDF 导出与 --check：--sample 内部把渲染器硬编码成 word 且强制走 PDF，
+#      在 runner 上必炸（render.py main() 里写死 "word"）——CI 冒烟改用
+#      显式 --src 渲染纯 docx，不带 --pdf；
+#   2. 版式快照比对：基线绑定录基那台机器的 Word 版本与字体，
+#      换机必漂移（README「已知边界」）；
+#   3. COM 并发 canary：由环境变量门控，CI 不设即默认 SKIP。
+#
+# 需要渲染器的用例靠代码里现成的 available() 守卫自动 SKIP；
+# validate.py 退出码只数 FAIL/ERROR（sys.exit(0 if failed==0)），SKIP 放行——
+# 因此"渲染类检查全部 SKIP"的证据冒烟退出码仍是 0。
+# 全量 Word/WPS 验收仍在本机跑（README「开发」一节）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # 开发机是 GBK locale、runner 是 UTF-8：显式钉死 UTF-8 模式，
+      # 同一份代码两边只许有一套解码行为
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # apt 自带的 pandoc 随镜像浮动（jammy 2.9 / noble 3.1.x），grid table 解析有差异；
+      # 锁 3.11（与开发机同版）。deb 资产文件名不写死——跑时用 GitHub API 按 tag
+      # 解析真实 amd64.deb 链接，官方改名 CI 自己跟着走，不会 404
+      - name: 安装 pandoc 3.11（与开发环境同版）
+        run: |
+          DEB_URL=$(curl -sf -H "Authorization: Bearer $GITHUB_TOKEN" \
+            https://api.github.com/repos/jgm/pandoc/releases/tags/3.11 \
+            | grep -o 'https://[^"]*amd64\.deb' | head -1)
+          echo "pandoc deb: $DEB_URL"
+          wget -q "$DEB_URL" -O /tmp/pandoc.deb
+          sudo dpkg -i /tmp/pandoc.deb
+          pandoc --version | head -1
+
+      - name: 安装 Python 依赖（requirements.txt 含 pytest 与 ruff）
+        run: pip install -r requirements.txt
+
+      # doctor 只在核心依赖（pandoc/python-docx/lxml）缺失时退出 1；
+      # Word 不可用只打印「仅 docx 渲染可用」并返回 0（doctor() 尾部 return 0）
+      - name: 环境自检
+        run: python scripts/render.py --doctor
+
+      - name: Ruff（lint + 格式，规则以 pyproject [tool.ruff] 为准）
+        run: |
+          ruff check .
+          ruff format --check .
+
+      # pre-commit 同款快速子集：126 项、约 15 秒（本地实测 13.9s）
+      - name: 快速子集（不启渲染器）
+        run: python -m pytest tests/test_version.py tests/test_docs_sync.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q
+
+      # 全量套件：需要 Word/WPS/LibreOffice 的用例由 available() 守卫自动 SKIP，
+      # 预期结果「全绿 + 若干 skipped」；有硬 FAIL 说明守卫漏了，那是真缺陷
+      - name: 全量 pytest
+        run: python -m pytest -q
+
+      # 证据链冒烟：纯 docx 渲染（不带 --pdf，不碰渲染器）→ validate。
+      # 渲染类检查降级为 SKIP，退出码仍为 0
+      - name: 渲染 + 验收冒烟
+        run: |
+          python scripts/render.py --src assets/sample.md --out sample_ci.docx --config assets/sample_config.json
+          python scripts/validate.py sample_ci.docx --out evidence_ci/
+
+      - name: 上传证据包
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence
+          path: evidence_ci/
+          if-no-files-found: ignore
+          retention-days: 7
