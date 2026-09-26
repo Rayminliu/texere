@@ -28,6 +28,40 @@ v = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(v)
 
 
+# ------------------------------------- renderer_acceptance 语义（CI 抓到的回归）
+
+
+class TestRendererAcceptanceSemantics:
+    """渲染器不在只能 SKIP，不许冒充「验收失败」；渲染器在但导出失败才是真 FAIL。
+
+    「查不了当 FAIL」与「查不了当 PASS」是同一种失真（validate.py 文档自己立的规矩），
+    与缺 PyMuPDF 的 SKIP 同语义。锁 run 36251321724 抓到的真 bug。
+    """
+
+    def test_renderer_missing_is_skip_not_fail(self):
+        res = v.check_renderer_acceptance(
+            False,
+            "ModuleNotFoundError: No module named 'pythoncom'",
+            "Microsoft Word",
+            False,
+            "未安装 pywin32（Word 渲染器需要它）",
+        )
+        assert res.status == v.SKIP
+
+    def test_renderer_present_but_export_failed_is_fail(self):
+        res = v.check_renderer_acceptance(False, "COM error", "Word", True, "")
+        assert res.status == v.FAIL
+
+    def test_export_ok_is_pass(self):
+        res = v.check_renderer_acceptance(True, "", "Microsoft Word", True, "")
+        assert res.status == v.PASS
+
+    def test_three_arg_call_keeps_fail_semantics(self):
+        # 旧调用方（不传 renderer_ok）→ 可用性未知 → 导出结果定 FAIL，行为不回退
+        res = v.check_renderer_acceptance(False, "boom")
+        assert res.status == v.FAIL
+
+
 # ------------------------------------------------------------- 页脚页码识别
 
 
