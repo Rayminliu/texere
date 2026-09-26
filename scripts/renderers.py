@@ -98,15 +98,17 @@ class WordRenderer(RendererAdapter):
         *,
         save_updated_fields: bool = False,
     ) -> RenderResult:
-        import pythoncom
-        import win32com.client as win32
-
         WD_PAGES, WD_WORDS = 2, 0
         WD_PDF = 17
         co_initialized = False
         tmp_dir = tempfile.mkdtemp(prefix="texere_render_")
         tmp_src = os.path.join(tmp_dir, os.path.basename(docx_path))
         try:
+            # 惰性 import 留在 try 内：pywin32 缺失也要走结构化失败，
+            # 而不是裸抛 ModuleNotFoundError（契约：失败必须结构化，绝不抛栈）
+            import pythoncom
+            import win32com.client as win32
+
             shutil.copy2(docx_path, tmp_src)
             pythoncom.CoInitialize()
             co_initialized = True
@@ -391,14 +393,15 @@ class WPSRenderer(RendererAdapter):
         *,
         save_updated_fields: bool = False,
     ) -> RenderResult:
-        import pythoncom
-        import win32com.client as win32
-
         WD_PDF = 17
         co_initialized = False
         tmp_dir = tempfile.mkdtemp(prefix="texere_render_wps_")
         tmp_src = os.path.join(tmp_dir, os.path.basename(docx_path))
         try:
+            # 同 Word：pywin32 缺失也要走结构化失败，不裸抛
+            import pythoncom
+            import win32com.client as win32
+
             shutil.copy2(docx_path, tmp_src)
             pythoncom.CoInitialize()
             co_initialized = True

@@ -3,17 +3,36 @@
 pytest -q tests/test_patch.py
 """
 
+import importlib.util
 import json
 import os
 import shutil
 import subprocess
 import sys
 
+import pytest
+
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+_RENDERER_STATE = None
+
+
+def _require_renderer():
+    """e2e 先经 render.py --pdf 造文档：默认渲染器不可用就整组跳过（托管 CI 无 Office）。"""
+    global _RENDERER_STATE
+    if _RENDERER_STATE is None:
+        path = os.path.join(KIT, "scripts", "renderers.py")
+        spec = importlib.util.spec_from_file_location("renderers", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _RENDERER_STATE = mod.WordRenderer.available()
+    if not _RENDERER_STATE[0]:
+        pytest.skip("渲染器不可用（%s）：e2e 需 render.py --pdf" % _RENDERER_STATE[1])
 
 
 def _build_sample_docx(tmp_path):
     """Build a sample docx for testing."""
+    _require_renderer()
     src = tmp_path / "src"
     src.mkdir()
     shutil.copy(os.path.join(KIT, "assets", "sample.md"), src / "01_sample.md")
