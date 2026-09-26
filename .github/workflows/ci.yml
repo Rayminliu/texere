@@ -13,7 +13,8 @@ name: CI
 # 需要渲染器的用例靠代码里现成的 available() 守卫自动 SKIP；
 # validate.py 退出码只数 FAIL/ERROR（sys.exit(0 if failed==0)），SKIP 放行——
 # 因此"渲染类检查全部 SKIP"的证据冒烟退出码仍是 0。
-# 全量 Word/WPS 验收仍在本机跑（README「开发」一节）。
+# 全量 Word/WPS 验收仍在本机跑（README「开发」一节）；
+# 第二层 render-libreoffice 用 LibreOffice 在 runner 上真渲染，见该 job 的注释。
 
 on:
   push:
@@ -81,5 +82,61 @@ jobs:
         with:
           name: evidence
           path: evidence_ci/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ── 第二层：LibreOffice 真渲染验收 ─────────────────────────────────────
+  # runner 装 LibreOffice + 中文字体后真出 PDF：页码 / 空白页 / 渲染器验收
+  # 从第一层的 SKIP 变成真检查。visual_drift 仍 SKIP——版式基线绑定本机
+  # Word 版本与字体（README「已知边界」），不硬凑。
+  #
+  # continue-on-error 观察期：runner 的字体替换（Noto CJK 代渲染仿宋/黑体）
+  # 与本机 Word 排版必有差异，先看几轮稳定性，转正后去掉该开关作门禁。
+  # 全量 pytest 的 LibreOffice 契约用例仍随第一层 SKIP（本层不跑 pytest）；
+  # 二层稳定后可让第一层也装 soffice，把契约用例转真跑。
+  render-libreoffice:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装 pandoc 3.11（与开发环境同版）
+        run: |
+          curl -sfL --retry 5 --retry-all-errors --retry-delay 2 \
+            "https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-1-amd64.deb" \
+            -o /tmp/pandoc.deb
+          sudo dpkg -i /tmp/pandoc.deb
+          pandoc --version | head -1
+
+      - name: 安装 LibreOffice + 中文字体
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer fonts-noto-cjk
+          soffice --version
+
+      - name: 安装 Python 依赖
+        run: pip install -r requirements.txt
+
+      # 渲染纯 docx（不带 --pdf）：validate.py 会用 --renderer libreoffice
+      # 自己导出验收 PDF，一次导出够用，不做两次
+      - name: 渲染样例 docx
+        run: python scripts/render.py --src assets/sample.md --out sample_lo.docx --config assets/sample_config.json
+
+      - name: LibreOffice 渲染验收
+        run: python scripts/validate.py sample_lo.docx --renderer libreoffice --out evidence_lo/
+
+      - name: 上传 LibreOffice 证据包
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-libreoffice
+          path: evidence_lo/
           if-no-files-found: ignore
           retention-days: 7
