@@ -17,6 +17,9 @@
 
 模块清单、报价表这类简单表用 pipe table；**复杂表头、合并单元格、要控制列宽的，一律用 grid table**。
 
+> 竖线没对齐（中文占 2 列最容易错）不用手调：`python scripts/align_tables.py 文档.md --fix`
+> 按显示宽度重排，单元格内容字节不变。详见 [SCRIPT_HELP](SCRIPT_HELP.md)。
+
 ### grid table 三板斧
 
 **1. 多级表头 + 合并单元格**——`+===+` 分隔表头与表体；某一行不写中间竖线即为跨列：

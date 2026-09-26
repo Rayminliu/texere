@@ -21,6 +21,26 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 0.7.0 — 2026-09-27 (解冻首版：运维加固 + 英文基线)
+
+图表自动编号经风险评估后**放弃**（0.2.0 的教训 + 域缓存与证据签名可能分歧；
+手写编号零风险，痛点是机械性的）——改做四件零风险增强，CI 二层同批转正：
+
+- **CI 二层转正**（二层 CI 自 fa514d2 引入）：`render-libreoffice` 去掉
+  continue-on-error 成为必需门禁；第一层加装 LibreOffice + 中文字体，
+  LibreOffice 契约用例在 CI 真跑（此前 SKIP）。Word/WPS 用例仍 SKIP。
+- **grid table 显示宽度对齐器** `scripts/align_tables.py`：按 East Asian 显示
+  宽度（W/F=2）重排竖线与填充，单元格内容字节不变（写回前逐格自校验）；
+  默认报告、`--fix` 写回、`--check` 供 pre-commit；解析失败报错退出，绝不猜测性修复。
+- **证据 manifest 全覆盖**：signature 在 document_hash/report_hash 之外新增
+  全量文件清单（report.json + 全部截图的 sha256）、generated_at、tool_version
+  ——证据目录里任何文件被事后改动都可检出。
+- **英文文档版式基线** `profiles/neutral-en-v1.json` + `examples/en-report/`：
+  Times New Roman 段块式正文、Arial 标题、Page {n} 页脚；英文题注识别
+  是管线既有能力（Table/Figure 关键字本就在默认正则里）。版式基线，
+  不是英文商务规范全覆盖。
+- 用例数 269 → 281。
+
 ## 0.6.8 — 2026-09-27 (test-infra)
 
 测试执行层优化（无产品行为变化；用例数 274 → 269，本地全量实测 16:01 → 6:17）：

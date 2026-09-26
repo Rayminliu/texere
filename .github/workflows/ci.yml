@@ -47,6 +47,14 @@ jobs:
           sudo dpkg -i /tmp/pandoc.deb
           pandoc --version | head -1
 
+      # LibreOffice 契约用例（渲染器抽象/超时结构化）在 CI 真跑：available()
+      # 守卫检出 soffice 即执行；Word/WPS 用例仍 SKIP（托管 runner 无 COM）
+      - name: 安装 LibreOffice + 中文字体
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer fonts-noto-cjk
+          soffice --version
+
       - name: 安装 Python 依赖（requirements.txt 含 pytest 与 ruff）
         run: pip install -r requirements.txt
 
@@ -60,7 +68,7 @@ jobs:
           ruff check .
           ruff format --check .
 
-      # pre-commit 同款快速子集：126 项、约 15 秒（本地实测 13.9s）
+      # pre-commit 同款快速子集：130 项、约 15 秒
       - name: 快速子集（不启渲染器）
         run: python -m pytest tests/test_version.py tests/test_docs_sync.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q
 
@@ -85,18 +93,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # ── 第二层：LibreOffice 真渲染验收 ─────────────────────────────────────
+  # ── 第二层：LibreOffice 真渲染验收（必需门禁，0.7.0 起转正）──────────
   # runner 装 LibreOffice + 中文字体后真出 PDF：页码 / 空白页 / 渲染器验收
   # 从第一层的 SKIP 变成真检查。visual_drift 仍 SKIP——版式基线绑定本机
   # Word 版本与字体（README「已知边界」），不硬凑。
-  #
-  # continue-on-error 观察期：runner 的字体替换（Noto CJK 代渲染仿宋/黑体）
-  # 与本机 Word 排版必有差异，先看几轮稳定性，转正后去掉该开关作门禁。
-  # 全量 pytest 的 LibreOffice 契约用例仍随第一层 SKIP（本层不跑 pytest）；
-  # 二层稳定后可让第一层也装 soffice，把契约用例转真跑。
+  # 第一层也装了 soffice：LibreOffice 契约用例在 tier 1 真跑；
+  # Word/WPS 用例仍 SKIP（托管 runner 无 COM），验收仍在本机。
   render-libreoffice:
     runs-on: ubuntu-latest
-    continue-on-error: true
     env:
       PYTHONUTF8: "1"
     steps:

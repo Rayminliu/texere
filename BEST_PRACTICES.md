@@ -25,6 +25,10 @@
 | **投标文件** | `tender-v1.json` | 报价表样式、骑缝章要求 |
 | **政府公文** | `gongwen-v1.json` | GB/T 9704-2012、仿宋字体 |
 | **项目申报书** | `application-v1.json` | 表单式表格、预算表 |
+| **英文文档（版式基线）** | `neutral-en-v1.json` | Times New Roman 段块式、Arial 标题、Page {n} 页脚 |
+
+> `neutral-en-v1` 是英文文档的**版式基线**（示例见 `examples/en-report/`）：
+> 它声明字体、间距与页脚格式，不声称覆盖英文商务文档规范（封面、文献、公文体例等仍不在范围）。
 
 ### 自定义 Profile
 

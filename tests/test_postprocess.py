@@ -133,6 +133,27 @@ def test_captions_centered(docx_path):
         assert p.alignment == WD_ALIGN_PARAGRAPH.CENTER, "表题未居中: %s" % p.text
 
 
+def test_english_caption_styled(tmp_path):
+    """英文题注（Table 1: ...）同样被识别并居中——neutral-en 语境下的管线事实。"""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    md = (
+        "Intro paragraph before the table.\n"
+        "\n"
+        "Table 1: Quarterly milestone summary\n"
+        "\n"
+        "| Milestone | Status |\n"
+        "|-----------|--------|\n"
+        "| M1        | Done   |\n"
+    )
+    docx = _build_md(tmp_path, md, {})
+    doc = Document(docx)
+    caps = [p for p in doc.paragraphs if p.text.strip().startswith("Table 1:")]
+    assert len(caps) == 1, "英文题注应被识别，实际 %d" % len(caps)
+    assert caps[0].alignment == WD_ALIGN_PARAGRAPH.CENTER, "英文表题未居中: %s" % caps[0].text
+
+
 def test_cover_and_toc_injected(docx_path):
     """封面行与目录域必须注入，且目录在正文之前。"""
     from docx import Document

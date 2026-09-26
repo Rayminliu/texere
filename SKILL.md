@@ -1,6 +1,6 @@
 ---
 name: texere
-description: "The Chinese formal document compiler — Reference/Spec → Deterministic Document → Evidence. Renders Markdown into properly typeset Chinese formal documents (docx + PDF) with unified validation: 9 automated checks (package integrity, image embedding, TOC fields, page numbering, blank pages, renderer acceptance, visual drift), structured report (report.json), and evidence package (screenshots + signature). Use when generating tenders, bids, grant applications, final reports, white papers from Markdown with explicit design contracts (profile.json or ref.docx). Also supports targeted edits to existing docx without re-typesetting. Should not be used for tracked changes, comments, watermarks, theses, or English documents."
+description: "The Chinese formal document compiler — Reference/Spec → Deterministic Document → Evidence. Renders Markdown into properly typeset Chinese formal documents (docx + PDF) with unified validation: 9 automated checks (package integrity, image embedding, TOC fields, page numbering, blank pages, renderer acceptance, visual drift), structured report (report.json), and evidence package (screenshots + signature). Use when generating tenders, bids, grant applications, final reports, white papers from Markdown with explicit design contracts (profile.json or ref.docx). Also supports targeted edits to existing docx without re-typesetting. Should not be used for tracked changes, comments, watermarks, or theses. English documents: a neutral layout baseline exists (profiles/neutral-en-v1.json), but full English business-document conventions are out of scope."
 license: MIT
 compatibility: Requires a local renderer (Word / WPS / LibreOffice, select with `--renderer`) and pandoc 3.1+, Python 3.10+, python-docx and lxml. DOCX generation is cross-platform; PDF export and renderer acceptance need a renderer (Word / WPS on Windows, LibreOffice where available).
 ---
@@ -40,7 +40,7 @@ python scripts/patch.py bid.docx patch.json --apply --validate
 # Edit an existing docx (targeted, opposite contract — see "Two chains")
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
 
-python -m pytest -q                   # 269 assertions (~6 min; measured 6m17s; renderer-bound cases auto-skip on hosted CI — full Word acceptance stays local)
+python -m pytest -q                   # 281 assertions (~6 min; measured 6m1s; Word/WPS cases auto-skip on hosted CI, LibreOffice contracts run for real — full Word acceptance stays local)
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 
@@ -66,8 +66,10 @@ Do **not** use it for:
   (`--fill` covers coordinate-based batch filling; anything smarter is on the caller), then use
   this skill for typesetting and acceptance.
 - **Theses or book manuscripts** — no bibliography (citeproc), equation numbering, or odd/even headers.
-- **English-language documents** — defaults (A4, SimSun/SimHei, full-width punctuation, Chinese
-  caption keywords) are Chinese-document conventions.
+- **Full English business-document conventions** — defaults (A4, SimSun/SimHei, full-width punctuation,
+  Chinese caption keywords) are Chinese-document conventions. A neutral English **layout baseline**
+  exists (`profiles/neutral-en-v1.json` + `examples/en-report/`: Times New Roman block paragraphs,
+  Arial headings, `Page {n}` footer); it is a baseline, not English convention coverage.
 
 ## Hard contract and pitfalls
 

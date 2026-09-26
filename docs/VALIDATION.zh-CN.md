@@ -18,7 +18,7 @@ evidence/
 ├── page-001.png         # 抽样页面截图（首 / 中 / 尾）
 ├── page-069.png
 ├── page-272.png
-└── signature            # 校验清单：docx + report 的哈希、检查摘要
+└── signature            # 校验清单：docx + report + 全部截图的哈希、检查摘要
 ```
 
 这个文件叫 `signature` 是历史原因，但它是**校验清单（checksum manifest），不是密码学签名**——
@@ -68,7 +68,7 @@ Passed: 7/9 (skipped: 2)
 Evidence package saved to: evidence/
   - report.json (structured validation report)
   - page-XXX.png (sample screenshots)
-  - signature (校验清单：docx + report 的哈希)
+  - signature (校验清单：docx + report + 全部截图的哈希)
 ```
 
 任何一项失败即 exit code 1，并给出详细错误。参数（`--profile` / `--max-empty` / `--quiet` 等）见
