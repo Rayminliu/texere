@@ -36,15 +36,13 @@ jobs:
           cache: pip
 
       # apt 自带的 pandoc 随镜像浮动（jammy 2.9 / noble 3.1.x），grid table 解析有差异；
-      # 锁 3.11（与开发机同版）。deb 资产文件名不写死——跑时用 GitHub API 按 tag
-      # 解析真实 amd64.deb 链接，官方改名 CI 自己跟着走，不会 404
+      # 锁 3.11（与开发机同版）。资产 URL 是确定性的（pandoc-<ver>-1-amd64.deb 命名多年未变，
+      # 已验证 200），直连下载——不经过 GitHub API（上次 API 解析瞬时失败导致 DEB_URL 为空）
       - name: 安装 pandoc 3.11（与开发环境同版）
         run: |
-          DEB_URL=$(curl -sf -H "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/jgm/pandoc/releases/tags/3.11 \
-            | grep -o 'https://[^"]*amd64\.deb' | head -1)
-          echo "pandoc deb: $DEB_URL"
-          wget -q "$DEB_URL" -O /tmp/pandoc.deb
+          curl -sfL --retry 5 --retry-all-errors --retry-delay 2 \
+            "https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-1-amd64.deb" \
+            -o /tmp/pandoc.deb
           sudo dpkg -i /tmp/pandoc.deb
           pandoc --version | head -1
 
