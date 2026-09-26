@@ -208,7 +208,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 274 assertions, ~7 min (measured 7m6s, needs a renderer — defaults to Word)
+python -m pytest -q                                              # 269 assertions, ~6 min (measured 6m17s, needs a renderer — defaults to Word)
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -386,7 +386,9 @@ Follow these when editing the template or hand-writing content:
 ```bash
 pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + black + isort
 pre-commit run --all-files                             # lint + format + a Word-free test subset
-python -m pytest -q                                    # full suite: 274 assertions, ~7 min (measured 7m6s)
+# Word half: the three files CI skips, only verifiable locally (renderer contracts + patch/validate e2e)
+python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
+python -m pytest -q                                    # full suite: 269 assertions, ~6 min (measured 6m17s; before releases / renderer-chain changes)
 ```
 
 > **Hosted CI runs the renderer-free half** ([ci.yml](.github/workflows/ci.yml)): ruff + the fast subset +
@@ -436,7 +438,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` (CLI), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — each with a `.zh-CN` mirror |
 | `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 274 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
+| `tests/` | 269 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## 📜 License
