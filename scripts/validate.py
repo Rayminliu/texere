@@ -1074,9 +1074,11 @@ def generate_evidence_package(
     tmp_dir = tempfile.mkdtemp(prefix="texere_validate_")
     pdf_path = os.path.join(tmp_dir, "verify.pdf")
     rndr = renderer or get_renderer("word")
-    # 渲染器在不在是 acceptance 的前置：不在只能 SKIP，不能冒充「验收失败」——
-    # 「没装渲染器」和「渲染验收失败」是两种完全不同的结论
-    rndr_ok, rndr_why = type(rndr).available()
+    # 渲染器在不在是 acceptance 的前置：不在只能 SKIP，不能冒充「验收失败」。
+    # 但 available() 只有真实渲染器有——Fake 等测试注入的适配器没有它，
+    # getattr 探测：没有就当「可用性未知」，回退到导出结果本身定 PASS/FAIL
+    _avail = getattr(type(rndr), "available", None)
+    rndr_ok, rndr_why = _avail() if callable(_avail) else (True, "")
     try:
         export_ok, export_err, render_res = export_pdf_once(docx_path, pdf_path, renderer=rndr)
         renderer_name = render_res.renderer_name
