@@ -21,6 +21,23 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 0.6.7 — 2026-09-26 (ci + fixes)
+
+首批托管 CI 上线（`.github/workflows/ci.yml`），首轮即抓出两个真缺陷，一并修复：
+
+- **CI**：ubuntu runner 跑 ruff + 快速子集 + 全量套件（渲染相关用例自动 SKIP）
+  + 渲染/验收冒烟 + 证据包 artifact。pandoc 锁 3.11（与开发机同版）。
+  验收类用例仍要真 Word，托管 runner 只覆盖无渲染器的那一半——边界不变。
+- **renderers.py**：`render()` 的惰性 import 挪进 try——pywin32 缺失时返回
+  结构化 `RenderResult(ok=False)`，不再裸抛 `ModuleNotFoundError`
+  （「失败必须结构化」契约此前只在装了 pywin32 的机器上成立）。
+- **validate.py**：`renderer_acceptance` 在渲染器不可用时降级 SKIP，不再把
+  「没装渲染器」冒充成「验收失败」——与缺 PyMuPDF 的 SKIP 同语义；
+  渲染器在但导出失败仍是真 FAIL。
+- **tests**：+6 条回归单测锁住上述两条语义（`test_validate_units.py` /
+  `test_renderer.py`）；patch / validate 的 e2e 用例在无渲染器环境自动
+  跳过（此前直接 FAIL）。
+
 ## 0.6.6 — 2026-09-23 (docs-only)
 
 README 友好度打磨（无功能 / 行为变化；对齐高星 skill 项目的可读惯例）：

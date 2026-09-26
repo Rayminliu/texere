@@ -25,6 +25,31 @@ v = importlib.util.module_from_spec(_vspec)
 _vspec.loader.exec_module(v)
 
 
+# ------------------------------------- pywin32 缺失也要走结构化失败（CI 抓到的回归）
+
+
+class TestRenderWithoutPywin32:
+    """render() 的惰性 import 在 try 内：pywin32 缺失返回 RenderResult(ok=False)，不裸抛。
+
+    「失败必须结构化」契约此前只在装了 pywin32 的机器上成立；本机用 sys.modules
+    置 None 强制走进这条路径，CI（本来就没有 pywin32）自然命中。
+    """
+
+    def test_word_renderer_returns_structured_failure(self, monkeypatch, tmp_path):
+        monkeypatch.setitem(sys.modules, "pythoncom", None)
+        res = r.WordRenderer().render("nope.docx", str(tmp_path / "out.pdf"))
+        assert res.ok is False
+        assert res.errors, "缺 pywin32 也必须给出结构化 errors"
+        assert res.pdf is None
+
+    def test_wps_renderer_returns_structured_failure(self, monkeypatch, tmp_path):
+        monkeypatch.setitem(sys.modules, "pythoncom", None)
+        res = r.WPSRenderer().render("nope.docx", str(tmp_path / "out.pdf"))
+        assert res.ok is False
+        assert res.errors
+        assert res.pdf is None
+
+
 def test_renderer_adapter_is_abstract():
     # 含 @abstractmethod 的基类不可直接实例化
     with pytest.raises(TypeError):
