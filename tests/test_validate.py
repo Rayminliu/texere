@@ -7,7 +7,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
 import sys
 
@@ -31,32 +30,24 @@ def _require_renderer():
         pytest.skip("渲染器不可用（%s）：e2e 需 render.py --pdf" % _RENDERER_STATE[1])
 
 
-def _build_sample_docx(tmp_path):
-    """Build a sample docx for testing."""
-    _require_renderer()
-    # Copy sample.md and config
-    src = tmp_path / "src"
-    src.mkdir()
-    shutil.copy(os.path.join(KIT, "assets", "sample.md"), src / "01_sample.md")
-
-    # Render to docx
-    out = str(tmp_path / "test.docx")
-    subprocess.run(
-        [
-            sys.executable,
-            os.path.join(KIT, "scripts", "render.py"),
-            "--src",
-            str(src),
-            "--out",
-            out,
-            "--config",
-            os.path.join(KIT, "assets", "sample_config.json"),
-            "--pdf",
-        ],
-        check=True,
-        capture_output=True,
+if "_sample_render" in sys.modules:  # test_patch 已加载过：复用同一实例，缓存跨文件生效
+    _sample_render = sys.modules["_sample_render"]
+else:
+    _spec = importlib.util.spec_from_file_location(
+        "_sample_render", os.path.join(KIT, "tests", "_sample_render.py")
     )
-    return out
+    _sample_render = importlib.util.module_from_spec(_spec)
+    sys.modules["_sample_render"] = _sample_render
+    _spec.loader.exec_module(_sample_render)
+
+
+def _build_sample_docx(tmp_path):
+    """Build a sample docx for testing.
+
+    渲染产物进程级共享（见 tests/_sample_render.py）：全量只渲染一次，
+    每条用例拿拷贝——改写型用例（--apply）不污染共享源。
+    """
+    return _sample_render.rendered_copy(tmp_path)
 
 
 class TestPackageIntegrity:
@@ -296,10 +287,14 @@ class TestVisualDrift:
 
 
 class TestEvidencePackage:
-    """Test evidence package generation."""
+    """Test evidence package generation.
 
-    def test_evidence_directory_created(self, tmp_path):
-        """Evidence directory should be created."""
+    四件套断言（目录 / report.json / signature / 截图）合并到一次 validate
+    运行：同一份产物不该拆成四次 Word 往返。
+    """
+
+    def test_evidence_artifacts_created(self, tmp_path):
+        """Evidence directory, report.json, signature and screenshots all created."""
         docx = _build_sample_docx(tmp_path)
         evidence_dir = tmp_path / "evidence"
 
@@ -320,23 +315,6 @@ class TestEvidencePackage:
         assert evidence_dir.exists()
         assert any(evidence_dir.iterdir())
 
-    def test_report_json_created(self, tmp_path):
-        """report.json should be created."""
-        docx = _build_sample_docx(tmp_path)
-        evidence_dir = tmp_path / "evidence"
-
-        subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--out",
-                str(evidence_dir),
-                "--quiet",
-            ],
-            check=True,
-        )
-
         report_path = evidence_dir / "report.json"
         assert report_path.exists()
 
@@ -349,23 +327,6 @@ class TestEvidencePackage:
         assert "passed" in report["summary"]
         assert "failed" in report["summary"]
 
-    def test_signature_created(self, tmp_path):
-        """Signature file should be created."""
-        docx = _build_sample_docx(tmp_path)
-        evidence_dir = tmp_path / "evidence"
-
-        subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--out",
-                str(evidence_dir),
-                "--quiet",
-            ],
-            check=True,
-        )
-
         sig_path = evidence_dir / "signature"
         assert sig_path.exists()
 
@@ -376,23 +337,6 @@ class TestEvidencePackage:
         # report.json 的 hash 也要进证据清单：否则改报告结论不会破坏证据
         assert "report_hash" in content
         assert "cryptographic" in content  # 明说是 checksum manifest，不是签名
-
-    def test_screenshot_created(self, tmp_path):
-        """Screenshot PNGs should be created."""
-        docx = _build_sample_docx(tmp_path)
-        evidence_dir = tmp_path / "evidence"
-
-        subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--out",
-                str(evidence_dir),
-                "--quiet",
-            ],
-            check=True,
-        )
 
         # Should have at least one screenshot
         png_files = list(evidence_dir.glob("page-*.png"))
@@ -546,10 +490,13 @@ class TestProfileValidation:
 
 
 class TestReportStructure:
-    """Test report JSON structure."""
+    """Test report JSON structure.
 
-    def test_report_has_all_checks(self, tmp_path):
-        """Report should contain all 9 checks."""
+    三项断言读的是同一份 report.json，合并到一次 validate 运行。
+    """
+
+    def test_report_structure_complete(self, tmp_path):
+        """Report contains all 9 checks, a timestamp and the tool version."""
         docx = _build_sample_docx(tmp_path)
         evidence_dir = tmp_path / "evidence"
 
@@ -582,47 +529,9 @@ class TestReportStructure:
         for check_name in expected_checks:
             assert check_name in report["checks"], f"Missing check: {check_name}"
 
-    def test_report_timestamp(self, tmp_path):
-        """Report should have timestamp."""
-        docx = _build_sample_docx(tmp_path)
-        evidence_dir = tmp_path / "evidence"
-
-        subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--out",
-                str(evidence_dir),
-                "--quiet",
-            ],
-            check=True,
-        )
-
-        report = json.load(open(evidence_dir / "report.json", encoding="utf-8"))
-
         assert "timestamp" in report["metadata"]
         # Should be ISO format
         assert "T" in report["metadata"]["timestamp"]
-
-    def test_report_tool_version(self, tmp_path):
-        """Report should have tool version."""
-        docx = _build_sample_docx(tmp_path)
-        evidence_dir = tmp_path / "evidence"
-
-        subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--out",
-                str(evidence_dir),
-                "--quiet",
-            ],
-            check=True,
-        )
-
-        report = json.load(open(evidence_dir / "report.json", encoding="utf-8"))
 
         assert "tool_version" in report["metadata"]
         # 版本从 scripts/_version.py 单一来源读取，发版升号时不必再改本测试

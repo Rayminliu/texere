@@ -40,7 +40,7 @@ python scripts/patch.py bid.docx patch.json --apply --validate
 # Edit an existing docx (targeted, opposite contract — see "Two chains")
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
 
-python -m pytest -q                   # 274 assertions (~7 min; measured 7m6s; renderer-bound cases auto-skip on hosted CI — full Word acceptance stays local)
+python -m pytest -q                   # 269 assertions (~6 min; measured 6m17s; renderer-bound cases auto-skip on hosted CI — full Word acceptance stays local)
 python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
 ```
 

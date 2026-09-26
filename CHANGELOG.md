@@ -21,6 +21,21 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 0.6.8 — 2026-09-27 (test-infra)
+
+测试执行层优化（无产品行为变化；用例数 274 → 269，本地全量实测 16:01 → 6:17）：
+
+- **共享渲染产物**：test_patch / test_validate 的 41 条 e2e 用例此前每条都
+  子进程重渲染同一份样例（pandoc + 后处理 + Word 导出）——现在整个 pytest
+  进程只渲染一次（`tests/_sample_render.py`：进程级缓存 + 逐用例拷贝，
+  改写型用例不污染共享源；加载器以 sys.modules 去重，缓存跨文件生效）。
+- **同源断言合并**：TestEvidencePackage 4→1（同一份证据包的目录 / 报告 /
+  签名 / 截图）、TestReportStructure 3→1（同一份 report.json 的结构断言）
+  ——同一次 validate 运行不该拆成多次 Word 往返。
+- **本地工作流**：新增「Word 半边」命令（patch / validate / renderer_contract
+  三份，CI 跳过、仅本机能验）；全量降频为发版 / 改渲染链路前跑。
+- 无渲染器环境（托管 CI）语义不变：仍逐用例 SKIP，CI 耗时不受影响。
+
 ## 0.6.7 — 2026-09-26 (ci + fixes)
 
 首批托管 CI 上线（`.github/workflows/ci.yml`），首轮即抓出两个真缺陷，一并修复：

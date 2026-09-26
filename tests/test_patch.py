@@ -6,54 +6,29 @@ pytest -q tests/test_patch.py
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
 import sys
 
-import pytest
-
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-_RENDERER_STATE = None
-
-
-def _require_renderer():
-    """e2e 先经 render.py --pdf 造文档：默认渲染器不可用就整组跳过（托管 CI 无 Office）。"""
-    global _RENDERER_STATE
-    if _RENDERER_STATE is None:
-        path = os.path.join(KIT, "scripts", "renderers.py")
-        spec = importlib.util.spec_from_file_location("renderers", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _RENDERER_STATE = mod.WordRenderer.available()
-    if not _RENDERER_STATE[0]:
-        pytest.skip("渲染器不可用（%s）：e2e 需 render.py --pdf" % _RENDERER_STATE[1])
+if "_sample_render" in sys.modules:  # 另一测试文件已加载：复用同一实例，缓存跨文件生效
+    _sample_render = sys.modules["_sample_render"]
+else:
+    _spec = importlib.util.spec_from_file_location(
+        "_sample_render", os.path.join(KIT, "tests", "_sample_render.py")
+    )
+    _sample_render = importlib.util.module_from_spec(_spec)
+    sys.modules["_sample_render"] = _sample_render
+    _spec.loader.exec_module(_sample_render)
 
 
 def _build_sample_docx(tmp_path):
-    """Build a sample docx for testing."""
-    _require_renderer()
-    src = tmp_path / "src"
-    src.mkdir()
-    shutil.copy(os.path.join(KIT, "assets", "sample.md"), src / "01_sample.md")
+    """Build a sample docx for testing.
 
-    out = str(tmp_path / "test.docx")
-    subprocess.run(
-        [
-            sys.executable,
-            os.path.join(KIT, "scripts", "render.py"),
-            "--src",
-            str(src),
-            "--out",
-            out,
-            "--config",
-            os.path.join(KIT, "assets", "sample_config.json"),
-            "--pdf",
-        ],
-        check=True,
-        capture_output=True,
-    )
-    return out
+    渲染产物进程级共享（见 tests/_sample_render.py）：全量只渲染一次，
+    每条用例拿拷贝——改写型用例（--apply）不污染共享源。
+    """
+    return _sample_render.rendered_copy(tmp_path)
 
 
 class TestSchemaValidation:
