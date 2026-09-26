@@ -29,3 +29,9 @@ examples/**/*.pdf
 
 # 基准模板由 pandoc 生成：pandoc --print-default-data-file reference.docx > ref_default.docx
 ref_default.docx
+
+# ruff 缓存
+.ruff_cache/
+
+# 本地参考用的第三方 ZCode 插件（Z.AI 专有许可，勿上传）
+documents/
