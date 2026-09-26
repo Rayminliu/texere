@@ -673,6 +673,8 @@ class TestFinalizeIsReadOnly:
     这条承诺就会静默失效。"""
 
     def test_default_does_not_mutate_input(self, tmp_path):
+        # finalize 默认要出 PDF（Word 渲染）；无渲染器环境（托管 CI）跳过，不算失败
+        _require_renderer()
         src = _make_docx(tmp_path, "ro.docx")
         before = _sha256(src)
         r = subprocess.run(
@@ -691,6 +693,7 @@ class TestFinalizeIsReadOnly:
         assert (tmp_path / "ro.pdf").exists()
 
     def test_save_updated_fields_mutates_input(self, tmp_path):
+        _require_renderer()
         src = _make_docx(tmp_path, "su.docx")
         before = _sha256(src)
         r = subprocess.run(
