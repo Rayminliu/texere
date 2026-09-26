@@ -454,6 +454,33 @@ python scripts/check_pdf.py <document.pdf> [OPTIONS]
 
 ---
 
+## align_tables.py - grid table 显示宽度对齐器
+
+### 用法
+```bash
+python scripts/align_tables.py <files...> [--fix] [--check]
+```
+
+### 示例
+```bash
+# 报告模式：显示哪些 grid table 需要对齐，不写回
+python scripts/align_tables.py chapters/*.md
+
+# 就地写回（单元格内容字节不变，仅重排竖线与填充空格）
+python scripts/align_tables.py --fix chapters/*.md
+
+# 静默检查：未对齐 exit 1（pre-commit 用）
+python scripts/align_tables.py --check chapters/*.md
+```
+
+### 功能
+- 按 East Asian 显示宽度（W/F=2）重排 `+---+/+===+` grid table 的竖线与填充
+- 单元格内容逐字保留（仅首尾空白归一，pandoc 不感知；写回前自校验）
+- 跳过代码围栏内内容；pipe table 不碰；保留块内缩进与 `===` 表头分隔行
+- 解析失败（列数错乱/单元格内代码围栏）→ 报错退出，绝不猜测性修复
+
+---
+
 ## 常见问题
 
 ### Q: 如何添加新的配置字段？

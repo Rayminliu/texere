@@ -18,7 +18,7 @@ evidence/
 ├── page-001.png         # Sample screenshots (first, middle, last pages)
 ├── page-069.png
 ├── page-272.png
-└── signature            # checksum manifest: docx + report hashes, check summary
+└── signature            # checksum manifest: docx + report + all screenshot hashes, check summary
 ```
 
 The file is named `signature` for historical reasons, but it is a **checksum manifest, not a cryptographic
@@ -69,7 +69,7 @@ Passed: 7/9 (skipped: 2)
 Evidence package saved to: evidence/
   - report.json (structured validation report)
   - page-XXX.png (sample screenshots)
-  - signature (checksum manifest: docx + report hashes)
+  - signature (checksum manifest: docx + report + all screenshot hashes)
 ```
 
 If any check fails, exit code is 1 and you get a detailed error message. Flags

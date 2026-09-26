@@ -1,0 +1,94 @@
+{
+  "version": "1.0",
+  "name": "Neutral English Profile",
+  "description": "Layout baseline for English formal documents (reports, specs): Times New Roman body, Arial headings, block paragraphs without first-line indent. Layout baseline only - not a claim of English business-document convention coverage.",
+  "page": {
+    "width": 21,
+    "height": 29.7,
+    "unit": "cm",
+    "margin_top": 2.54,
+    "margin_bottom": 2.54,
+    "margin_left": 2.54,
+    "margin_right": 2.54
+  },
+  "styles": {
+    "body": {
+      "font_eastAsia": "宋体",
+      "font_latin": "Times New Roman",
+      "size": 11,
+      "line_spacing": 1.15,
+      "first_line_indent": 0,
+      "space_before": 0,
+      "space_after": 6
+    },
+    "h1": {
+      "font_eastAsia": "黑体",
+      "font_latin": "Arial",
+      "size": 14,
+      "bold": true,
+      "page_break_before": false,
+      "space_before": 18,
+      "space_after": 6
+    },
+    "h2": {
+      "font_eastAsia": "黑体",
+      "font_latin": "Arial",
+      "size": 12,
+      "bold": true,
+      "page_break_before": false,
+      "space_before": 14,
+      "space_after": 6
+    },
+    "h3": {
+      "font_eastAsia": "黑体",
+      "font_latin": "Arial",
+      "size": 11,
+      "bold": true,
+      "page_break_before": false,
+      "space_before": 10,
+      "space_after": 4
+    }
+  },
+  "caption": {
+    "alignment": "center",
+    "keep_with_next": true,
+    "color": "#404040",
+    "size": 10,
+    "space_before": 6,
+    "space_after": 4,
+    "italic": false
+  },
+  "table": {
+    "border": "full",
+    "border_size": 6,
+    "border_color": "#808080",
+    "header_shade": "#EDEDED",
+    "header_bold": true,
+    "header_center": true,
+    "repeat_header": true,
+    "cell_margin_v": 40,
+    "cell_margin_h": 80,
+    "size": 10,
+    "zebra": false,
+    "zebra_fill": "#F7F7F7"
+  },
+  "header": {
+    "size": 9,
+    "color": "#595959",
+    "rule_color": "#BFBFBF",
+    "rule_size": 4
+  },
+  "footer": {
+    "page_number_template": "Page {n}",
+    "page_number_size": 9,
+    "alignment": "center"
+  },
+  "toc": {
+    "depth": "1-2",
+    "title": "Table of Contents",
+    "title_size": 14,
+    "title_color": "#000000",
+    "placeholder": "[Table of contents will be generated on open; select all and press F9 if not shown]",
+    "placeholder_size": 11
+  }
+}

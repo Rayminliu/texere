@@ -1200,6 +1200,17 @@ def generate_evidence_package(
         report_hash = hashlib.sha256(f.read()).hexdigest()
 
     sig_path = os.path.join(out_dir, "signature")
+    # 全量文件清单：report.json + 全部截图的 sha256——证据目录里任何一个文件
+    # 被事后改动都可检出（此前只盖 docx 与 report，截图是漏项）。
+    # signature 自身排除（自引用不可行）；排序保证清单确定性。
+    evidence_files = {}
+    for name in sorted(os.listdir(out_dir)):
+        p = os.path.join(out_dir, name)
+        if name == "signature" or not os.path.isfile(p):
+            continue
+        with open(p, "rb") as f:
+            evidence_files[name] = hashlib.sha256(f.read()).hexdigest()
+
     with open(sig_path, "w", encoding="utf-8") as f:
         f.write("# texere validation manifest (checksums, not a cryptographic signature)\n")
         f.write("# Generated: %s\n" % report["metadata"]["timestamp"])
@@ -1210,6 +1221,10 @@ def generate_evidence_package(
         )
         # 单独记 skipped：证据里也要能看出「9 项里有几项其实没查」
         f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
+        f.write("generated_at: %s\n" % report["metadata"]["timestamp"])
+        f.write("tool_version: %s\n" % __version__)
+        for name, digest in evidence_files.items():
+            f.write("file[%s]: %s\n" % (name, digest))
 
     return report
 

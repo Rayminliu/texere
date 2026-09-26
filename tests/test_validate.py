@@ -338,6 +338,14 @@ class TestEvidencePackage:
         assert "report_hash" in content
         assert "cryptographic" in content  # 明说是 checksum manifest，不是签名
 
+        # 全量文件清单：报告与全部截图都必须入清单（此前只盖 docx 与 report，截图是漏项）
+        assert "tool_version:" in content
+        assert "generated_at:" in content
+        assert "file[report.json]:" in content
+        for name in sorted(os.listdir(evidence_dir)):
+            if name.startswith("page-"):
+                assert "file[%s]:" % name in content, "截图 %s 未入证据清单" % name
+
         # Should have at least one screenshot
         png_files = list(evidence_dir.glob("page-*.png"))
         assert len(png_files) >= 1

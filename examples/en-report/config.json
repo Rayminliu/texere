@@ -1,0 +1,16 @@
+{
+  "header": "Sample Project · Progress Report",
+  "title": "Quarterly Progress Report",
+  "author": "Example Technology Co., Ltd.",
+  "subject": "Progress Report",
+  "reference_doc": "assets/ref-en.docx",
+  "toc_heading": "Table of Contents",
+  "style": {
+    "page_number": "Page {n}",
+    "page_number_size": 9,
+    "header_size": 9,
+    "table_border": "full",
+    "table_shade": "EDEDED",
+    "caption_gray": "404040"
+  }
+}
