@@ -528,13 +528,23 @@ def export_pdf_once(
 
 
 def check_renderer_acceptance(
-    export_ok: bool, export_err: str, renderer_name: str = "Word"
+    export_ok: bool,
+    export_err: str,
+    renderer_name: str = "Word",
+    renderer_ok: bool = True,
+    renderer_why: str = "",
 ) -> CheckResult:
     """真机验收：渲染器打开 + 导出 PDF（基于步骤 1 的共享导出结果）。
 
     名称随渲染器走（Word / WPS / LibreOffice），不再写死 word_acceptance——
     否则 --renderer wps 时检查名仍叫 word_acceptance 就是语义撒谎。
+    渲染器根本不在（托管 CI / 未装 Office）→ SKIP：查不了当 FAIL 与查不了当
+    PASS 是同一种失真，与缺 PyMuPDF 的 SKIP 同语义；装了但导出失败才是真 FAIL。
     """
+    if not renderer_ok:
+        return CheckResult(
+            "renderer_acceptance", SKIP, f"跳过 ({renderer_name} 不可用：{renderer_why})"
+        )
     if export_ok:
         return CheckResult("renderer_acceptance", PASS, f"{renderer_name} 验收：OK")
     return CheckResult("renderer_acceptance", FAIL, f"{renderer_name} 验收失败：{export_err}")
@@ -1064,6 +1074,9 @@ def generate_evidence_package(
     tmp_dir = tempfile.mkdtemp(prefix="texere_validate_")
     pdf_path = os.path.join(tmp_dir, "verify.pdf")
     rndr = renderer or get_renderer("word")
+    # 渲染器在不在是 acceptance 的前置：不在只能 SKIP，不能冒充「验收失败」——
+    # 「没装渲染器」和「渲染验收失败」是两种完全不同的结论
+    rndr_ok, rndr_why = type(rndr).available()
     try:
         export_ok, export_err, render_res = export_pdf_once(docx_path, pdf_path, renderer=rndr)
         renderer_name = render_res.renderer_name
@@ -1096,7 +1109,7 @@ def generate_evidence_package(
             (
                 "renderer_acceptance",
                 check_renderer_acceptance,
-                (export_ok, export_err, renderer_name),
+                (export_ok, export_err, renderer_name, rndr_ok, rndr_why),
             ),
             (
                 "visual_drift",
