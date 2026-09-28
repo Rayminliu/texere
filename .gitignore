@@ -44,3 +44,7 @@ documents/
 Thumbs.db
 desktop.ini
 *.log
+
+# coverage 运行数据
+.coverage
+htmlcov/
