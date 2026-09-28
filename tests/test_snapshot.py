@@ -105,3 +105,23 @@ def test_snapshot_requires_baseline(tmp_path):
     assert r.returncode == 1
     # sys.exit 的提示走 stderr
     assert "基线" in (r.stdout + r.stderr).decode("utf-8", "replace")
+
+
+def test_snapshot_renderer_mismatch_rejected(tmp_path):
+    """基线 meta 记录的渲染器与本次 --renderer 不一致必须拒绝（跨渲染器像素不可比）。"""
+    pdf = make_pdf(tmp_path / "r.pdf", [LOREM])
+    assert run_script("snapshot.py", pdf, "--update").returncode == 0
+    # 模拟目录被挪错位置：word 录制的基线躺在了 libreoffice 的目录里
+    os.rename(tmp_path / "baselines" / "word", tmp_path / "baselines" / "libreoffice")
+    r = run_script("snapshot.py", pdf, "--renderer", "libreoffice")
+    assert r.returncode == 1
+    assert "不可比" in (r.stdout + r.stderr).decode("utf-8", "replace")
+
+
+def test_snapshot_renderers_use_separate_dirs(tmp_path):
+    """两个渲染器各录各的基线（baselines/<renderer>/），互不覆盖。"""
+    pdf = make_pdf(tmp_path / "r.pdf", [LOREM])
+    assert run_script("snapshot.py", pdf, "--update", "--renderer", "word").returncode == 0
+    assert run_script("snapshot.py", pdf, "--update", "--renderer", "libreoffice").returncode == 0
+    assert (tmp_path / "baselines" / "word" / "meta.json").exists()
+    assert (tmp_path / "baselines" / "libreoffice" / "meta.json").exists()

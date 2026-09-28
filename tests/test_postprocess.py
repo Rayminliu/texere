@@ -738,3 +738,61 @@ def test_no_h1_is_processed(tmp_path):
     assert not any(p.text.strip().startswith("目") and "录" in p.text for p in doc.paragraphs), (
         "没有标题就不该插目录"
     )
+
+
+def test_render_warns_on_unknown_config_key(tmp_path):
+    """config 顶层未知键必须有 [warn]——外部反馈：page_number 写顶层被静默忽略。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    shutil.copy(os.path.join(KIT, "assets", "sample.md"), src / "01_sample.md")
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"style": {}, "toplevel_typo": 1}), encoding="utf-8")
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(src),
+            "--out",
+            str(tmp_path / "o.docx"),
+            "--config",
+            str(cfg),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0
+    assert "[warn]" in r.stdout and "toplevel_typo" in r.stdout
+
+
+def test_math_survives_postprocess(tmp_path):
+    """公式守卫：行内/显示公式必须以原生 OMML 存活到 docx（外部审计实测过的边界）。"""
+    import zipfile
+
+    md = "质能方程 $E=mc^2$ 是物理学的基石。\n\n$$\n\\int_0^1 x \\, dx = \frac{1}{2}\n$$\n"
+    docx = _build_md(tmp_path, md, {})
+    xml = zipfile.ZipFile(docx).read("word/document.xml").decode("utf-8")
+    assert xml.count("<m:oMath") >= 2, "行内/显示公式丢失——post.py 可能吞了 OMML"
+    assert "oMathPara" in xml, "显示公式应成段（oMathPara）"
+
+
+def test_render_creates_out_parent_dir(tmp_path):
+    """--out 指向不存在的父目录时自动创建（外部审计 R2：pandoc/SaveAs 遇缺目录直接挂）。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    shutil.copy(os.path.join(KIT, "assets", "sample.md"), src / "01_sample.md")
+    out = tmp_path / "nested" / "deeper" / "o.docx"
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(src),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert out.exists(), "嵌套 --out 目录应被自动创建"

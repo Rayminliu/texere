@@ -42,7 +42,7 @@ __version__ = _read_version()
 # （改成 utf-8 反而会让控制台显示乱码），只把无法编码的字符降级为 ?。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(errors="replace")
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # 乱码的真正根源：子进程（post.py / check_pdf.py 等）的 stdout 接管道时按系统
 # locale（GBK）编码，而下面用 utf-8 解码 → 中文变乱码再被 ? 替换。
@@ -203,6 +203,18 @@ def doctor():
         if "pandoc" in missing:
             print("  winget install --id JohnMacFarlane.Pandoc   # 已装则把所在目录加进 PATH")
         return 1
+    # 别人家的 Word 进程会锁住 COM 调用（外部审计实测）：启动前就存在的 WINWORD 需要提示
+    if os.name == "nt":
+        try:
+            tl = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq WINWORD.EXE"], capture_output=True, text=True
+            )
+            if "WINWORD.EXE" in (tl.stdout or ""):
+                print("\n[warn] 检测到已在运行的 WINWORD.EXE——既有 Word 实例可能锁住 COM 导出；")
+                print("       若 PDF 导出异常，先关闭所有 Word 再试。")
+        except Exception:
+            pass  # tasklist 不可用（非 Windows / 精简环境）时静默跳过
+
     # 能力感知 preflight：不再只吐一个全局 OK，而是按管线给出 READY / NOT READY，
     # 避免用户把「docx 可用」误读成「完整 Texere 环境就绪」。
     print("\n管线就绪度：")
@@ -248,14 +260,43 @@ def preflight(want_pdf, want_check, renderer_name="word"):
             sys.exit("缺少 PyMuPDF，无法做 PDF 目视验收：\n  pip install PyMuPDF   或去掉 --check")
 
 
-def render(src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word"):
+def render(
+    src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word", keep_pages=False
+):
     import json
 
     preflight(want_pdf, want_check, renderer_name)
     cfg = {}
     if config_path and os.path.exists(config_path):
         cfg = json.load(open(config_path, encoding="utf-8-sig"))
+    # 未知顶层键告警：键写错层级/拼错会被静默忽略（外部实测踩坑：
+    # page_number/toc_title 写在顶层毫无作用）。白名单与 docs/CONFIG 字段表同步。
+    known = {
+        "title",
+        "author",
+        "subject",
+        "comments",
+        "header",
+        "cover",
+        "toc",
+        "toc_heading",
+        "style",
+        "caption_words",
+        "content_fixes",
+        "content_fixes_file",
+        "reference_doc",
+        "resource_paths",
+    }
+    for k in sorted(set(cfg) - known):
+        print(
+            "[warn] config 顶层键 %r 不被识别——多半是应放进 style 段或拼写有误，"
+            "键表见 docs/CONFIG.zh-CN.md" % k
+        )
     ref = cfg.get("reference_doc") or os.path.join(KIT, "assets", "ref.docx")
+    # --out 指向不存在的目录时直接建好（外部审计：pandoc/SaveAs 遇缺父目录直接挂）
+    out_parent = os.path.dirname(os.path.abspath(out_docx))
+    if out_parent:
+        os.makedirs(out_parent, exist_ok=True)
 
     tmp = tempfile.mkdtemp(prefix="texere_")
     # 用 atexit 而不是在函数末尾 rmtree：任何 sys.exit（preflight、子进程报错、
@@ -354,6 +395,8 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="
     )
     print("[3/3] postprocess ->", out_docx)
     check_images(merged, out_docx)
+    if not want_pdf:
+        print("[hint] 仅产出 docx（无渲染器依赖，秒级）；需要 PDF/真机验收时追加 --pdf --check")
 
     if want_pdf:
         pdf = os.path.splitext(out_docx)[0] + ".pdf"
@@ -368,6 +411,15 @@ def render(src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="
             print("[warn] %s" % w)
         if want_check:
             run([sys.executable, os.path.join(KIT, "scripts", "check_pdf.py"), pdf])
+            # check_pages/ 默认随临时目录清理（外部反馈：29 张 PNG 散落工作目录）；
+            # 要肉眼检查时用 --keep-pages 留在原地
+            pages_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "check_pages")
+            if os.path.isdir(pages_dir):
+                if keep_pages:
+                    print("[check] 页面截图保留在 %s" % pages_dir)
+                else:
+                    shutil.move(pages_dir, os.path.join(tmp, "check_pages"))
+                    print("[check] 页面截图已随临时目录清理（保留用 --keep-pages）")
     shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -398,6 +450,11 @@ def main():
     ap.add_argument("--config")
     ap.add_argument("--pdf", action="store_true")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument(
+        "--keep-pages",
+        action="store_true",
+        help="--check 的页面截图保留在 PDF 同目录 check_pages/（默认随临时目录清理）",
+    )
     ap.add_argument(
         "--renderer",
         choices=list(SUPPORTED_RENDERERS),
@@ -433,7 +490,7 @@ def main():
     if a.check and not a.pdf:
         print("[note] --check 依赖 PDF，已自动启用 --pdf")
         a.pdf = True
-    render(a.src, a.out, a.config, a.pdf, a.check, a.renderer)
+    render(a.src, a.out, a.config, a.pdf, a.check, a.renderer, keep_pages=a.keep_pages)
 
 
 if __name__ == "__main__":

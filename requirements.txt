@@ -8,5 +8,6 @@ typing-extensions>=4.16.0
 # Install separately on Windows: pip install pywin32>=312
 
 # Development tools (optional, for code quality):
-ruff>=0.9.0
+ruff==0.16.8  # 与 .pre-commit-config.yaml 的 rev 钉同版，避免本地/CI 格式判定漂移
 pytest>=8.3
+pytest-cov  # 覆盖率度量：python -m pytest -q --cov=scripts --cov-report=term（子进程脚本不在统计内）

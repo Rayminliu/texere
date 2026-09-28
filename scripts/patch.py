@@ -75,7 +75,7 @@ __version__ = _read_version()
 # Windows 控制台编码处理
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(errors="replace")
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 # =============================================================================

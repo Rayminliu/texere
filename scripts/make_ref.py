@@ -21,6 +21,11 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # python-docx 1.2 在按 style_id 命中样式时会告警。本模板里 Caption 的 name 与 styleId 同名，

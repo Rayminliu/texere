@@ -21,6 +21,44 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 0.7.1 — 2026-09-29 (外部实测反馈修复·两轮)
+
+外部审计两轮共 12 项输入——4 项属旧版本问题（当前代码已修，审计方请升级到
+≥ v0.6.3 重测），8 项当场修复：
+
+**第一轮（审计 vs v0.6.3 前的旧码 + 4 项现行问题）：**
+
+- **[warn] config 未知顶层键**：键写错层级 / 拼错会被静默忽略（实测：page_number、
+  toc_title 写在顶层毫无作用）——render 启动时对白名单外的顶层键逐个 [warn]，
+  白名单与 docs/CONFIG 字段表同步。
+- **控制台编码**：全部脚本强制 `sys.stdout/stderr.reconfigure(encoding="utf-8",
+  errors="replace")`——GBK 终端下中文 / emoji 不再乱码（此前只换了错误策略，没换编码）。
+- **check_pages/ 不再散落**：`--check` 的页面截图默认随临时目录清理（外部实测一次
+  留下 29 张 PNG），要肉眼检查用 `--keep-pages` 保留在 PDF 同目录。
+- **docx-only 提示**：不加 `--pdf` 时输出 [hint]——只出 docx 秒级完成、无需渲染器
+  （反馈者以为验收必须走 Word 全流程；能力一直在，可发现性不在）。
+
+**第二轮（对着当前代码核实过的 6 条，4 条并入本版）：**
+
+- **--out 父目录自动创建**：pandoc / Word SaveAs 遇缺父目录直接挂——render 建目录后渲染。
+- **--doctor 僵尸 WINWORD 告警**：启动前已存在的他人 Word 实例会锁 COM 导出（审计当天真实踩到）。
+- **证据 provenance 三件**：validate 新增 `--config` / `--reference`，把 config.json 与
+  ref.docx 的 sha256、完整 CLI 命令行、pandoc 版本写进 metadata 与 signature——
+  证据此前只回答「哪个产物」，现在连「哪份契约 + 哪个模板 + 哪个转换器」一起回答。
+- **公式 OMML 边界文档化**：行内 / 显示公式经 pandoc 原生转 OMML 存活全管线（审计实测），
+  已知边界补一条 + `test_math_survives_postprocess` 守卫防未来回归。
+
+**随批加固**（同日精修）：近空白页豁免（签字 / 盖章 / 无正文声明属有意稀疏）、
+快照基线按渲染器分目录 + renderer 不一致拒比、ruff 钉版 0.16.8（pre-commit 与 CI 同版）、
+actions 升级 v7（Node 20 告警消除）。
+
+**已在旧版修复、无需重做**（审计方请升级到 ≥ v0.6.3 重测）：TOC 假阳性（hasattr 短路 →
+instrText 直扫）与「异常算通过」（→ 一律 ERROR/FAIL）在 v0.6.3 的验证器可信化中落地；
+SKIP 独立计数、不计入通过。
+
+**延后**：examples/lab-report/ 试点（等公式守卫落地后下批，即现在）、grid table 错位
+前置告警（align_tables 解析复用，下批）。用例数 281 → 290。
+
 ## 0.7.0 — 2026-09-27 (解冻首版：运维加固 + 英文基线)
 
 图表自动编号经风险评估后**放弃**（0.2.0 的教训 + 域缓存与证据签名可能分歧；

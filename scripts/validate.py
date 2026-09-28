@@ -68,7 +68,7 @@ __version__ = _read_version()
 # Windows 控制台编码处理
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(errors="replace")
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 # =============================================================================
@@ -632,6 +632,13 @@ def check_page_numbering(pdf_path, max_pages: int = 1000) -> CheckResult:
         return CheckResult("page_numbering", ERROR, f"检查失败：{type(e).__name__} - {e}")
 
 
+# 近空白页的**有意稀疏**豁免：签字 / 盖章 / 无正文声明出现在页面上，说明该页
+# 本来就该只有这几行——不计入空页（README「已知边界」的表单尾页误报）。
+SPARSE_OK_RE = re.compile(
+    r"签字|签章|盖章|签署|公章|以下无正文|intentionally left blank", re.IGNORECASE
+)
+
+
 def check_blank_pages(pdf_path, max_empty: int = 0) -> CheckResult:
     """检查空白页数量 (基于共享导出的 PDF)。"""
     if pdf_path is None:
@@ -642,16 +649,25 @@ def check_blank_pages(pdf_path, max_empty: int = 0) -> CheckResult:
         pdf_doc = pymupdf.open(pdf_path)
         try:
             empty_count = 0
+            exempt_count = 0
             for page_num in range(len(pdf_doc)):
-                # 简单判断：如果文字极少（少于 10 个字符），视为空白页
-                if len(pdf_doc[page_num].get_text("text").strip()) < 10:
-                    empty_count += 1
+                # 简单判断：文字极少（少于 10 个字符）视为近空白页
+                txt = pdf_doc[page_num].get_text("text").strip()
+                if len(txt) >= 10:
+                    continue
+                # 但签字 / 盖章 / 无正文声明属于**有意稀疏**，不算误报
+                if SPARSE_OK_RE.search(txt):
+                    exempt_count += 1
+                    continue
+                empty_count += 1
             n_total = len(pdf_doc)
         finally:
             pdf_doc.close()
 
         passed = empty_count <= max_empty
         status = f"空白页：{empty_count}/{n_total} (阈值：{max_empty})"
+        if exempt_count:
+            status += f"，豁免有意稀疏页 {exempt_count}"
         return CheckResult("blank_pages", PASS if passed else FAIL, status)
     except Exception as e:
         return CheckResult("blank_pages", ERROR, f"检查失败：{type(e).__name__} - {e}")
@@ -1042,6 +1058,24 @@ def compile_profile_checks(profile, docx_path) -> list:
 # =============================================================================
 
 
+def _pandoc_version() -> str:
+    """pandoc 版本进证据：provenance 缺「转换器是谁」就少一环（外部审计 R2）。"""
+    try:
+        import subprocess
+
+        out = subprocess.run(["pandoc", "--version"], capture_output=True, text=True).stdout
+        return (out.splitlines() or ["unknown"])[0].strip()
+    except Exception:
+        return "unknown"
+
+
+def _sha256_file(path):
+    if path and os.path.exists(path):
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    return None
+
+
 def generate_evidence_package(
     docx_path: str,
     out_dir: str,
@@ -1053,6 +1087,8 @@ def generate_evidence_package(
     sample_visual: bool = False,
     enforce_profile: bool = False,
     renderer=None,
+    config_path: str = None,
+    reference_doc: str = None,
 ):
     """生成证据包：report.json + 截图 + signature。"""
     os.makedirs(out_dir, exist_ok=True)
@@ -1064,6 +1100,11 @@ def generate_evidence_package(
             "document": os.path.basename(docx_path),
             "tool_version": __version__,
             "profile": profile or {},
+            # provenance：证据要能回答「哪个产物 + 哪份契约 + 哪个转换器」（外部审计 R2）
+            "cli": " ".join(sys.argv),
+            "pandoc_version": _pandoc_version(),
+            "config_sha256": _sha256_file(config_path),
+            "reference_sha256": _sha256_file(reference_doc),
         },
         "checks": {},
         # skipped 独立于 passed：「没检查」不许冒充实测通过。
@@ -1223,6 +1264,12 @@ def generate_evidence_package(
         f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
         f.write("generated_at: %s\n" % report["metadata"]["timestamp"])
         f.write("tool_version: %s\n" % __version__)
+        f.write("pandoc_version: %s\n" % report["metadata"].get("pandoc_version", "unknown"))
+        # 契约指纹：config 与 ref.docx 决定版式——证据缺了它们就缺「哪个契约」这一环
+        if report["metadata"].get("config_sha256"):
+            f.write("config_sha256: %s\n" % report["metadata"]["config_sha256"])
+        if report["metadata"].get("reference_sha256"):
+            f.write("reference_sha256: %s\n" % report["metadata"]["reference_sha256"])
         for name, digest in evidence_files.items():
             f.write("file[%s]: %s\n" % (name, digest))
 
@@ -1313,6 +1360,14 @@ def main():
         default="word",
         help="PDF 导出渲染器：word（默认，需本机 Word）/ libreoffice / wps",
     )
+    ap.add_argument(
+        "--config",
+        help="渲染时使用的 config.json——其 sha256 进证据（provenance：哪份契约）",
+    )
+    ap.add_argument(
+        "--reference",
+        help="渲染时使用的 reference docx——其 sha256 进证据（provenance：哪个模板）",
+    )
     a = ap.parse_args()
 
     if not os.path.exists(a.docx):
@@ -1344,6 +1399,8 @@ def main():
         a.sample_visual,
         a.enforce_profile,
         renderer=renderer,
+        config_path=a.config,
+        reference_doc=a.reference,
     )
 
     # 打印报告

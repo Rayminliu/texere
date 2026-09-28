@@ -627,3 +627,35 @@ class TestFinalizeIsReadOnly:
         assert r.returncode == 0, r.stderr
         after = _sha256(src)
         assert before != after, "--save-updated-fields 应把刷新后的域写回原 docx"
+
+
+def test_provenance_recorded(tmp_path):
+    """证据必须回答「哪个契约 + 哪个转换器」：config/ref 的 sha256 与 pandoc 版本进 metadata 和 signature。"""
+    docx = _build_sample_docx(tmp_path)
+    evidence_dir = tmp_path / "evidence"
+    result = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "validate.py"),
+            docx,
+            "--out",
+            str(evidence_dir),
+            "--quiet",
+            "--config",
+            os.path.join(KIT, "assets", "sample_config.json"),
+            "--reference",
+            os.path.join(KIT, "assets", "ref.docx"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    report = json.load(open(evidence_dir / "report.json", encoding="utf-8"))
+    md = report["metadata"]
+    assert md["config_sha256"] and len(md["config_sha256"]) == 64
+    assert md["reference_sha256"] and len(md["reference_sha256"]) == 64
+    assert md["pandoc_version"] and md["pandoc_version"] != "unknown"
+    assert md["cli"], "CLI 命令行应进 metadata"
+    sig = (evidence_dir / "signature").read_text(encoding="utf-8")
+    for key in ("config_sha256:", "reference_sha256:", "pandoc_version:"):
+        assert key in sig, "signature 缺 %s" % key

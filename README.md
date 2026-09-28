@@ -215,7 +215,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 281 assertions, ~6 min (measured 6m1s, needs a renderer — defaults to Word)
+python -m pytest -q                                              # 290 assertions, ~6 min (measured 6m1s, needs a renderer — defaults to Word)
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -379,14 +379,18 @@ Follow these when editing the template or hand-writing content:
   (single-column) table. Verify by rendering, or align in one command:
   `python scripts/align_tables.py chapters/*.md --fix` (cell bytes are preserved; see
   [SCRIPT_HELP](docs/SCRIPT_HELP.md)).
+- **Math**: inline `$...$` and display `$$…$$` survive the pipeline as native OMML (guarded by a test);
+  equation numbering and math font management are out of scope.
 - **Renderer-bound, not Word-bound**: see the Platform note at the top. Parsing and typesetting don't need
   any Office; the PDF export and half of the acceptance chain run through whichever renderer you pick
   (`--renderer word|libreoffice|wps`). `LibreOffice` is the portable option; `Word`/`WPS` are the
   Chinese-Office fidelity options.
-- `--check` also flags pages that are legitimately sparse: the signature block at the end of a form, a
-  heading alone before a large table. Those are false positives — relax with `--max-empty N`.
-- Snapshot baselines depend on the local Word version and fonts. **After switching machines, re-record with
-  `snapshot.py --update`**, or you will see drift everywhere. The threshold is 0.1 % (measured: exporting the
+- `--check` also flags pages that are legitimately sparse: a heading alone before a large table still
+  needs `--max-empty N`. Signature / seal / "no further content" declaration pages are **intentionally
+  sparse** and are exempted automatically.
+- Snapshot baselines live in per-renderer directories (`baselines/word/` etc.) and depend on the local
+  renderer version and fonts. **After switching machines or renderers, re-record with
+  `snapshot.py --update --renderer <r>`**, or you will see drift everywhere. The threshold is 0.1 % (measured: exporting the
   same document twice gives 0.00 %, changing one header line gives 0.16 %).
 - Quarto is not used: its 1.10.x docx output drops table bodies when captions are auto-numbered.
 
@@ -397,7 +401,7 @@ pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + 
 pre-commit run --all-files                             # lint + format + a Word-free test subset
 # Word half: skipped on CI, only verifiable locally (patch/validate e2e + Word/WPS contracts)
 python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # full suite: 281 assertions, ~6 min (measured 6m1s; before releases / renderer-chain changes)
+python -m pytest -q                                    # full suite: 290 assertions, ~6 min (measured 6m1s; before releases / renderer-chain changes)
 ```
 
 > **Hosted CI runs the renderer-free half** ([ci.yml](.github/workflows/ci.yml)): ruff + the fast subset +
@@ -446,8 +450,8 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `assets/sample.md` / `assets/sample_config.json` | Pinned regression fixture, not a showcase: `--sample`, four test files and `baselines/` all render this one document. Showcases live in `examples/` |
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` (CLI), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — each with a `.zh-CN` mirror |
-| `baselines/` | Snapshot baselines (4 PNG pages of the sample) |
-| `tests/` | 281 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
+| `baselines/` | Snapshot baselines (per-renderer dirs, e.g. baselines/word/) |
+| `tests/` | 290 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## 📜 License

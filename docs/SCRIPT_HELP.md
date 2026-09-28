@@ -32,7 +32,7 @@ python scripts/render.py --version
 - `--out <file>`: 输出 DOCX 文件路径（必需）
 - `--config <file>`: 配置文件路径（可选）
 - `--pdf`: 生成 PDF 格式（默认用本机 Word 渲染器，可用 `--renderer` 切换为 libreoffice / wps）
-- `--check`: 检查 PDF 视觉质量（需要 PyMuPDF）
+- `--check`: 检查 PDF 视觉质量（需要 PyMuPDF）；页面截图默认随临时目录清理，`--keep-pages` 保留在 PDF 同目录 check_pages/
 - `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word）
 - `--doctor`: 环境自检
 - `--sample`: 运行样本文档测试
@@ -95,6 +95,8 @@ python scripts/validate.py bid.docx --quiet
 - `--enforce-profile`: 把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言
   （profile 即文档规范；默认只把 profile 当 baseline 选择器，不强制）
 - `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word；PDF 相关验收随之切换）
+- `--config <file>`: 渲染时的 config.json——其 sha256 进证据（provenance：哪份契约）
+- `--reference <file>`: 渲染时的 reference docx——其 sha256 进证据（provenance：哪个模板）
 - `--quiet`: 静默模式
 
 ### 验证项（9 项）
@@ -390,19 +392,23 @@ python scripts/snapshot.py <document.pdf> [OPTIONS]
 
 ### 示例
 ```bash
-# 首次记录基线（写入 <PDF 同目录>/baselines/）
+# 首次记录基线（写入 <PDF 同目录>/baselines/word/）
 python scripts/snapshot.py output.pdf --update
 
 # 回归比对（漂移 exit 1）
 python scripts/snapshot.py output.pdf
+
+# LibreOffice 渲染的 PDF 单独录基线（跨渲染器像素不可比，目录分开）
+python scripts/snapshot.py output.pdf --renderer libreoffice --update
 
 # 更高精度比对（更慢更敏感）
 python scripts/snapshot.py output.pdf --dpi 150 --max-diff 0.0005
 ```
 
 ### 参数说明
-- `<document.pdf>`: PDF 文件（必需）；基线目录固定为其同级的 `baselines/`，无命令行参数可改
-- `--update`: 录制/更新基线图片与 meta.json
+- `<document.pdf>`: PDF 文件（必需）；基线目录为其同级的 `baselines/<renderer>/`（--renderer 默认 word）
+- `--update`: 录制/更新基线图片与 meta.json（meta 含 renderer 标记）
+- `--renderer <word|libreoffice|wps>`: 基线归属的渲染器目录（默认 word）；与基线记录不一致时拒绝比对
 - `--dpi <n>`: 渲染精度（默认 100；与基线 meta 不一致时拒比对）
 - `--max-diff <r>`: 差异比例阈值（默认 0.001 = 0.1%；实测同文档重复导出 0.00%，改一处页眉 0.16%）
 

@@ -204,7 +204,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # 模板 �
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # 重建排版模板
 python scripts/snapshot.py 标书.pdf --update                     # 录版式基线（确认版式无误后）
 python scripts/snapshot.py 标书.pdf                              # 回归比对，漂移即 exit 1
-python -m pytest -q                                              # 281 项断言，约 6 分钟（实测 6 分 01 秒，需本机渲染器，默认 Word）
+python -m pytest -q                                              # 290 项断言，约 6 分钟（实测 6 分 01 秒，需本机渲染器，默认 Word）
 ```
 
 可运行示例——每个目录自带 Markdown + config，一条命令跑通（见 [examples/README.md](examples/README.md)）：
@@ -352,10 +352,13 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
   注意 pandoc 按**显示宽度**对齐——中文占 2 列，「等宽编辑器里看着齐」仍可能解析成单列坏表；
   改完务必渲染验证，或一键对齐：`python scripts/align_tables.py 章节目录/*.md --fix`
   （单元格内容字节不变，参数见 [SCRIPT_HELP](docs/SCRIPT_HELP.md)）；
+- **公式**：行内 `$...$` 与显示 `$$…$$` 经 pandoc 原生转 OMML 存活到 docx（守卫测试钉住）；
+  公式编号、公式字体管理不做；
 - **渲染器绑定，而非 Word 绑定**：见顶部「运行平台」。解析与排版逻辑不依赖任何 Office，PDF 导出和一半验收链条走你选的渲染器（`--renderer word|libreoffice|wps`）。`LibreOffice` 是便携选项，`Word`/`WPS` 是中文 Office 保真选项；
-- `--check` 会把「内容稀疏但合法的页面」也算作近空白页：表单尾页的签字盖章区、
-  大表格前的单独标题页等。这类是误报，用 `--max-empty N` 放宽；
-- 快照基线依赖本机 Word 版本与字体，**换机器后先 `snapshot.py --update` 重录**，
+- `--check` 会把「内容稀疏但合法的页面」也算作近空白页：大表格前的单独标题页等
+  仍需 `--max-empty N` 放宽；但签字 / 盖章 / 「以下无正文」声明页属**有意稀疏**，已自动豁免；
+- 快照基线按渲染器分目录（`baselines/word/` 等），依赖本机渲染器版本与字体，
+  **换机器或换渲染器后先 `snapshot.py --update --renderer <r>` 重录**，
   否则会满屏漂移；阈值默认 0.1%（实测同文档重复导出为 0.00%，改一处页眉为 0.16%）；
 - 不使用 Quarto：其 1.10.x 的 docx 对带自动编号题注的表格会丢失表体。
 
@@ -366,7 +369,7 @@ pip install ruff pre-commit && pre-commit install      # ruff 一个工具顶 fl
 pre-commit run --all-files                             # lint + 格式 + 不启 Word 的测试子集
 # Word 半边：CI 跳过、仅本机能验的部分（patch/validate e2e + Word/WPS 契约）
 python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # 全量：281 项断言，约 6 分钟（实测 6 分 01 秒；发版 / 改渲染链路前跑）
+python -m pytest -q                                    # 全量：290 项断言，约 6 分钟（实测 6 分 01 秒；发版 / 改渲染链路前跑）
 ```
 
 > **托管 CI 跑无渲染器的那一半**（[ci.yml](.github/workflows/ci.yml)）：ruff + 快速子集 +
@@ -413,8 +416,8 @@ python -m pytest -q                                    # 全量：281 项断言�
 | `assets/sample.md` / `assets/sample_config.json` | 钉死的回归夹具，不是展示样例：`--sample`、四个测试文件与 `baselines/` 都只渲染这一份文档。展示请看 `examples/` |
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `SCRIPT_HELP.md`（CLI）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——各有 `.zh-CN` 镜像 |
-| `baselines/` | 快照基线（样例 4 页 PNG） |
-| `tests/` | 281 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
+| `baselines/` | 快照基线（按渲染器分目录，如 baselines/word/） |
+| `tests/` | 290 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 📜 许可

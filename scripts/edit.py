@@ -45,7 +45,7 @@ KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 保持控制台原编码不变，只把无法编码的字符降级为 ?（与 render.py 同一取舍）。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(errors="replace")
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 

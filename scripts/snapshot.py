@@ -1,13 +1,17 @@
-"""PDF 版式快照回归：python scripts/snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]
+"""PDF 版式快照回归：python scripts/snapshot.py <file.pdf> [--update] [--renderer R] [--max-diff R] [--dpi N]
 
-把 PDF 每页渲染成 PNG，与 baselines/ 下的基线逐像素比对。
+把 PDF 每页渲染成 PNG，与 baselines/<renderer>/ 下的基线逐像素比对。
 差异比例超过 --max-diff（默认 0.5%）或页数不一致即退出码 1。
 
 用途：改了 ref.docx / post.py 之后跑一遍，确认版式没被悄悄改坏。
 
-  python scripts/snapshot.py out.pdf              # 比对
-  python scripts/snapshot.py out.pdf --update     # 重录基线（确认版式变更是有意的时候）
-  python scripts/snapshot.py out.pdf --dpi 150    # 更高精度（更慢、更敏感）
+基线按渲染器分目录（baselines/word/ 等）：Word 与 LibreOffice 的渲染像素
+天然不可比，混录会满屏假漂移——比对时 renderer 不一致直接拒绝。
+
+  python scripts/snapshot.py out.pdf                        # 比对（默认 word 基线）
+  python scripts/snapshot.py out.pdf --update               # 重录基线（确认版式变更是有意的时候）
+  python scripts/snapshot.py out.pdf --renderer libreoffice --update
+  python scripts/snapshot.py out.pdf --dpi 150              # 更高精度（更慢、更敏感）
 """
 
 import json
@@ -17,14 +21,21 @@ import sys
 
 import pymupdf
 
+# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 DEFAULT_DPI = 100
 # 0.1%。实测：同一文档重复导出 PDF 的差异为 0.00%，而改一个页眉文字会产生 0.16%，
 # 所以阈值必须压到 0.1% 才能抓住这种"小但真实"的漂移；0.5% 会直接漏报。
 DEFAULT_MAX_DIFF = 0.001
+RENDERERS = ("word", "libreoffice", "wps")
 
 
 def parse_args(argv):
     pdf, dpi, max_diff, update = None, DEFAULT_DPI, DEFAULT_MAX_DIFF, False
+    renderer = "word"
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -36,14 +47,22 @@ def parse_args(argv):
         elif a == "--max-diff":
             max_diff = float(argv[i + 1])
             i += 1
+        elif a == "--renderer":
+            renderer = argv[i + 1]
+            i += 1
         elif a.startswith("-"):
             sys.exit("未知参数: " + a)
         elif pdf is None:
             pdf = a
         i += 1
     if pdf is None:
-        sys.exit("用法: python scripts/snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]")
-    return pdf, dpi, max_diff, update
+        sys.exit(
+            "用法: python scripts/snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]"
+            " [--renderer word|libreoffice|wps]"
+        )
+    if renderer not in RENDERERS:
+        sys.exit("未知渲染器: %s（可选 %s）" % (renderer, " / ".join(RENDERERS)))
+    return pdf, dpi, max_diff, update, renderer
 
 
 def diff_ratio(a, b):
@@ -56,11 +75,11 @@ def diff_ratio(a, b):
 
 
 def main(argv):
-    pdf, dpi, max_diff, update = parse_args(argv)
+    pdf, dpi, max_diff, update, renderer = parse_args(argv)
     if not os.path.exists(pdf):
         sys.exit("找不到 PDF: " + pdf)
 
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "baselines")
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "baselines", renderer)
     meta_path = os.path.join(base_dir, "meta.json")
 
     doc = pymupdf.open(pdf)
@@ -71,7 +90,7 @@ def main(argv):
         for i in range(doc.page_count):
             doc[i].get_pixmap(dpi=dpi).save(os.path.join(base_dir, "p%03d.png" % (i + 1)))
         json.dump(
-            {"dpi": dpi, "pages": doc.page_count},
+            {"dpi": dpi, "pages": doc.page_count, "renderer": renderer},
             open(meta_path, "w", encoding="utf-8"),
         )
         print("baseline recorded: %d pages @ %d dpi -> %s" % (doc.page_count, dpi, base_dir))
@@ -80,6 +99,12 @@ def main(argv):
     if not os.path.exists(meta_path):
         sys.exit("没有基线，先跑：python scripts/snapshot.py %s --update" % os.path.basename(pdf))
     meta = json.load(open(meta_path, encoding="utf-8"))
+    if meta.get("renderer", "word") != renderer:
+        print(
+            "FAIL: 基线由 %s 录制，本次 --renderer %s——跨渲染器的像素不可比"
+            % (meta.get("renderer", "word"), renderer)
+        )
+        return 1
     if meta.get("dpi") != dpi:
         print(
             "[warn] 基线 dpi=%s，本次 %s，结果不可比；用 --dpi %s 或重录基线"

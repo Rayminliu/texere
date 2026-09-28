@@ -25,6 +25,11 @@ import re
 import sys
 import unicodedata
 
+# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 GRID_SEP_RE = re.compile(r"^\++[-=+]+\+$")
 BLOCK_LINE_RE = re.compile(r"^\s*[+|]")
 

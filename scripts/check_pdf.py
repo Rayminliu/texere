@@ -15,6 +15,11 @@ import sys
 
 import pymupdf
 
+# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 if len(sys.argv) < 2:
     sys.exit("用法: python scripts/check_pdf.py <file.pdf> [--max-empty N] [页码...]")
 

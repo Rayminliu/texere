@@ -26,7 +26,7 @@ from docx.oxml.ns import qn
 # 与 render.py / edit.py 同一取舍：保持原编码，只把无法编码的字符降级为 ?。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(errors="replace")
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 EMU_PER_CM = 360000
 

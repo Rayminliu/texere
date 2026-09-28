@@ -495,14 +495,14 @@ class TestEvidenceEnrichment:
 class TestBaselinePageDiff:
     def test_identical_image_has_zero_diff(self):
         pytest.importorskip("pymupdf")
-        p = os.path.join(KIT, "baselines", "p001.png")
+        p = os.path.join(KIT, "baselines", "word", "p001.png")
         assert v.baseline_page_diff(p, p) == 0.0
 
     def test_different_pages_report_drift(self):
         # 基线里的第 1 页 vs 第 2 页：必须判为漂移（> 0.1% 阈值）
         pytest.importorskip("pymupdf")
-        p1 = os.path.join(KIT, "baselines", "p001.png")
-        p2 = os.path.join(KIT, "baselines", "p002.png")
+        p1 = os.path.join(KIT, "baselines", "word", "p001.png")
+        p2 = os.path.join(KIT, "baselines", "word", "p002.png")
         assert v.baseline_page_diff(p1, p2) > v.DEFAULT_MAX_DIFF
 
 
@@ -678,3 +678,51 @@ class TestProfileContract:
             r for r in v.compile_profile_checks(prof2, str(p)) if r.name == "profile.body_font"
         )
         assert body2.status == v.PASS
+
+
+# ------------------------------------------------- 近空白页的有意稀疏豁免
+
+
+class TestBlankPagesSparseExemption:
+    """签字 / 盖章 / 无正文声明属于**有意稀疏**，不计入空页（README 已知边界的表单尾页误报）。"""
+
+    @staticmethod
+    def _pdf(tmp_path, lines):
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page()
+        for i, t in enumerate(lines):
+            page.insert_text((72, 100 + i * 18), t, fontsize=11, fontname="china-s")
+        p = tmp_path / "t.pdf"
+        doc.save(str(p))
+        return str(p)
+
+    def test_signature_page_exempt(self, tmp_path):
+        pdf = self._pdf(tmp_path, ["盖章"])
+        res = v.check_blank_pages(pdf, max_empty=0)
+        assert res.status == v.PASS
+        assert "豁免" in res.message
+
+    def test_short_noise_without_keyword_still_counts(self, tmp_path):
+        pdf = self._pdf(tmp_path, ["无"])
+        res = v.check_blank_pages(pdf, max_empty=0)
+        assert res.status == v.FAIL, "无关键字的真实短页仍应算空页"
+        assert res.message.startswith("空白页：1/")
+
+    def test_mixed_document_exempts_only_keyword_pages(self, tmp_path):
+        import pymupdf
+
+        doc = pymupdf.open()
+        p1 = doc.new_page()
+        p1.insert_text((72, 100), "This page has plenty of real body text to count.", fontsize=11)
+        p2 = doc.new_page()
+        p2.insert_text((72, 100), "盖章", fontsize=11, fontname="china-s")
+        doc.new_page()  # 完全空白页
+        p = tmp_path / "mix.pdf"
+        doc.save(str(p))
+
+        res = v.check_blank_pages(str(p), max_empty=0)
+        assert res.status == v.FAIL, "1 空页 > 阈值 0"
+        assert res.message.startswith("空白页：1/3")
+        assert "豁免有意稀疏页 1" in res.message

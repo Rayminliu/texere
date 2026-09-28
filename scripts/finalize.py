@@ -13,6 +13,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from renderers import WordRenderer
 
+# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 # 解析参数：位置参数 <in.docx> [out.pdf]，开关 --save-updated-fields
 save_updated = "--save-updated-fields" in sys.argv
 positional = [a for a in sys.argv[1:] if not a.startswith("--")]
