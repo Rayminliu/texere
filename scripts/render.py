@@ -165,6 +165,23 @@ def _pandoc():
 
 def doctor():
     """环境自检：pandoc / Python 依赖 / Word。缺核心依赖时退出码 1。"""
+    # 僵尸 Word 检查必须在渲染器探测**之前**（外部审计 R2 #3：available() 会起 COM，
+    # 既有 WINWORD 实例恰恰可能干扰探测本身——告警晚了就没意义）
+    if os.name == "nt":
+        try:
+            tl = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq WINWORD.EXE"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if "WINWORD.EXE" in (tl.stdout or ""):
+                print("[warn] 检测到已在运行的 WINWORD.EXE——既有实例可能干扰 COM 探测与导出；")
+                print("       若 PDF 导出异常，先关闭所有 Word 再试。")
+        except Exception:
+            pass  # tasklist 不可用（非 Windows / 精简环境）时静默跳过
+
     rows = []
 
     exe, ver = _pandoc()
@@ -195,6 +212,12 @@ def doctor():
     for name, state, _ in rows:
         print("%s%s  %s" % (name, " " * (width - dw(name)), state))
 
+    # pandoc 版本实测范围提示（外部审计 R2 #4）：超出 3.1–3.11 的行为没有验收背书
+    if ver:
+        _v = re.match(r"(\d+)\.(\d+)", ver)
+        if _v and not ((3, 1) <= (int(_v.group(1)), int(_v.group(2))) <= (3, 11)):
+            print("[warn] pandoc %s 未经实测（实测范围 3.1–3.11）：渲染行为可能有差异" % ver)
+
     missing = [n for n, s, ok in rows if not ok and "缺失" in s]
     if missing:
         print("\n缺失项处理：")
@@ -203,17 +226,6 @@ def doctor():
         if "pandoc" in missing:
             print("  winget install --id JohnMacFarlane.Pandoc   # 已装则把所在目录加进 PATH")
         return 1
-    # 别人家的 Word 进程会锁住 COM 调用（外部审计实测）：启动前就存在的 WINWORD 需要提示
-    if os.name == "nt":
-        try:
-            tl = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq WINWORD.EXE"], capture_output=True, text=True
-            )
-            if "WINWORD.EXE" in (tl.stdout or ""):
-                print("\n[warn] 检测到已在运行的 WINWORD.EXE——既有 Word 实例可能锁住 COM 导出；")
-                print("       若 PDF 导出异常，先关闭所有 Word 再试。")
-        except Exception:
-            pass  # tasklist 不可用（非 Windows / 精简环境）时静默跳过
 
     # 能力感知 preflight：不再只吐一个全局 OK，而是按管线给出 READY / NOT READY，
     # 避免用户把「docx 可用」误读成「完整 Texere 环境就绪」。
