@@ -48,3 +48,6 @@ desktop.ini
 # coverage 运行数据
 .coverage
 htmlcov/
+
+# ZCode 会话私有配置（审计者/平台相关，不入公开仓库）
+.zcodeignore
