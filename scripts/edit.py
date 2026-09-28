@@ -29,12 +29,16 @@
 
 import argparse
 import copy
+import hashlib
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 
+from _version import __version__
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -507,6 +511,14 @@ def cmd_hf(doc, text, sel, is_header):
         print("%s 节%d: -> %r" % (what, i, text))
 
 
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def cmd_verify(path):
     """复用生成链路的验收：让 Word 真正打开一次。打不开 = 结构改坏了。"""
     tmp = tempfile.mkdtemp(prefix="texere_edit_")
@@ -582,11 +594,17 @@ def main():
     ap.add_argument("--out", help="另存为（默认写回原文件）")
     ap.add_argument("--no-backup", action="store_true")
     ap.add_argument("--verify", action="store_true", help="改完调 Word 打开一次做验收")
+    ap.add_argument(
+        "--evidence",
+        metavar="文件",
+        help="把本次编辑的证据（前后 sha256、操作、verify 结论）写入该 JSON 文件",
+    )
     a = ap.parse_args()
 
     if not os.path.exists(a.docx):
         sys.exit("找不到文件: " + a.docx)
 
+    before_sha = _sha256(a.docx)  # 编辑链契约「其余字节不动」靠前后指纹自证（外部审计 R3 #1）
     doc = Document(a.docx)
 
     if a.list:
@@ -659,6 +677,22 @@ def main():
 
     if a.verify:
         cmd_verify(out)
+
+    # 证据：编辑链的契约是「只改指定处、其余字节不动」——用前后 sha256 自证
+    # verify 失败时已 fail-loud 退出（备份仍在），证据只记录成功与未验收两种
+    if a.evidence:
+        evidence = {
+            "timestamp": datetime.now().isoformat(),
+            "tool_version": __version__,
+            "ops": sys.argv[1:],
+            "before_sha256": before_sha,
+            "after_sha256": _sha256(out),
+            "verify": "OK" if a.verify else "未运行",
+        }
+        with open(a.evidence, "w", encoding="utf-8") as f:
+            json.dump(evidence, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        print("evidence ->", a.evidence)
 
 
 if __name__ == "__main__":

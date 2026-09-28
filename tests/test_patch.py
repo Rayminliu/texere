@@ -843,3 +843,39 @@ class TestAssessment:
         assert (
             "Issue" in result.stdout or "issue" in result.stdout.lower() or "问题" in result.stdout
         )
+
+    def test_evidence_records_before_after(self, tmp_path):
+        """证据必须同时覆盖变更前后 + verify 结论（外部审计 R3 #1）。"""
+        docx = _build_sample_docx(tmp_path)
+        evidence_dir = tmp_path / "evidence2"
+
+        patch = {
+            "id": "test-before-after",
+            "operations": [
+                {"op": "replace_text", "target": {"paragraph": 0}, "new_text": "replaced-content"}
+            ],
+        }
+        patch_file = tmp_path / "patch2.json"
+        patch_file.write_text(json.dumps(patch, ensure_ascii=False), encoding="utf-8")
+
+        subprocess.run(
+            [
+                sys.executable,
+                os.path.join(KIT, "scripts", "patch.py"),
+                str(docx),
+                str(patch_file),
+                "--apply",
+                "--out",
+                str(evidence_dir),
+                "--validate",
+            ],
+            check=True,
+        )
+
+        report = json.load(open(evidence_dir / "patch_report.json", encoding="utf-8"))
+        assert report["metadata"]["before_sha256"], "变更前指纹缺失"
+        assert report["metadata"]["verify"] == "PASS"
+        sig = (evidence_dir / "signature").read_text(encoding="utf-8")
+        assert "before_sha256:" in sig
+        assert "document_hash:" in sig
+        assert "verify: PASS" in sig

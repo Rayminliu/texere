@@ -567,8 +567,15 @@ def validate_patch_result(doc: Document, patch: dict) -> tuple[bool, list[str]]:
 # =============================================================================
 
 
-def generate_patch_evidence(doc: Document, patch: dict, out_dir: str):
-    """生成 Patch 证据包。"""
+def generate_patch_evidence(
+    doc: Document, patch: dict, out_dir: str, before_sha256: str = None, verify_result: str = None
+):
+    """生成 Patch 证据包。
+
+    编辑链的契约是「只改指定处、其余字节不动」——证据必须同时记录
+    before_sha256 与事后 document_hash，才能自证「其余字节确实没动」
+    （外部审计 R3 #1：渲染链有 report+signature，编辑链不能只靠 stdout）。
+    """
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     elif not os.path.isdir(out_dir):
@@ -580,6 +587,8 @@ def generate_patch_evidence(doc: Document, patch: dict, out_dir: str):
             "timestamp": datetime.now().isoformat(),
             "tool_version": __version__,
             "patch_id": patch.get("id", "unknown"),
+            "before_sha256": before_sha256,
+            "verify": verify_result,
         },
         "operations": [],
     }
@@ -606,7 +615,11 @@ def generate_patch_evidence(doc: Document, patch: dict, out_dir: str):
         f.write("# texere patch signature\n")
         f.write("# Generated: %s\n" % report["metadata"]["timestamp"])
         f.write("patch_id: %s\n" % patch.get("id", "unknown"))
+        if before_sha256:
+            f.write("before_sha256: %s\n" % before_sha256)
         f.write("document_hash: %s\n" % sha256.hexdigest())
+        if verify_result:
+            f.write("verify: %s\n" % verify_result)
 
 
 # =============================================================================
@@ -672,6 +685,7 @@ def main():
     # Apply
     if a.apply:
         print("\n[Apply]")
+        before_sha = compute_docx_hash(a.docx)  # 变更前指纹进证据（外部审计 R3 #1）
         success, errors = apply_patch(patch, doc)
 
         if not success:
@@ -683,6 +697,7 @@ def main():
         print("✓ Patch applied successfully")
 
         # Validate result
+        verify_result = None
         if a.validate:
             print("\n[Validate]")
             valid, issues = validate_patch_result(doc, patch)
@@ -692,6 +707,7 @@ def main():
                     print(f"  - {issue}", file=sys.stderr)
                 sys.exit(1)
             print("✓ All operations verified")
+            verify_result = "PASS"
 
         # Save
         if a.out:
@@ -713,7 +729,9 @@ def main():
             print(f"Saved: {out_file}")
 
             # Generate evidence
-            generate_patch_evidence(doc, patch, evidence_dir)
+            generate_patch_evidence(
+                doc, patch, evidence_dir, before_sha256=before_sha, verify_result=verify_result
+            )
             print(f"Evidence package saved to: {evidence_dir}")
         else:
             # 无 --out 时写回原文件并创建备份

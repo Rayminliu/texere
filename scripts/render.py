@@ -272,18 +272,8 @@ def preflight(want_pdf, want_check, renderer_name="word"):
             sys.exit("缺少 PyMuPDF，无法做 PDF 目视验收：\n  pip install PyMuPDF   或去掉 --check")
 
 
-def render(
-    src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word", keep_pages=False
-):
-    import json
-
-    preflight(want_pdf, want_check, renderer_name)
-    cfg = {}
-    if config_path and os.path.exists(config_path):
-        cfg = json.load(open(config_path, encoding="utf-8-sig"))
-    # 未知顶层键告警：键写错层级/拼错会被静默忽略（外部实测踩坑：
-    # page_number/toc_title 写在顶层毫无作用）。白名单与 docs/CONFIG 字段表同步。
-    known = {
+KNOWN_CONFIG_KEYS = frozenset(
+    {
         "title",
         "author",
         "subject",
@@ -299,7 +289,22 @@ def render(
         "reference_doc",
         "resource_paths",
     }
-    for k in sorted(set(cfg) - known):
+)
+
+
+def render(
+    src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word", keep_pages=False
+):
+    import json
+
+    preflight(want_pdf, want_check, renderer_name)
+    cfg = {}
+    if config_path and os.path.exists(config_path):
+        cfg = json.load(open(config_path, encoding="utf-8-sig"))
+    # 未知顶层键告警：键写错层级/拼错会被静默忽略（外部实测踩坑：
+    # page_number/toc_title 写在顶层毫无作用）。白名单与 docs/CONFIG 字段表同步，
+    # 并与 config.schema.json 由 tests/test_docs_sync.py 守住三方一致。
+    for k in sorted(set(cfg) - KNOWN_CONFIG_KEYS):
         print(
             "[warn] config 顶层键 %r 不被识别——多半是应放进 style 段或拼写有误，"
             "键表见 docs/CONFIG.zh-CN.md" % k

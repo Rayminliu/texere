@@ -197,7 +197,9 @@ python scripts/patch.py doc.docx patch.json --apply --out evidence/
 - `--dry-run`: 模拟执行不写盘（深拷贝文档跑一遍全部操作）
 - `--apply`: 实际执行
 - `--validate`: 应用后逐项验证结果
-- `--out <路径>`: 另存为文件或证据包输出目录（缺省写回原文件）
+- `--out <路径>`: 另存为文件或证据包输出目录（缺省写回原文件）；证据包含
+  patch_report.json（操作序列、before/after sha256、--validate 结论）、
+  document_after.patch.docx 与 signature
 - `--no-backup`: 写回原文件时不创建 `.bak.docx` 备份
 
 ### Patch Schema
@@ -301,6 +303,8 @@ python scripts/edit.py 标书.docx \
 - `--out <文件>`: 另存为（默认写回原文件）
 - `--no-backup`: 不创建备份
 - `--verify`: 修改后用 Word 打开验证
+- `--evidence <文件>`: 把本次编辑的证据写入该 JSON——前后 sha256、操作序列、verify 结论
+  （编辑链契约「只改指定处、其余字节不动」的自证；verify 失败时 fail-loud 退出不写证据）
 
 ---
 

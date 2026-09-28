@@ -386,3 +386,25 @@ def test_empty_cell_borrows_format(tmp_path):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_edit_evidence_records_change(tmp_path):
+    """edit 链的证据：前后 sha256 + 操作序列 + verify 结论（外部审计 R3 #1）。"""
+    import json
+
+    path = make_docx(tmp_path / "e.docx")
+    out = tmp_path / "o.docx"
+    ev = tmp_path / "ev.json"
+    run_edit(
+        path,
+        "--replace",
+        "投标有效期=投标有效期（延长）",
+        "--out",
+        str(out),
+        "--evidence",
+        str(ev),
+    )
+    data = json.load(open(ev, encoding="utf-8"))
+    assert data["before_sha256"] != data["after_sha256"], "前后指纹不应相同"
+    assert data["verify"] == "未运行"
+    assert any("replace" in op for op in data["ops"])

@@ -362,3 +362,63 @@ def test_stated_test_count_is_current():
                 if int(hit) != real:
                     stale.append((doc, hit))
     assert not stale, "文档里的断言数过期了（实际收集 %d 项）: %s" % (real, stale)
+
+
+def test_config_schema_matches_docs_and_render():
+    """config.schema.json ↔ CONFIG 双语键表 ↔ render 白名单 三方一致（外部审计 R3 #2）。
+
+    schema 是静态预校验层，CONFIG 键表是唯一来源，render 的 [warn] 白名单是运行时
+    执行者——三方漂移任何一方，键就会进入「文档说有/实际没有」的失真状态。
+    """
+    import importlib.util
+    import json as _json
+
+    schema = _json.load(open(os.path.join(KIT, "config.schema.json"), encoding="utf-8"))
+    top = set(schema["properties"])
+    style = set(schema["properties"]["style"]["properties"])
+
+    sys.path.insert(0, os.path.join(KIT, "scripts"))  # render.py 依赖兄弟模块 renderers
+    spec = importlib.util.spec_from_file_location(
+        "render_guard", os.path.join(KIT, "scripts", "render.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert top == set(mod.KNOWN_CONFIG_KEYS), (
+        "schema 顶层键与 render.py KNOWN_CONFIG_KEYS 漂移: %s" % (top ^ set(mod.KNOWN_CONFIG_KEYS))
+    )
+
+    def _table_keys(path, start_marker, end_marker, key_cell):
+        text = open(path, encoding="utf-8").read()
+        i = text.index(start_marker)
+        # style 段可能是文件最后一节（无下一个 ## 标题）——取不到终点就到文末
+        j = text.find(end_marker, i)
+        j = j if j != -1 else len(text)
+        keys = set()
+        for line in text[i:j].splitlines():
+            if not line.lstrip().startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) > key_cell:
+                keys.update(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", cells[key_cell]))
+        return keys
+
+    zh_top = _table_keys(
+        os.path.join(KIT, "docs", "CONFIG.zh-CN.md"), "### config.json 字段", "### `style` 段", 0
+    )
+    en_top = _table_keys(
+        os.path.join(KIT, "docs", "CONFIG.md"),
+        "### config.json fields",
+        "### The `style` section",
+        0,
+    )
+    assert top == zh_top, "schema 顶层键与 zh 键表漂移: %s" % (top ^ zh_top)
+    assert top == en_top, "schema 顶层键与 en 键表漂移: %s" % (top ^ en_top)
+
+    zh_style = _table_keys(
+        os.path.join(KIT, "docs", "CONFIG.zh-CN.md"), "### `style` 段", "\n## ", 1
+    )
+    en_style = _table_keys(
+        os.path.join(KIT, "docs", "CONFIG.md"), "### The `style` section", "\n## ", 1
+    )
+    assert style == zh_style, "schema style 键与 zh 表漂移: %s" % (style ^ zh_style)
+    assert style == en_style, "schema style 键与 en 表漂移: %s" % (style ^ en_style)

@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "texere config.json",
+  "description": "静态预校验用：编辑器 / agent 在渲染前校验 config 键名。键的语义与默认值以 docs/CONFIG.zh-CN.md 的键表为唯一来源，本 schema 与之由 tests/test_docs_sync.py 守住同步。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": {"type": "string"},
+    "author": {"type": "string"},
+    "subject": {"type": "string"},
+    "comments": {"type": "string"},
+    "header": {"type": "string"},
+    "toc": {"type": "boolean"},
+    "toc_heading": {"type": "string"},
+    "reference_doc": {"type": "string"},
+    "resource_paths": {"type": "array", "items": {"type": "string"}},
+    "cover": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "caption_words": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "table": {"type": "array", "items": {"type": "string"}},
+        "figure": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "content_fixes": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "content_fixes_file": {"type": "string"},
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page_number": {"type": "string"},
+        "page_number_size": {"type": "number"},
+        "header_size": {"type": "number"},
+        "header_gray": {"type": "string"},
+        "header_rule_color": {"type": "string"},
+        "header_rule_size": {"type": "number"},
+        "toc_depth": {"type": "string"},
+        "toc_title_size": {"type": "number"},
+        "toc_title_color": {"type": "string"},
+        "toc_placeholder": {"type": "string"},
+        "toc_placeholder_size": {"type": "number"},
+        "caption_gray": {"type": "string"},
+        "caption_size": {"type": "number"},
+        "caption_space_before": {"type": "number"},
+        "caption_space_after": {"type": "number"},
+        "caption_keep_with_next": {"type": "boolean"},
+        "header_rows": {"type": ["integer", "string"]},
+        "table_border": {"type": "string"},
+        "table_shade": {"type": "string"},
+        "table_size": {"type": "number"},
+        "table_header_color": {"type": "string"},
+        "table_zebra": {"type": "boolean"},
+        "table_zebra_fill": {"type": "string"},
+        "cell_margin_v": {"type": "number"},
+        "cell_margin_h": {"type": "number"},
+        "table_para_space": {"type": "number"},
+        "border_size": {"type": "number"},
+        "border_color": {"type": "string"},
+        "three_line_size": {"type": "number"},
+        "east_font": {"type": "string"},
+        "latin_font": {"type": "string"}
+      }
+    }
+  }
+}

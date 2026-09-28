@@ -21,6 +21,22 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 0.7.2 — 2026-09-29 (审计 R3：编辑链证据包 + schema 预校验)
+
+外部审计第三轮 4 条全采纳：
+
+- **编辑链证据包**：patch 证据增补 before_sha256 与 --validate 结论；edit 新增
+  `--evidence <文件>`（前后 sha256 + 操作序列 + verify 结论）。编辑链契约
+  「只改指定处、其余字节不动」从此可自证——与 0.7.1 渲染链 provenance 是同一件事
+  的另一半。verify 失败仍 fail-loud 退出（备份在），证据只记成功与未验收两种。
+- **config.schema.json**：顶层键 + style 键的 JSON Schema（additionalProperties: false），
+  供编辑器 / agent 静态预校验；test_docs_sync 新增 schema ↔ CONFIG 双语键表 ↔
+  render 白名单三方一致守卫（R1 的 [warn] 是运行时兜底，schema 是静态层）。
+- **doctor 僵尸 WINWORD 检查前置**到渲染器探测之前——available() 起 COM，
+  僵尸实例干扰的正是探测本身，告警晚了就没意义（审计 R2 #3 的顺序修正）。
+- **doctor pandoc 版本范围提示**：3.1–3.11 之外提示「未经实测」。
+- 用例数 290 → 293。
+
 ## 0.7.1 — 2026-09-29 (外部实测反馈修复·两轮)
 
 外部审计两轮共 12 项输入——4 项属旧版本问题（当前代码已修，审计方请升级到
@@ -64,7 +80,7 @@ SKIP 独立计数、不计入通过。
 图表自动编号经风险评估后**放弃**（0.2.0 的教训 + 域缓存与证据签名可能分歧；
 手写编号零风险，痛点是机械性的）——改做四件零风险增强，CI 二层同批转正：
 
-- **CI 二层转正**（二层 CI 自 fa514d2 引入）：`render-libreoffice` 去掉
+- **CI 二层转正**（二层 CI 随 0.7.1 周期引入）：`render-libreoffice` 去掉
   continue-on-error 成为必需门禁；第一层加装 LibreOffice + 中文字体，
   LibreOffice 契约用例在 CI 真跑（此前 SKIP）。Word/WPS 用例仍 SKIP。
 - **grid table 显示宽度对齐器** `scripts/align_tables.py`：按 East Asian 显示
