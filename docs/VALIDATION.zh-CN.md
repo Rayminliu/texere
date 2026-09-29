@@ -57,7 +57,7 @@ Document Validation
 ✅ [PASS] page_numbering: 页码：69 页 (连续，检测到页码 1-69)
 ✅ [PASS] blank_pages: 空白页：0/69 (阈值：0)
 ✅ [PASS] renderer_acceptance: 渲染器验收：OK
-⏭️ [SKIP] visual_drift: 跳过 (未提供基线目录)
+⏭️ [SKIP] visual_drift: 跳过 (未提供基线目录；如需版面漂移防护：先 python scripts/snapshot.py <pdf> --update 录基线，再用 --baseline <目录> 或 profile 的 baseline_dir 指定)
 
 Summary
 ────────────────────────────

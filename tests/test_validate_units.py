@@ -176,7 +176,10 @@ class TestNoFailOpen:
         assert v.check_blank_pages(None).status == v.SKIP
 
     def test_visual_drift_without_baseline_is_skip(self):
-        assert v.check_visual_drift(None, None).status == v.SKIP
+        res = v.check_visual_drift(None, None)
+        assert res.status == v.SKIP
+        # SKIP 不能只说“未提供基线”，要指路怎么开启这维保护（但绝不自动建基线）
+        assert "snapshot" in res.message
 
     def test_source_content_without_any_evidence_is_skip(self, tmp_path):
         assert v.check_source_content_integrity(_save_docx(tmp_path)).status == v.SKIP

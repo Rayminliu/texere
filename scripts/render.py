@@ -411,7 +411,7 @@ def render(
         ]
     )
     print("[3/3] postprocess ->", out_docx)
-    check_images(merged, out_docx)
+    images_ok = check_images(merged, out_docx)
     if not want_pdf:
         print("[hint] 仅产出 docx（无渲染器依赖，秒级）；需要 PDF/真机验收时追加 --pdf --check")
 
@@ -438,6 +438,12 @@ def render(
                     shutil.move(pages_dir, os.path.join(tmp, "check_pages"))
                     print("[check] 页面截图已随临时目录清理（保留用 --keep-pages）")
     shutil.rmtree(tmp, ignore_errors=True)
+    # 缺图时不在 check_images 里立即退出：先走完 PDF 导出与 --check（用户恰恰需要
+    # 这些产物肉眼确认丢了哪几张图），再让退出码诚实反映「这份交付物没图」。
+    # 与 validate 的 image_embedding FAIL→exit(1) 契约对齐（外部实测：只跑 render
+    # 不接 validate 的 CI 场景，此前缺图仍拿到退出码 0）。
+    if not images_ok:
+        sys.exit(1)
 
 
 def check_images(md_text, docx_path):
@@ -445,19 +451,24 @@ def check_images(md_text, docx_path):
 
     这是真实项目里最容易翻车的一环：pandoc 找不到图只给 WARNING，
     静默过去就会交付一份没图的标书。
+
+    返回 True 表示图片齐备（或源里根本没引图），False 表示有图缺失——
+    调用方（render）据此在产出全部交付物后以非零码结束。
     """
     n_ref = len(re.findall(r"!\[", md_text))
     if not n_ref:
-        return
+        return True
     from docx import Document
 
     n_img = len(Document(docx_path).inline_shapes)
     if n_img >= n_ref:
         print("images: %d/%d ok" % (n_img, n_ref))
-        return
+        return True
     print("[ERROR] 源 md 引用 %d 张图，文档里只嵌进 %d 张" % (n_ref, n_img))
     print("        图片目录不在搜索范围内时就会这样；")
     print('        在 config 里加 "resource_paths": ["图片目录"] 补充搜索路径。')
+    print("        本次运行将以退出码 1 结束。")
+    return False
 
 
 def main():

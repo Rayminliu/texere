@@ -725,7 +725,12 @@ def check_visual_drift(
 ) -> CheckResult:
     """与基线比对视觉漂移 (基于共享导出的 PDF，口径同 snapshot.py: 逐页全量)。"""
     if not baseline_dir or not os.path.exists(baseline_dir):
-        return CheckResult("visual_drift", SKIP, "跳过 (未提供基线目录)")
+        return CheckResult(
+            "visual_drift",
+            SKIP,
+            "跳过 (未提供基线目录；如需版面漂移防护：先 python scripts/snapshot.py <pdf> --update 录基线，"
+            "再用 --baseline <目录> 或 profile 的 baseline_dir 指定)",
+        )
     if pdf_path is None:
         return CheckResult("visual_drift", SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)")
     if pymupdf is None:
@@ -1412,7 +1417,7 @@ def main():
     print(f"\nEvidence package saved to: {os.path.abspath(a.out)}")
     print("  - report.json (structured validation report)")
     print("  - page-XXX.png (sample screenshots)")
-    print("  - signature (SHA256 signature)")
+    print("  - signature (checksum manifest, not a cryptographic signature)")
 
     # 退出码
     sys.exit(0 if report["summary"]["failed"] == 0 else 1)

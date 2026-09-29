@@ -636,6 +636,45 @@ def test_render_finds_sibling_media(tmp_path):
     assert "images: 1/1 ok" in r.stdout.decode("utf-8", "replace"), "缺图自检未通过"
 
 
+def test_missing_image_exits_nonzero(tmp_path):
+    """源 md 引了图却没嵌进去时，render 必须以非零码结束。
+
+    外部实测：只跑 render.py（不接 validate）的 CI 场景，此前即便丢图退出码仍为 0，
+    交付一份没图的标书还当成功。缺图先照常产出 docx（供肉眼确认），再让退出码诚实。
+    """
+    import glob
+    import tempfile
+
+    pat = os.path.join(tempfile.gettempdir(), "texere_*")
+    before = set(glob.glob(pat))
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "01.md").write_text(
+        "# 第一章\n\n![图 1-1 缺失的图](not_exist.png)\n\n正文。\n",
+        encoding="utf-8",
+    )
+    out = str(tmp_path / "out.docx")
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(src),
+            "--out",
+            out,
+        ],
+        capture_output=True,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    combined = (r.stdout + r.stderr).decode("utf-8", "replace")
+    assert r.returncode != 0, "缺图必须以非零码结束，实际退出码 %d" % r.returncode
+    assert "[ERROR]" in combined, "缺图必须打印 [ERROR]：%s" % combined
+
+    leaked = sorted(set(glob.glob(pat)) - before)
+    assert not leaked, "缺图退出后临时目录未清理：%s" % leaked
+
+
 def test_images_survive_postprocess(tmp_path):
     """后处理绝不能把图片弄丢（曾被自动编号抹掉过 28 张）。"""
     pymupdf = pytest.importorskip("pymupdf")

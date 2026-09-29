@@ -21,6 +21,25 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 0.7.3 — 2026-09-29 (代码复审修复：退出码诚实性 + 话术自洽)
+
+逐行审 render / post / validate 后采纳的三条（成熟度很高，仅以下几处挂得上）：
+
+- **render 缺图不再假装成功**（中）：`check_images` 此前只 `print("[ERROR] ...")`
+  后返回，源 md 引了 N 张图、docx 只嵌进 M 张时退出码仍是 0。只跑 `render.py`（不接
+  `validate`）的 CI/自动化场景，会拿到一份丢了图的文档还当成功。现 `check_images`
+  返回状态、`render()` 在**产出全部交付物（docx + PDF + --check 截图）之后**再以退出码
+  1 结束——缺图时用户恰恰需要这些产物肉眼确认丢了哪几张，故延迟退出而非立即中断。
+  与 `validate` 的 `image_embedding` FAIL→exit(1) 契约对齐。--sample / 无图源走 `n_ref==0`
+  早返回，零影响。加 test_postprocess 缺图非零退出用例。
+- **signature 话术纠正**（低）：validate 结尾把证据清单打印成 "SHA256 signature"，与同
+  文件 docstring、清单文件头、docs/VALIDATION、SKILL.md 一致声明的「checksum manifest，
+  非密码学签名」矛盾——是 oversell。改回 checksum manifest，让代码向早已写对的文档看齐。
+- **visual_drift SKIP 补补救指路**（建议）：SKIP 消息过去只说「未提供基线目录」，新用户
+  不知如何开启这维保护。补一句 `snapshot.py <pdf> --update` 录基线 + `--baseline` 指定。
+  **仍不自动建基线**（会固化 bug），只指路。中英 VALIDATION 示例输出同步。
+- 用例数 293 → 294。
+
 ## 0.7.2 — 2026-09-29 (审计 R3：编辑链证据包 + schema 预校验)
 
 外部审计第三轮 4 条全采纳：
