@@ -55,6 +55,100 @@ def cleanup_old_temp(prefix="texere_"):
 cleanup_old_temp()
 
 
+def _should_prompt(can_read, can_write):
+    """该不该当场问验收？只有「人在终端前」才问。
+
+    两个流都得是 TTY：脚本 / CI / pytest 里 capture_output=True 时 stdout 是管道，
+    那时子进程的 stdin 可能仍然继承了终端——只查 stdin 会挂在那里等输入。
+    """
+    return bool(can_read and can_write)
+
+
+class _Workdir:
+    """中间产物的生命周期：失败一定回收，成功后由人工验收决定删还是留。
+
+    为什么要有这一环节：以前跑完立刻 rmtree，用户验收发现要返修时，
+    pandoc 的 body.docx、合并后的 all.md、页面截图都没了——只能整链重跑
+    （272 页文档上 pandoc + 真机导 PDF 是分钟级），而 patch.py / edit.py 本来
+    能直接改那份 body.docx 或对照截图定位问题。
+
+    失败 / 缺图不走这里：那时目录里没有可交付的东西，留着只会涨磁盘
+    （实测一天攒 12 个临时目录才立的规矩）。
+    """
+
+    KEEP = "keep"
+    DISCARD = "discard"
+    AUTO = "auto"
+
+    def __init__(self, path):
+        self.path = path
+        self.settled = False
+        atexit.register(self._fallback)
+
+    def _fallback(self):
+        """没走到 settle（异常、子进程报错、sys.exit）：照旧回收。"""
+        if not self.settled:
+            shutil.rmtree(self.path, ignore_errors=True)
+
+    def contents(self):
+        items = []
+        for name in ("all.md", "body.docx", "check_pages"):
+            p = os.path.join(self.path, name)
+            if os.path.isdir(p):
+                items.append(name + "/")
+            elif os.path.exists(p):
+                items.append(name)
+        return items
+
+    def settle(self, mode=AUTO):
+        """交付物已产出，决定中间产物去留；返回最终状态 kept / discarded。"""
+        self.settled = True
+        if mode == self.DISCARD:
+            shutil.rmtree(self.path, ignore_errors=True)
+            print("[work] 中间产物已按要求回收（--discard-work）")
+            return "discarded"
+        if mode == self.AUTO and _should_prompt(sys.stdin.isatty(), sys.stdout.isatty()):
+            if self._ask():
+                shutil.rmtree(self.path, ignore_errors=True)
+                print("[work] 验收通过，中间产物已回收")
+                return "discarded"
+            return self._hold()
+        if mode == self.AUTO:
+            # 非交互（脚本 / CI / 管道）：不猜意图，维持旧的「跑完即回收」，
+            # 但把话说明白——要人工验收留现场就显式用 --keep-work。
+            shutil.rmtree(self.path, ignore_errors=True)
+            print("[work] 非交互运行：中间产物已回收；需人工验收返修请加 --keep-work")
+            return "discarded"
+        return self._hold()
+
+    def _ask(self):
+        listing = ", ".join(self.contents()) or "（空）"
+        print("\n[work] 中间产物： %s" % listing)
+        print("[work] 位置： %s" % self.path)
+        print(
+            "[work] 验收确认无需返修吗？y=删除这些中间产物 / 直接回车=先留着"
+            "（留着的话 24 小时后也会自动回收，不担心长期占地）"
+        )
+        try:
+            return input("> ").strip().lower() in ("y", "yes")
+        except (EOFError, OSError):
+            return False
+
+    def _hold(self):
+        print("[work] 已保留中间产物： %s（%s）" % (self.path, ", ".join(self.contents()) or "空"))
+        print(
+            "[work] 返修不必重跑：拿 body.docx 直接用 patch.py / edit.py 改，"
+            "或对照 check_pages/ 里的截图定位问题。"
+        )
+        # 保留的目录超过 24 小时会在下次 render 启动时被 cleanup_old_temp 回收
+        if os.name == "nt":
+            drop = 'rmdir /s /q "%s"' % self.path
+        else:
+            drop = "rm -rf '%s'" % self.path
+        print("[work] 确认无需返修后删掉它： %s（或等 24 小时后自动回收）" % drop)
+        return "kept"
+
+
 def run(cmd, cwd=None, timeout=300):
     r = subprocess.run(
         cmd,
@@ -415,11 +509,21 @@ def _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp):
                 print("[check] 页面截图保留在 %s" % pages_dir)
             else:
                 shutil.move(pages_dir, os.path.join(tmp, "check_pages"))
-                print("[check] 页面截图已随临时目录清理（保留用 --keep-pages）")
+                print(
+                    "[check] 页面截图移到中间产物目录（验收确认那一步会决定留不留；"
+                    "要留在原地用 --keep-pages）"
+                )
 
 
 def render(
-    src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word", keep_pages=False
+    src_dir,
+    out_docx,
+    config_path,
+    want_pdf,
+    want_check,
+    renderer_name="word",
+    keep_pages=False,
+    work_mode="auto",
 ):
     """渲染编排：读配置 → 合并 md → pandoc 出正文 → post 排版 → 可选导 PDF 验收。"""
     preflight(want_pdf, want_check, renderer_name)
@@ -430,10 +534,8 @@ def render(
     if out_parent:
         os.makedirs(out_parent, exist_ok=True)
 
-    tmp = tempfile.mkdtemp(prefix="texere_")
-    # 用 atexit 而不是在函数末尾 rmtree：任何 sys.exit（preflight、子进程报错、
-    # 配置有误）都会绕过末尾那行，临时目录就会烂在 %TEMP% 里（实测一天攒了 12 个）。
-    atexit.register(shutil.rmtree, tmp, ignore_errors=True)
+    wd = _Workdir(tempfile.mkdtemp(prefix="texere_"))
+    tmp = wd.path
 
     merged, src_root, all_md = _merge_sources(src_dir, config_path, cfg, tmp)
     body = os.path.join(tmp, "body.docx")
@@ -457,11 +559,16 @@ def render(
 
     if want_pdf:
         _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp)
-    shutil.rmtree(tmp, ignore_errors=True)
     # 缺图时不在 check_images 里立即退出：先走完 PDF 导出与 --check（用户恰恰需要
     # 这些产物肉眼确认丢了哪几张图），再让退出码诚实反映「这份交付物没图」。
     # 与 validate 的 image_embedding FAIL→exit(1) 契约对齐（外部实测：只跑 render
     # 不接 validate 的 CI 场景，此前缺图仍拿到退出码 0）。
+    if images_ok:
+        # 交付物齐备：中间产物去留交给「人工验收确认」这一环节（见 _Workdir）
+        wd.settle(work_mode)
+    else:
+        # 这份件本来就不合格，不留现场（诊断靠上面的 [ERROR] 与补救建议）
+        wd.settle(_Workdir.DISCARD)
     if not images_ok:
         sys.exit(1)
 
@@ -509,6 +616,17 @@ def check_images(md_text, docx_path):
     return False
 
 
+def _work_mode(a):
+    """中间产物的处置模式；两个开关互斥，都不给就是 auto。"""
+    if a.keep_work and a.discard_work:
+        sys.exit("--keep-work 与 --discard-work 互斥：一个留现场等验收，一个跑完即删")
+    if a.keep_work:
+        return _Workdir.KEEP
+    if a.discard_work:
+        return _Workdir.DISCARD
+    return _Workdir.AUTO
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src")
@@ -519,7 +637,17 @@ def main():
     ap.add_argument(
         "--keep-pages",
         action="store_true",
-        help="--check 的页面截图保留在 PDF 同目录 check_pages/（默认随临时目录清理）",
+        help="--check 的页面截图保留在 PDF 同目录 check_pages/（默认移到中间产物目录）",
+    )
+    ap.add_argument(
+        "--keep-work",
+        action="store_true",
+        help="跑完保留中间产物（all.md / body.docx / 截图）不删，返修时能直接改不必重跑",
+    )
+    ap.add_argument(
+        "--discard-work",
+        action="store_true",
+        help="跑完立即回收中间产物（脚本 / CI 用）；默认只在终端里问一句，非交互时自动回收",
     )
     ap.add_argument(
         "--renderer",
@@ -535,6 +663,7 @@ def main():
     )
     ap.add_argument("--version", action="version", version="texere " + __version__)
     a = ap.parse_args()
+    work_mode = _work_mode(a)
 
     if a.doctor:
         sys.exit(doctor())
@@ -545,7 +674,15 @@ def main():
         atexit.register(shutil.rmtree, tmp, ignore_errors=True)
         shutil.copy(os.path.join(KIT, "assets", "sample.md"), os.path.join(tmp, "01_sample.md"))
         out = os.path.join(KIT, "sample_out.docx")
-        render(tmp, out, os.path.join(KIT, "assets", "sample_config.json"), True, True, "word")
+        render(
+            tmp,
+            out,
+            os.path.join(KIT, "assets", "sample_config.json"),
+            True,
+            True,
+            "word",
+            work_mode=work_mode,
+        )
         print("sample ok ->", out)
         return
 
@@ -556,7 +693,16 @@ def main():
     if a.check and not a.pdf:
         print("[note] --check 依赖 PDF，已自动启用 --pdf")
         a.pdf = True
-    render(a.src, a.out, a.config, a.pdf, a.check, a.renderer, keep_pages=a.keep_pages)
+    render(
+        a.src,
+        a.out,
+        a.config,
+        a.pdf,
+        a.check,
+        a.renderer,
+        keep_pages=a.keep_pages,
+        work_mode=work_mode,
+    )
 
 
 if __name__ == "__main__":

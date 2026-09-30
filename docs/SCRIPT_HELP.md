@@ -32,11 +32,28 @@ python scripts/render.py --version
 - `--out <file>`: 输出 DOCX 文件路径（必需）
 - `--config <file>`: 配置文件路径（可选）
 - `--pdf`: 生成 PDF 格式（默认用本机 Word 渲染器，可用 `--renderer` 切换为 libreoffice / wps）
-- `--check`: 检查 PDF 视觉质量（需要 PyMuPDF）；页面截图默认随临时目录清理，`--keep-pages` 保留在 PDF 同目录 check_pages/
+- `--check`: 检查 PDF 视觉质量（需要 PyMuPDF）；页面截图默认移到中间产物目录，`--keep-pages` 留在 PDF 同目录 check_pages/
+- `--keep-work`: 跑完**保留**中间产物（`all.md` / `body.docx` / `check_pages/`），不删
+- `--discard-work`: 跑完**立即回收**中间产物（与 `--keep-work` 互斥）
 - `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word）
 - `--doctor`: 环境自检
 - `--sample`: 运行样本文档测试
 - `--version`: 显示版本号
+
+### 中间产物与「人工验收确认」环节
+
+交付物产出后，中间产物**不再无条件删掉**（以前跑完就 rmtree，用户看过 PDF 说“这页要改”时
+只能整链重跑）。分三种情形：
+
+| 情形 | 行为 |
+|---|---|
+| 人在终端前（stdin + stdout 都是 TTY） | 列出中间产物与路径，问一句「验收确认无需返修吗？[y/回车]」；**y 才删，直接回车先留着** |
+| 脚本 / CI / 输出被管道接管 | 不猜意图，沿用旧的「跑完即回收」，并提示改用 `--keep-work` |
+| 渲染失败 / 缺图退出 | 一律回收（那时目录里没有可交付的东西，留着只会涨磁盘） |
+
+留着不担心长期占地：超过 24 小时的旧目录会在下次 `render.py` 启动时自动回收。
+返修时不必重跑渲染：拿 `body.docx` 直接用 `patch.py` / `edit.py` 改，或对照 `check_pages/`
+里的截图定位问题。
 
 ---
 

@@ -8,6 +8,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -675,13 +676,8 @@ def test_missing_image_exits_nonzero(tmp_path):
     assert not leaked, "缺图退出后临时目录未清理：%s" % leaked
 
 
-def test_code_fence_image_examples_are_not_counted_as_refs(tmp_path):
-    """围栏代码块里的 `![...]` 是示例不是引图。
-
-    render 的缺图自检此前全文数 `![`，一份带 markdown 写法教程的文档会凭空
-    报「引用 3 张只嵌进 0 张」并以退出码 1 结束（与 validate._source_md_segments
-    早就排围栏的规则不对齐）。
-    """
+def _render_module():
+    """加载 scripts/render.py 本体（部分契约只能直接叫函数测）。"""
     import importlib.util
 
     scripts = os.path.join(KIT, "scripts")
@@ -692,6 +688,17 @@ def test_code_fence_image_examples_are_not_counted_as_refs(tmp_path):
     )
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
+    return m
+
+
+def test_code_fence_image_examples_are_not_counted_as_refs(tmp_path):
+    """围栏代码块里的 `![...]` 是示例不是引图。
+
+    render 的缺图自检此前全文数 `![`，一份带 markdown 写法教程的文档会凭空
+    报「引用 3 张只嵌进 0 张」并以退出码 1 结束（与 validate._source_md_segments
+    早就排围栏的规则不对齐）。
+    """
+    m = _render_module()
 
     fenced = (
         "# 标题\n\n```markdown\n![alt](img.png)\n![alt2](b.png)\n\t![tab](c.png)\n```\n\n正文。\n"
@@ -701,6 +708,144 @@ def test_code_fence_image_examples_are_not_counted_as_refs(tmp_path):
     assert m.check_images(fenced, str(tmp_path / "unused.docx")) is True
     # 围栏外真引图时仍然数得到
     assert m._outside_code_fences(fenced + "![真实图](a.png)\n").count("![") == 1
+
+
+# ------------------------------------------------ 验收确认后才回收中间产物
+
+
+def _md_src(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    (src / "01.md").write_text("# 第一章\n\n正文一句话，长到不会被归一化跳过。\n", encoding="utf-8")
+    return src
+
+
+def _run_render(tmp_path, *extra):
+    """跑一次 render（不带 --pdf，秒级）。stdin 置 DEVNULL：模拟脚本 / CI 的非交互调用。"""
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(_md_src(tmp_path)),
+            "--out",
+            str(tmp_path / "o.docx"),
+            *extra,
+        ],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    return r.stdout.decode("utf-8", "replace")
+
+
+def test_keep_work_leaves_intermediates_reusable_for_rework(tmp_path):
+    """验收前中间产物必须在：--keep-work 留下的 body.docx 要能直接被重新排版。
+
+    以前跑完就 rmtree，用户看过 PDF 说“这页要改”时，pandoc 中间件与合并正文
+    已经没了，只能整链重跑。
+    """
+    out = _run_render(tmp_path, "--keep-work")
+    m = re.search(r"已保留中间产物： (\S+?)（", out)
+    assert m, out
+    work = m.group(1)
+    try:
+        body = os.path.join(work, "body.docx")
+        assert os.path.exists(body), "pandoc 中间件没留下，返修仍要重跑"
+        assert os.path.exists(os.path.join(work, "all.md")), "合并后的正文没留下"
+        # 留下的必须是可用的：拿它直接跑 post.py（返修路径，不重跑 pandoc）
+        from docx import Document
+
+        assert Document(body).paragraphs
+        r = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(KIT, "scripts", "post.py"),
+                body,
+                str(tmp_path / "r.docx"),
+            ],
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+        )
+        assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+        assert os.path.exists(tmp_path / "r.docx")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def test_noninteractive_run_still_reclaims_work(tmp_path):
+    """非交互（脚本 / CI）不猜意图：维持旧的跑完即回收，并把 --keep-work 指路说清。"""
+    import glob
+    import tempfile
+
+    pat = os.path.join(tempfile.gettempdir(), "texere_*")
+    before = set(glob.glob(pat))
+    out = _run_render(tmp_path)
+    assert "非交互运行：中间产物已回收" in out, out
+    assert "--keep-work" in out, "回收了但不说怎么留：" + out
+    leaked = sorted(set(glob.glob(pat)) - before)
+    assert not leaked, "非交互运行后临时目录未回收：%s" % leaked
+
+
+def test_keep_and_discard_work_are_mutually_exclusive(tmp_path):
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(_md_src(tmp_path)),
+            "--out",
+            str(tmp_path / "o.docx"),
+            "--keep-work",
+            "--discard-work",
+        ],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    assert r.returncode != 0
+    assert "互斥" in r.stderr.decode("utf-8", "replace")
+
+
+def test_workdir_prompt_only_asks_when_a_human_is_reading_it(tmp_path, monkeypatch):
+    """确认那句只在「人在终端前」问，且 y 才删、回车不删。
+
+    _should_prompt 必须两个流都是 TTY：pytest / CI 里 stdout 是管道，而 stdin
+    可能仍然继承了终端——只查 stdin 会挂在那里等输入。
+    """
+    m = _render_module()
+    assert m._should_prompt(True, True) is True
+    assert m._should_prompt(True, False) is False
+    assert m._should_prompt(False, True) is False
+
+    keep = tmp_path / "keep"
+    keep.mkdir()
+    (keep / "body.docx").write_text("x", encoding="utf-8")
+    wd = m._Workdir(str(keep))
+    monkeypatch.setattr(m, "_should_prompt", lambda *a: True)
+    monkeypatch.setattr("builtins.input", lambda *a: "")  # 直接回车 = 先留着等返修
+    assert wd.settle(m._Workdir.AUTO) == "kept"
+    assert keep.exists() and wd.contents() == ["body.docx"]
+
+    drop = tmp_path / "drop"
+    drop.mkdir()
+    wd2 = m._Workdir(str(drop))
+    monkeypatch.setattr("builtins.input", lambda *a: "y")  # 验收过了，是真过了
+    assert wd2.settle(m._Workdir.AUTO) == "discarded"
+    assert not drop.exists()
+
+
+def test_workdir_fallback_reclaims_when_nobody_settles(tmp_path):
+    """没走到 settle（异常 / sys.exit）时 atexit 兼容旧行为：回收，不涨磁盘。"""
+    m = _render_module()
+    d = tmp_path / "crashed"
+    d.mkdir()
+    (d / "all.md").write_text("x", encoding="utf-8")
+    wd = m._Workdir(str(d))
+    wd._fallback()
+    assert not d.exists(), "失败路径没回收中间产物"
 
 
 def test_images_survive_postprocess(tmp_path):
