@@ -495,7 +495,10 @@ def find_h1(paras):
 
 
 def main(body_path, out_path, cfg_path):
-    cfg = json.load(open(cfg_path, encoding="utf-8-sig")) if cfg_path else {}
+    cfg = {}
+    if cfg_path:
+        with open(cfg_path, encoding="utf-8-sig") as f:
+            cfg = json.load(f)
     apply_style_cfg(cfg)
     doc = Document(body_path)
     body = doc.element.body
@@ -580,6 +583,12 @@ def main(body_path, out_path, cfg_path):
     # 封面必须是文档第一页：插到 body 最前面，而不是「第一个标题之前」。
     # 否则源文件在第一个 # 之前写的内容会排到封面之前，单独占一页（实测踩过）。
     anchor = next((c for c in body.iterchildren() if c.tag in (qn("w:p"), qn("w:tbl"))), None)
+    if anchor is None:
+        # 空正文（无段无表）：回落到 sectPr 前插入
+        sect_el = body.find(qn("w:sectPr"))
+        anchor = sect_el if sect_el is not None else body.makeelement(qn("w:p"), {})
+        if sect_el is None:
+            body.append(anchor)
     for p in created:
         anchor.addprevious(p._p)
 

@@ -46,7 +46,7 @@ PROPERTY_CHECKS: dict[str, list[str]] = {
     "image_embedding": ["image_embedding"],
     "section_count": ["section_count"],
     "toc_field": ["toc_field"],
-    "caption": ["caption_recognition"],
+    "caption": [],  # caption_recognition 检查尚未实现，此映射留空（原幽灵值已清除）
     "page_numbering": ["page_numbering"],
     "blank_pages": ["blank_pages"],
     "visual_baseline": ["visual_drift"],
@@ -177,7 +177,7 @@ def evaluate(
             summary.warnings += 1
             if verdict != "FAIL":
                 verdict = "WARN"
-        elif sev is Severity.ENFORCE and raw == "FAIL":
+        elif sev is Severity.ENFORCE and raw in ("FAIL", "ERROR"):
             verdict = "FAIL"
         if sev is Severity.ENFORCE and raw != "SKIP":
             summary.enforced += 1

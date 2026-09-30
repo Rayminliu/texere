@@ -14,11 +14,9 @@ import os
 import sys
 
 import pymupdf
+from _shared import force_utf8_stdio
 
-# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 if len(sys.argv) < 2:
     sys.exit("用法: python scripts/check_pdf.py <file.pdf> [--max-empty N] [页码...]")
@@ -32,10 +30,16 @@ while _i < len(_args):
     if _args[_i] == "--max-empty":
         if _i + 1 >= len(_args):
             sys.exit("--max-empty 需要一个整数参数")
-        max_empty = int(_args[_i + 1])
+        try:
+            max_empty = int(_args[_i + 1])
+        except ValueError:
+            sys.exit(f"--max-empty 需要整数，得到 {_args[_i + 1]!r}")
         _i += 2
     else:
-        pages_want.append(int(_args[_i]))
+        try:
+            pages_want.append(int(_args[_i]))
+        except ValueError:
+            sys.exit(f"页码需要整数，得到 {_args[_i]!r}")
         _i += 1
 
 doc = pymupdf.open(PDF)

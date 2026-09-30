@@ -1,7 +1,7 @@
 """PDF 版式快照回归：python scripts/snapshot.py <file.pdf> [--update] [--renderer R] [--max-diff R] [--dpi N]
 
 把 PDF 每页渲染成 PNG，与 baselines/<renderer>/ 下的基线逐像素比对。
-差异比例超过 --max-diff（默认 0.5%）或页数不一致即退出码 1。
+差异比例超过 --max-diff（默认 0.1%）或页数不一致即退出码 1。
 
 用途：改了 ref.docx / post.py 之后跑一遍，确认版式没被悄悄改坏。
 
@@ -20,11 +20,9 @@ import os
 import sys
 
 import pymupdf
+from _shared import force_utf8_stdio
 
-# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 DEFAULT_DPI = 100
 # 0.1%。实测：同一文档重复导出 PDF 的差异为 0.00%，而改一个页眉文字会产生 0.16%，
@@ -42,12 +40,18 @@ def parse_args(argv):
         if a == "--update":
             update = True
         elif a == "--dpi":
+            if i + 1 >= len(argv):
+                sys.exit("--dpi 需要一个整数参数")
             dpi = int(argv[i + 1])
             i += 1
         elif a == "--max-diff":
+            if i + 1 >= len(argv):
+                sys.exit("--max-diff 需要一个数值参数")
             max_diff = float(argv[i + 1])
             i += 1
         elif a == "--renderer":
+            if i + 1 >= len(argv):
+                sys.exit("--renderer 需要一个名称参数")
             renderer = argv[i + 1]
             i += 1
         elif a.startswith("-"):
@@ -83,22 +87,20 @@ def main(argv):
     meta_path = os.path.join(base_dir, "meta.json")
 
     doc = pymupdf.open(pdf)
-    samples = [doc[i].get_pixmap(dpi=dpi).samples for i in range(doc.page_count)]
 
     if update:
         os.makedirs(base_dir, exist_ok=True)
         for i in range(doc.page_count):
             doc[i].get_pixmap(dpi=dpi).save(os.path.join(base_dir, "p%03d.png" % (i + 1)))
-        json.dump(
-            {"dpi": dpi, "pages": doc.page_count, "renderer": renderer},
-            open(meta_path, "w", encoding="utf-8"),
-        )
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump({"dpi": dpi, "pages": doc.page_count, "renderer": renderer}, f)
         print("baseline recorded: %d pages @ %d dpi -> %s" % (doc.page_count, dpi, base_dir))
         return 0
 
     if not os.path.exists(meta_path):
         sys.exit("没有基线，先跑：python scripts/snapshot.py %s --update" % os.path.basename(pdf))
-    meta = json.load(open(meta_path, encoding="utf-8"))
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
     if meta.get("renderer", "word") != renderer:
         print(
             "FAIL: 基线由 %s 录制，本次 --renderer %s——跨渲染器的像素不可比"
@@ -121,7 +123,9 @@ def main(argv):
         if not os.path.exists(bp):
             print("FAIL: 缺少基线 %s" % bp)
             return 1
-        r = diff_ratio(samples[i], pymupdf.Pixmap(bp).samples)
+        cur = doc[i].get_pixmap(dpi=dpi).samples
+        r = diff_ratio(cur, pymupdf.Pixmap(bp).samples)
+        del cur  # 及时释放内存
         worst = max(worst, r)
         if r > max_diff:
             bad.append((i + 1, r))

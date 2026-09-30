@@ -175,6 +175,21 @@ class TestNoFailOpen:
     def test_blank_pages_without_pdf_is_skip(self):
         assert v.check_blank_pages(None).status == v.SKIP
 
+    def test_image_page_not_blank(self, tmp_path):
+        """纯图片页（无文字但有图）不应被判为空白页。"""
+        pymupdf = pytest.importorskip("pymupdf")
+        pdf_path = str(tmp_path / "imgpage.pdf")
+        doc = pymupdf.open()
+        page = doc.new_page(width=200, height=200)
+        # 插入一个红色小方块（纯图片，无文字）
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 10, 10))
+        pix.set_rect(pix.irect, (255, 0, 0))
+        page.insert_image(page.rect, pixmap=pix)
+        doc.save(pdf_path)
+        doc.close()
+        res = v.check_blank_pages(pdf_path, max_empty=0)
+        assert res.status != v.FAIL, f"误判空白：{res.message}"
+
     def test_visual_drift_without_baseline_is_skip(self):
         res = v.check_visual_drift(None, None)
         assert res.status == v.SKIP

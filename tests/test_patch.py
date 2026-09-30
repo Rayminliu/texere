@@ -226,6 +226,48 @@ class TestInsertOperations:
         # Should either succeed or skip if anchor not found
         assert result.returncode in (0, 1)
 
+    def test_insert_after_multiline_order(self, tmp_path):
+        """content=[A,B,C] 经 insert_after 后在文档中应按 A,B,C 顺序出现。"""
+        docx = _build_sample_docx(tmp_path)
+        patch = {
+            "id": "test-order",
+            "operations": [
+                {
+                    "op": "insert_after",
+                    "target": {"anchor": "示例"},
+                    "content": ["ZZZ_first", "YYY_second", "XXX_third"],
+                }
+            ],
+        }
+        patch_file = tmp_path / "patch.json"
+        patch_file.write_text(json.dumps(patch, ensure_ascii=False), encoding="utf-8")
+        out = tmp_path / "out.docx"
+        env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(KIT, "scripts", "patch.py"),
+                str(docx),
+                str(patch_file),
+                "--apply",
+                "--out",
+                str(out),
+            ],
+            capture_output=True,
+            env=env,
+        )
+        if result.returncode != 0:
+            # 锚点未命中时允许跳过（不强行要求特定文档内容）
+            combined = (result.stderr or b"") + (result.stdout or b"")
+            assert b"\u627e\u4e0d\u5230\u951a\u70b9" in combined or b"not found" in combined.lower()
+            return
+        from docx import Document
+
+        doc = Document(str(out))
+        texts = [p.text for p in doc.paragraphs]
+        i = texts.index("ZZZ_first")
+        assert texts[i : i + 3] == ["ZZZ_first", "YYY_second", "XXX_third"]
+
 
 class TestDeleteParagraphOperation:
     """Test delete_paragraph operation."""

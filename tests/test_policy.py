@@ -75,6 +75,17 @@ def test_strict_mode_fails_on_enforced_fail():
     assert summary.enforced >= 1
 
 
+def test_strict_mode_fails_on_enforced_error():
+    """ERROR 与 FAIL 同等对待，不允许『查不了=合格』。"""
+    pol = policy.MODE_PRESETS["strict"]
+    summary, verdict = policy.evaluate(
+        _checks(("profile.body_font", "ERROR"), ("blank_pages", "PASS")),
+        pol,
+        mode="strict",
+    )
+    assert verdict == "FAIL"
+
+
 def test_ignore_skips_and_ignores_fail():
     pol = {"blank_pages": "ignore"}
     summary, verdict = policy.evaluate(

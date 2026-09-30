@@ -22,32 +22,11 @@ import sys
 import tempfile
 from datetime import datetime
 
+from _shared import UTF8_ENV, __version__, force_utf8_stdio
 from renderers import SUPPORTED_RENDERERS, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _read_version() -> str:
-    """版本号单一来源：scripts/_version.py（与 pyproject.toml 保持一致）。"""
-    vp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_version.py")
-    with open(vp, encoding="utf-8") as f:
-        m = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", f.read())
-    return m.group(1) if m else "0.0.0"
-
-
-__version__ = _read_version()
-
-# Windows 控制台默认 GBK，子进程输出里若出现 GBK 无法编码的字符（如 PyMuPDF 解出的
-# U+FFFD），print 会抛 UnicodeEncodeError 让验收环节崩掉。这里保持控制台原编码不变
-# （改成 utf-8 反而会让控制台显示乱码），只把无法编码的字符降级为 ?。
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
-
-# 乱码的真正根源：子进程（post.py / check_pdf.py 等）的 stdout 接管道时按系统
-# locale（GBK）编码，而下面用 utf-8 解码 → 中文变乱码再被 ? 替换。
-# 强制子进程管道输出 UTF-8，整条链编码统一。
-UTF8_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+force_utf8_stdio()
 
 
 def cleanup_old_temp(prefix="texere_"):
@@ -137,7 +116,8 @@ def load_content_fixes(cfg, cfg_dir):
     if not os.path.exists(p):
         sys.exit("content_fixes_file 不存在: " + p)
     if p.lower().endswith(".json"):
-        data = json.load(open(p, encoding="utf-8-sig"))
+        with open(p, encoding="utf-8-sig") as f:
+            data = json.load(f)
     else:
         data = _extract_py_list(p)
     fixes += list(data.items()) if isinstance(data, dict) else [tuple(x) for x in data]
@@ -300,7 +280,10 @@ def render(
     preflight(want_pdf, want_check, renderer_name)
     cfg = {}
     if config_path and os.path.exists(config_path):
-        cfg = json.load(open(config_path, encoding="utf-8-sig"))
+        with open(config_path, encoding="utf-8-sig") as f:
+            cfg = json.load(f)
+    elif config_path:
+        sys.exit(f"文件不存在：--config {config_path}")
     # 未知顶层键告警：键写错层级/拼错会被静默忽略（外部实测踩坑：
     # page_number/toc_title 写在顶层毫无作用）。白名单与 docs/CONFIG 字段表同步，
     # 并与 config.schema.json 由 tests/test_docs_sync.py 守住三方一致。

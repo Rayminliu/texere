@@ -19,14 +19,11 @@ import json
 import os
 import sys
 
+from _shared import force_utf8_stdio
 from docx import Document
 from docx.oxml.ns import qn
 
-# Windows 控制台默认 GBK，遇到无法编码的字符会抛 UnicodeEncodeError。
-# 与 render.py / edit.py 同一取舍：保持原编码，只把无法编码的字符降级为 ?。
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 EMU_PER_CM = 360000
 
@@ -35,7 +32,9 @@ HEADING_NAMES = [("Heading %d", "标题 %d")]
 
 
 def cm(v):
-    return None if v is None else round(v / EMU_PER_CM, 2)
+    if v is None:
+        return "n/a"
+    return round(v / EMU_PER_CM, 2)
 
 
 def style_font(st):
@@ -79,7 +78,7 @@ def distill(path):
     sec = doc.sections[0]
     report.append("== 页面设置 ==")
     report.append(
-        "  纸型     : %.1f x %.1f cm（%s）"
+        "  纸型     : %s x %s cm（%s）"
         % (
             cm(sec.page_width),
             cm(sec.page_height),
@@ -87,7 +86,7 @@ def distill(path):
         )
     )
     report.append(
-        "  页边距   : 上%.2f 下%.2f 左%.2f 右%.2f cm"
+        "  页边距   : 上%s 下%s 左%s 右%s cm"
         % (
             cm(sec.top_margin),
             cm(sec.bottom_margin),
@@ -141,7 +140,7 @@ def distill(path):
 
     # --- 建议 config ---
     if headers:
-        uniq = sorted(set(headers))
+        uniq = list(dict.fromkeys(headers))  # 保序去重（文档顺序第一節）
         cfg["header"] = uniq[0]
         if len(uniq) > 1:
             report.append("")

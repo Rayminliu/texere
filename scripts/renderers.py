@@ -81,11 +81,16 @@ class WordRenderer(RendererAdapter):
             return False, "未安装 pywin32（Word 渲染器需要它）"
         try:
             pythoncom.CoInitialize()
+            w = None
             try:
                 w = win32.DispatchEx("Word.Application")
                 name = "%s %s" % (w.Name, w.Version)
-                w.Quit()
             finally:
+                if w is not None:
+                    try:
+                        w.Quit()
+                    except Exception:
+                        pass
                 pythoncom.CoUninitialize()
         except Exception as e:
             return False, "Word 启动失败（%s：%s）" % (type(e).__name__, e)
@@ -285,6 +290,10 @@ class LibreOfficeRenderer(RendererAdapter):
             )
         out_dir = os.path.dirname(os.path.abspath(pdf_path)) or "."
         src = os.path.abspath(docx_path)
+        produced = os.path.join(out_dir, os.path.splitext(os.path.basename(src))[0] + ".pdf")
+        # 删除陈旧产物，避免上次运行残留的 PDF 冒充本次成功
+        if os.path.exists(produced):
+            os.remove(produced)
         proc = None
         try:
             proc = subprocess.Popen(
@@ -312,7 +321,18 @@ class LibreOfficeRenderer(RendererAdapter):
                     stats={},
                 )
             version = _soffice_version(exe)
-            produced = os.path.join(out_dir, os.path.splitext(os.path.basename(src))[0] + ".pdf")
+            if proc.returncode != 0:
+                err_text = (err or out or b"").decode("utf-8", "replace").strip()[:300]
+                return RenderResult(
+                    ok=False,
+                    pdf=None,
+                    renderer_name="LibreOffice",
+                    renderer_version=version,
+                    engine_path=exe,
+                    warnings=[],
+                    errors=[f"LibreOffice 退出码 {proc.returncode}：{err_text}"],
+                    stats={},
+                )
             if os.path.exists(produced):
                 if os.path.abspath(produced) != os.path.abspath(pdf_path):
                     shutil.move(produced, pdf_path)
@@ -376,11 +396,16 @@ class WPSRenderer(RendererAdapter):
             return False, "未安装 pywin32（WPS 渲染器需要它）"
         try:
             pythoncom.CoInitialize()
+            app = None
             try:
                 app = win32.DispatchEx("KWPS.Application")
                 name = getattr(app, "Name", "WPS Writer")
-                app.Quit()
             finally:
+                if app is not None:
+                    try:
+                        app.Quit()
+                    except Exception:
+                        pass
                 pythoncom.CoUninitialize()
         except Exception as e:
             return False, "WPS 启动失败（%s：%s）" % (type(e).__name__, e)

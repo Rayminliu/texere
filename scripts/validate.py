@@ -45,30 +45,14 @@ try:
     import pymupdf  # PyMuPDF：包结构/分节等基础检查不需要它，页码/空白页/视觉比对才需要
 except ImportError:
     pymupdf = None
+from _shared import __version__, force_utf8_stdio
+from _shared import sha256_file as _sha256_file
 from docx import Document
 from docx.oxml.ns import qn
 from renderers import SUPPORTED_RENDERERS, RenderResult, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# 子进程管道统一 UTF-8 输出，避免 GBK 编码被 utf-8 解码成乱码（同 render.py）
-UTF8_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-
-
-def _read_version() -> str:
-    """版本号单一来源：scripts/_version.py（与 pyproject.toml 保持一致）。"""
-    vp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_version.py")
-    with open(vp, encoding="utf-8") as f:
-        m = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", f.read())
-    return m.group(1) if m else "0.0.0"
-
-
-__version__ = _read_version()
-
-# Windows 控制台编码处理
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 
 # =============================================================================
@@ -139,8 +123,20 @@ def _normalize(text: str) -> str:
     去掉空白是因为 Word 会在中英文交界、断行处插入不可见字符，逐字符等价
     在这里不成立；比对的是「去掉排版噪声后的可见文字序列」。
     """
-    # pandoc/Word 会把直引号排成弯引号，正文比对前先统一回直引号
-    t = text.translate(str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"}))
+    # pandoc/Word 会把直引号排成弯引号，-- 变 en/em-dash，... 变 ellipsis，正文比对前先统一回 ASCII
+    t = text.translate(
+        str.maketrans(
+            {
+                "\u201c": '"',
+                "\u201d": '"',
+                "\u2018": "'",
+                "\u2019": "'",
+                "\u2013": "-",
+                "\u2014": "-",
+                "\u2026": "...",
+            }
+        )
+    )
     t = re.sub(
         r"!\[[^\]]*\]\([^)]*\)\s*(?:\{[^}]*\})?", "", t
     )  # 图片：连 alt 和尾随的 pandoc 属性 {width=...} 一起丢
@@ -291,14 +287,6 @@ def _md_image_paths(md_text: str, md_dir: str = None) -> list[str | None]:
                     break
         found.append(cand if os.path.exists(cand) else None)
     return found
-
-
-def _sha256_file(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _docx_image_shas(doc) -> list[str]:
@@ -515,10 +503,13 @@ def export_pdf_once(
     失败也带 renderer_name / engine_path，供 evidence 记录 provenance。
     """
     rndr = renderer or get_renderer("word")
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            res = ex.submit(rndr.render, docx_path, pdf_path).result(timeout=timeout)
+        res = ex.submit(rndr.render, docx_path, pdf_path).result(timeout=timeout)
+        ex.shutdown(wait=False)
     except concurrent.futures.TimeoutError:
+        # 不等待卡死的 COM 线程——取消排队项后让后台自然结束
+        ex.shutdown(wait=False, cancel_futures=True)
         res = RenderResult(
             ok=False,
             pdf=None,
@@ -528,6 +519,7 @@ def export_pdf_once(
         )
         return False, f"PDF 导出超时 ({timeout}s)", res
     except Exception as e:
+        ex.shutdown(wait=False, cancel_futures=True)
         res = RenderResult(
             ok=False,
             pdf=None,
@@ -632,7 +624,13 @@ def check_page_numbering(pdf_path, max_pages: int = 1000) -> CheckResult:
         expected = list(range(min(page_numbers), max(page_numbers) + 1))
         if sorted(page_numbers) != expected:
             missing = set(expected) - set(page_numbers)
-            return CheckResult("page_numbering", FAIL, f"页码不连续：缺失{sorted(missing)}")
+            dups = [x for x in set(page_numbers) if page_numbers.count(x) > 1]
+            parts = []
+            if missing:
+                parts.append(f"缺失{sorted(missing)}")
+            if dups:
+                parts.append(f"重复{sorted(dups)}（可能分节重启编号）")
+            return CheckResult("page_numbering", FAIL, f"页码不连续：{' | '.join(parts)}")
 
         return CheckResult(
             "page_numbering",
@@ -666,9 +664,12 @@ def check_blank_pages(pdf_path, max_empty: int = 0) -> CheckResult:
             empty_count = 0
             exempt_count = 0
             for page_num in range(len(pdf_doc)):
-                # 简单判断：文字极少（少于 10 个字符）视为近空白页
+                # 简单判断：文字极少（少于 10 个字符）且无图片时视为空白页
                 txt = pdf_doc[page_num].get_text("text").strip()
                 if len(txt) >= 10:
+                    continue
+                # 有图片的页不算空白（标书附图/案例页）
+                if pdf_doc[page_num].get_images(full=True):
                     continue
                 # 但签字 / 盖章 / 无正文声明属于**有意稀疏**，不算误报
                 if SPARSE_OK_RE.search(txt):
@@ -1089,13 +1090,6 @@ def _pandoc_version() -> str:
         return "unknown"
 
 
-def _sha256_file(path):
-    if path and os.path.exists(path):
-        with open(path, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
-    return None
-
-
 def generate_evidence_package(
     docx_path: str,
     out_dir: str,
@@ -1211,19 +1205,28 @@ def generate_evidence_package(
 
         # 3b. profile 契约断言（仅在 --enforce-profile 时计入门禁；profile 即文档规范）
         if enforce_profile:
-            for res in compile_profile_checks(profile, docx_path):
-                report["checks"][res.name] = {
-                    "status": res.status,
-                    "message": res.message,
-                    "evidence": res.evidence,
+            try:
+                for res in compile_profile_checks(profile, docx_path):
+                    report["checks"][res.name] = {
+                        "status": res.status,
+                        "message": res.message,
+                        "evidence": res.evidence,
+                    }
+                    report["summary"]["total"] += 1
+                    if res.status == PASS:
+                        report["summary"]["passed"] += 1
+                    elif res.status == SKIP:
+                        report["summary"]["skipped"] += 1
+                    else:
+                        report["summary"]["failed"] += 1
+            except Exception as e:
+                report["checks"]["profile_assert"] = {
+                    "status": ERROR,
+                    "message": f"profile 断言执行失败：{e}",
+                    "evidence": {},
                 }
                 report["summary"]["total"] += 1
-                if res.status == PASS:
-                    report["summary"]["passed"] += 1
-                elif res.status == SKIP:
-                    report["summary"]["skipped"] += 1
-                else:
-                    report["summary"]["failed"] += 1
+                report["summary"]["failed"] += 1
 
         # 4. 生成 PDF 截图证据（复用同一份导出 PDF）
         if shared_pdf is not None and pymupdf is not None:
@@ -1402,7 +1405,10 @@ def main():
     # 准备 profile
     profile = {}
     if a.profile and os.path.exists(a.profile):
-        profile = json.load(open(a.profile, encoding="utf-8-sig"))
+        with open(a.profile, encoding="utf-8-sig") as f:
+            profile = json.load(f)
+    elif a.profile:
+        sys.exit(f"找不到 --profile 文件：{a.profile}")
 
     # 生成证据包
     print(f"Validating: {os.path.basename(a.docx)}")
@@ -1424,10 +1430,7 @@ def main():
     )
 
     # 打印报告
-    if not a.quiet:
-        print_report(report, quiet=False)
-    else:
-        print_report(report, quiet=True)
+    print_report(report, quiet=a.quiet)
 
     print(f"\nEvidence package saved to: {os.path.abspath(a.out)}")
     print("  - report.json (structured validation report)")

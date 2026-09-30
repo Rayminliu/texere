@@ -38,18 +38,13 @@ import sys
 import tempfile
 from datetime import datetime
 
-from _version import __version__
+from _shared import __version__, force_utf8_stdio
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# Windows 控制台默认 GBK，遇到无法编码的字符会抛 UnicodeEncodeError 让整条链崩掉。
-# 保持控制台原编码不变，只把无法编码的字符降级为 ?（与 render.py 同一取舍）。
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 

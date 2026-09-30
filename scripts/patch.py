@@ -6,9 +6,9 @@
 - 适合 Goal Mode / coding agents / MCP
 
 用法:
-  python scripts/patch.py document.docx --dry-run patch.json
-  python scripts/patch.py document.docx --apply patch.json
-  python scripts/patch.py document.docx --validate
+  python scripts/patch.py document.docx patch.json --dry-run
+  python scripts/patch.py document.docx patch.json --apply --out result.docx
+  python scripts/patch.py document.docx patch.json --apply --validate
 
 Patch schema (JSON):
 {
@@ -53,29 +53,14 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import sys
 from datetime import datetime
 
+from _shared import __version__, force_utf8_stdio
 from docx import Document
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _read_version() -> str:
-    """版本号单一来源：scripts/_version.py（与 pyproject.toml 保持一致）。"""
-    vp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_version.py")
-    with open(vp, encoding="utf-8") as f:
-        m = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", f.read())
-    return m.group(1) if m else "0.0.0"
-
-
-__version__ = _read_version()
-
-# Windows 控制台编码处理
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 
 # =============================================================================
@@ -250,11 +235,12 @@ def insert_after_op(doc: Document, op: dict) -> tuple[bool, str]:
             return False, f"找不到锚点：{anchor_text}"
 
         for para_idx, anchor_para in hits:
-            for line in content:
+            # addnext 每次插在锚点紧邻之后，逆序遍历使最终文档顺序与 content 一致
+            for line in reversed(content):
                 edit._clone_paragraph(anchor_para, line, style, doc, before=False)
 
         return True, f"在 {len(hits)} 个位置插入 {len(content)} 段"
-    except Exception as e:
+    except (Exception, SystemExit) as e:
         return False, f"插入失败：{e}"
 
 
@@ -276,11 +262,12 @@ def insert_before_op(doc: Document, op: dict) -> tuple[bool, str]:
             return False, f"找不到锚点：{anchor_text}"
 
         for para_idx, anchor_para in hits:
-            for line in reversed(content):  # 逆序插入保证顺序正确
+            # addprevious 天然保持正序，顺序遍历即可
+            for line in content:
                 edit._clone_paragraph(anchor_para, line, style, doc, before=True)
 
         return True, f"在 {len(hits)} 个位置插入 {len(content)} 段"
-    except Exception as e:
+    except (Exception, SystemExit) as e:
         return False, f"插入失败：{e}"
 
 
@@ -649,7 +636,8 @@ def main():
     if not os.path.exists(a.patch_file):
         sys.exit(f"Patch file not found: {a.patch_file}")
 
-    patch = json.load(open(a.patch_file, encoding="utf-8-sig"))
+    with open(a.patch_file, encoding="utf-8-sig") as f:
+        patch = json.load(f)
     print(f"Loaded patch: {patch.get('id', 'unknown')}")
 
     # 验证 Patch schema
@@ -712,8 +700,12 @@ def main():
         # Save
         if a.out:
             # --out 指定输出目录或文件
-            # 如果路径不存在或明确是目录，保存到该目录下的 document.patched.docx
-            if not os.path.exists(a.out) or os.path.isdir(a.out):
+            # 有扩展名时视为文件路径；不存在且无扩展名时视为目录
+            out_ext = os.path.splitext(a.out)[1].lower()
+            if out_ext in (".docx", ".doc"):
+                out_file = a.out
+                evidence_dir = os.path.dirname(os.path.abspath(out_file)) or "."
+            elif not os.path.exists(a.out) or os.path.isdir(a.out):
                 evidence_dir = a.out
                 out_file = os.path.join(evidence_dir, "document.patched.docx")
             else:
