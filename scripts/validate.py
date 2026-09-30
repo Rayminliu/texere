@@ -141,8 +141,10 @@ def _normalize(text: str) -> str:
     """
     # pandoc/Word 会把直引号排成弯引号，正文比对前先统一回直引号
     t = text.translate(str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"}))
-    t = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", t)  # 图片：连 alt 一起丢
-    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)  # 链接：只留文字
+    t = re.sub(
+        r"!\[[^\]]*\]\([^)]*\)\s*(?:\{[^}]*\})?", "", t
+    )  # 图片：连 alt 和尾随的 pandoc 属性 {width=...} 一起丢
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)(?:\s*\{[^}]*\})?", r"\1", t)  # 链接：只留文字，属性同样丢掉
     t = re.sub(r"[*_`>#|~]+", "", t)  # 强调 / 标题 / 引用 / 表格竖线
     return re.sub(r"\s+", "", t)
 
@@ -254,6 +256,21 @@ def check_source_content_integrity(
 MD_IMAGE_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
 
+def _md_image_raw_refs(md_text: str) -> list[str]:
+    """按文档顺序取回 `![](path)` 里的原始引用文本（已去掉 title / <>/ 尾随属性）。
+
+    与 _md_image_paths 共用同一套解析规则；路径解析失败（None）的位置对应的
+    原始引用从这里按序取回，供 evidence 记录「哪几张图定位不到」。
+    """
+    refs = []
+    for m in MD_IMAGE_REF.finditer(md_text):
+        raw = m.group(1).strip()
+        raw = re.split(r"\s+[{]", raw)[0].strip().strip("<>").strip()
+        raw = raw.split(" ")[0]  # `path "title"` 形式
+        refs.append(raw)
+    return refs
+
+
 def _md_image_paths(md_text: str, md_dir: str = None) -> list[str | None]:
     """按文档顺序解析 `![](path)` 指向的真实文件；解析不到的位置留 None。
 
@@ -262,10 +279,7 @@ def _md_image_paths(md_text: str, md_dir: str = None) -> list[str | None]:
     render.py 的 resource_paths，这里不该重复实现一套。
     """
     found = []
-    for m in MD_IMAGE_REF.finditer(md_text):
-        raw = m.group(1).strip()
-        raw = re.split(r"\s+[{]", raw)[0].strip().strip("<>").strip()
-        raw = raw.split(" ")[0]  # `path "title"` 形式
+    for raw in _md_image_raw_refs(md_text):
         cand = raw
         if not os.path.isabs(cand):
             for base in (md_dir, os.getcwd()):
@@ -379,7 +393,8 @@ def check_image_embedding(
         unresolved = len(paths) - len(resolved)
         ev["resolved"] = len(resolved)
         ev["unresolved"] = unresolved
-        ev["unresolved_paths"] = [os.path.basename(p) for p in paths if not p]
+        raws = _md_image_raw_refs(md_ref_text)  # 与 paths 同序；None 位置的原始引用从这里取
+        ev["unresolved_paths"] = [os.path.basename(r) for p, r in zip(paths, raws) if not p]
 
         expected = [_sha256_file(p) for p in resolved]
         missing = [resolved[i] for i, s in enumerate(expected) if s not in doc_shas]
