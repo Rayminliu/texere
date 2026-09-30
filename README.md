@@ -197,6 +197,8 @@ python scripts/render.py --sample                                # smoke test ->
 
 # 1. Render Markdown → DOCX + PDF + visual check (--check implies --pdf)
 python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
+#    --keep-work keeps all.md / body.docx / check_pages/ so rework edits the
+#    existing body.docx with patch.py / edit.py instead of re-rendering the chain
 
 # 2. Accept before delivery (9 checks → report.json + screenshots + manifest)
 python scripts/validate.py bid.docx --out evidence/

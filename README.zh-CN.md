@@ -186,6 +186,8 @@ python scripts/render.py --sample                                # 冒烟测试 
 
 # 1. 正式渲染（--check 会自动补 --pdf）
 python scripts/render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check
+#    加 --keep-work 会留下 all.md / body.docx / check_pages/，返修时直接用
+#    patch.py / edit.py 改那份 body.docx，不必整链重跑
 
 # 2. 交付前验收（9 项检查 → report.json + 截图 + 签名）
 python scripts/validate.py 标书.docx --out evidence/

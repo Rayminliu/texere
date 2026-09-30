@@ -29,6 +29,8 @@ python scripts/render.py --sample     # smoke test -> sample_out.docx/.pdf
 
 # Render Markdown → DOCX + PDF（--src 可以是目录，也可以是单个 .md 文件）
 python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
+#    --keep-work keeps all.md / body.docx / check_pages/ so a rework edits the
+#    existing body.docx with patch.py / edit.py instead of re-rendering the chain
 
 # Validate (Compiler + Contract + Evidence)
 python scripts/validate.py bid.docx --out evidence/
