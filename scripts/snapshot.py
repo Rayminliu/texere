@@ -14,6 +14,7 @@
   python scripts/snapshot.py out.pdf --dpi 150              # 更高精度（更慢、更敏感）
 """
 
+import argparse
 import json
 import operator
 import os
@@ -31,42 +32,37 @@ DEFAULT_MAX_DIFF = 0.001
 RENDERERS = ("word", "libreoffice", "wps")
 
 
+def _build_parser():
+    p = argparse.ArgumentParser(
+        prog="snapshot.py",
+        description="PDF 版式快照回归：逐页与 baselines/<renderer>/ 下的基线比像素。",
+        epilog="典型用法：snapshot.py out.pdf --update 重录基线；"
+        "snapshot.py out.pdf --renderer libreoffice 比对。",
+    )
+    p.add_argument("pdf", help="待校验（或待录入基线）的 PDF")
+    p.add_argument(
+        "--update", action="store_true", help="用本 PDF 重录基线（确认版式变更是有意时）"
+    )
+    p.add_argument(
+        "--renderer", default="word", choices=RENDERERS, help="基线所属渲染器（默认 word）"
+    )
+    p.add_argument("--dpi", type=int, default=DEFAULT_DPI, help="渲染精度，默认 %d" % DEFAULT_DPI)
+    p.add_argument(
+        "--max-diff",
+        dest="max_diff",
+        type=float,
+        default=DEFAULT_MAX_DIFF,
+        # 措辞里不能带 %：argparse 会把 help 字符串做一次 %-插值，
+        # 单个百分号会被当成格式开头直接 ValueError（--help 实测炸在这里）
+        help="单页差异比例阈值（小数，非百分数），默认 %s" % DEFAULT_MAX_DIFF,
+    )
+    return p
+
+
 def parse_args(argv):
-    pdf, dpi, max_diff, update = None, DEFAULT_DPI, DEFAULT_MAX_DIFF, False
-    renderer = "word"
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a == "--update":
-            update = True
-        elif a == "--dpi":
-            if i + 1 >= len(argv):
-                sys.exit("--dpi 需要一个整数参数")
-            dpi = int(argv[i + 1])
-            i += 1
-        elif a == "--max-diff":
-            if i + 1 >= len(argv):
-                sys.exit("--max-diff 需要一个数值参数")
-            max_diff = float(argv[i + 1])
-            i += 1
-        elif a == "--renderer":
-            if i + 1 >= len(argv):
-                sys.exit("--renderer 需要一个名称参数")
-            renderer = argv[i + 1]
-            i += 1
-        elif a.startswith("-"):
-            sys.exit("未知参数: " + a)
-        elif pdf is None:
-            pdf = a
-        i += 1
-    if pdf is None:
-        sys.exit(
-            "用法: python scripts/snapshot.py <file.pdf> [--update] [--max-diff R] [--dpi N]"
-            " [--renderer word|libreoffice|wps]"
-        )
-    if renderer not in RENDERERS:
-        sys.exit("未知渲染器: %s（可选 %s）" % (renderer, " / ".join(RENDERERS)))
-    return pdf, dpi, max_diff, update, renderer
+    """argparse 接手全部边界校验：缺参数值、非整数 --dpi、未知选项都由它报错。"""
+    a = _build_parser().parse_args(argv)
+    return a.pdf, a.dpi, a.max_diff, a.update, a.renderer
 
 
 def diff_ratio(a, b):

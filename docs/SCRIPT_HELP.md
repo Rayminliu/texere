@@ -53,6 +53,10 @@ python scripts/post.py <body.docx> <out.docx> [config.json]
 - 表格样式化
 - 题注居中格式化
 
+### CLI
+参数由 argparse 解析：少给 `body.docx` / `out.docx`、或写了不认识的选项，
+统一打印 usage 并以**退出码 2** 结束（不再 IndexError 崩栈或静默忽略）。`--help` 可查完整说明。
+
 ---
 
 ## validate.py - 文档验证器
@@ -350,6 +354,12 @@ out.pdf 可省略，默认取输入同名 `.pdf`（长中文名不用再手打�
   只有 `--save-updated-fields` 才把刷新后的域写回原文件（render --pdf 交付物需要）
 - 输出：页数 / 字数 / 表数 / 图数 / 节数
 
+### 退出码
+- `0` 验收通过且 PDF 已产出
+- `1` 渲染器报错，**或 `res.ok` 为假（PDF 根本没产出）**——后者以前只查 `errors` 列表，
+  会打一份没 PDF 的「OK」；`edit.py --verify` 依赖这个退出码
+- `2` 参数不合法（argparse）
+
 ### 渲染器抽象（Core vs Renderer）
 Texere 核心（compile / OOXML / source / image / profile / metadata / evidence）
 **不依赖任何 Office**。只有「真机验收 + 出 PDF」需要具体渲染器，这一层就是
@@ -416,6 +426,8 @@ python scripts/snapshot.py output.pdf --dpi 150 --max-diff 0.0005
 - `--dpi <n>`: 渲染精度（默认 100；与基线 meta 不一致时拒比对）
 - `--max-diff <r>`: 差异比例阈值（默认 0.001 = 0.1%；实测同文档重复导出 0.00%，改一处页眉 0.16%）
 
+参数由 argparse 解析：`--dpi` 缺值、非整数，或未知选项 → usage + **退出码 2**；`--help` 可查全部选项。
+
 ---
 
 ## make_ref.py - 重建参考模板
@@ -461,6 +473,11 @@ python scripts/check_pdf.py <document.pdf> [OPTIONS]
 - 检测空白页
 - 渲染页面为 PNG 截图
 - 返回非零退出码如果有问题
+
+### 退出码
+- `0` 通过
+- `1` PDF 无页，或近空白页数超过 `--max-empty`
+- `2` 参数不合法（argparse：缺 PDF 路径、页码非整数、未知选项）
 
 ---
 

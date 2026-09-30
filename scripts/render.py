@@ -272,12 +272,14 @@ KNOWN_CONFIG_KEYS = frozenset(
 )
 
 
-def render(
-    src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word", keep_pages=False
-):
+def _load_config(config_path):
+    """读 config.json。
+
+    显式传了路径却不存在 → 直接退出：静默退回默认值会做出一份「看着对」的
+    错版式文档，比崩溃更难发现。
+    """
     import json
 
-    preflight(want_pdf, want_check, renderer_name)
     cfg = {}
     if config_path and os.path.exists(config_path):
         with open(config_path, encoding="utf-8-sig") as f:
@@ -292,16 +294,14 @@ def render(
             "[warn] config 顶层键 %r 不被识别——多半是应放进 style 段或拼写有误，"
             "键表见 docs/CONFIG.zh-CN.md" % k
         )
-    ref = cfg.get("reference_doc") or os.path.join(KIT, "assets", "ref.docx")
-    # --out 指向不存在的目录时直接建好（外部审计：pandoc/SaveAs 遇缺父目录直接挂）
-    out_parent = os.path.dirname(os.path.abspath(out_docx))
-    if out_parent:
-        os.makedirs(out_parent, exist_ok=True)
+    return cfg
 
-    tmp = tempfile.mkdtemp(prefix="texere_")
-    # 用 atexit 而不是在函数末尾 rmtree：任何 sys.exit（preflight、子进程报错、
-    # 配置有误）都会绕过末尾那行，临时目录就会烂在 %TEMP% 里（实测一天攒了 12 个）。
-    atexit.register(shutil.rmtree, tmp, ignore_errors=True)
+
+def _merge_sources(src_dir, config_path, cfg, tmp):
+    """合并 src 下全部 .md、套用 content_fixes 替换、写出 all.md。
+
+    返回 (合并正文, 图片搜索锚点目录 src_root, all.md 路径)。
+    """
     all_md = os.path.join(tmp, "all.md")
     # --src 既可以是目录也可以是单个 .md 文件（一页的通知不必先建目录）。
     # src_root 是图片搜索的锚点目录：单文件时取其所在目录。
@@ -314,7 +314,8 @@ def render(
     parts = []
     for f in md_files:
         # utf-8-sig：源 md 带 BOM 时不至于让第一个字符变成乱码（记事本默认写 BOM）
-        parts.append(open(f, encoding="utf-8-sig").read().rstrip() + "\n")
+        with open(f, encoding="utf-8-sig") as fh:
+            parts.append(fh.read().rstrip() + "\n")
     if not parts:
         sys.exit("src 目录下没有 .md 文件: " + src_dir)
     merged = "\n".join(parts)
@@ -334,8 +335,11 @@ def render(
     print("[1/3] merged %d md files (%d chars)" % (len(parts), len(merged)))
     if fixes:
         print("      content fixes: %d 处（%d 条规则）" % (n_fix, len(fixes)))
+    return merged, src_root, all_md
 
-    body = os.path.join(tmp, "body.docx")
+
+def _resource_paths(src_root, cfg):
+    """算出 pandoc 的 --resource-path 去重列表。"""
     # 图片常放在 src 的子目录或**兄弟**目录里（真实项目里 md 在 src/、图在 media/），
     # pandoc 只按给出的路径查找，故把 src、其全部子目录、src 的父目录及其子目录
     # 都加进 resource-path；还可用 config 的 resource_paths 补充。
@@ -356,6 +360,11 @@ def render(
         if p not in seen:
             seen.add(p)
             uniq.append(p)
+    return uniq
+
+
+def _build_pandoc_cmd(all_md, body, ref, uniq, cfg):
+    """拼 pandoc 命令行；captions.lua 存在时把题注关键字一并喂给它。"""
     lua_filter = os.path.join(KIT, "scripts", "filters", "captions.lua")
     cmd = [
         "pandoc",
@@ -381,7 +390,55 @@ def render(
                 cmd += ["-M", "%s=%s" % (meta_name, ",".join(cw[key]))]
     else:
         print("[warn] 缺少 filters/captions.lua，题注退回文本正则判定")
-    run(cmd)
+    return cmd
+
+
+def _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp):
+    """导 PDF（刷域写回），并按需跑 check_pdf.py 目视验收。"""
+    pdf = os.path.splitext(out_docx)[0] + ".pdf"
+    rndr = get_renderer(renderer_name)
+    res = rndr.render(out_docx, pdf, save_updated_fields=True)
+    if not res.ok:
+        sys.exit(
+            "PDF 导出失败（%s）：%s"
+            % (renderer_name, (res.errors[0] if res.errors else "未知错误"))
+        )
+    for w in res.warnings:
+        print("[warn] %s" % w)
+    if want_check:
+        run([sys.executable, os.path.join(KIT, "scripts", "check_pdf.py"), pdf])
+        # check_pages/ 默认随临时目录清理（外部反馈：29 张 PNG 散落工作目录）；
+        # 要肉眼检查时用 --keep-pages 留在原地
+        pages_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "check_pages")
+        if os.path.isdir(pages_dir):
+            if keep_pages:
+                print("[check] 页面截图保留在 %s" % pages_dir)
+            else:
+                shutil.move(pages_dir, os.path.join(tmp, "check_pages"))
+                print("[check] 页面截图已随临时目录清理（保留用 --keep-pages）")
+
+
+def render(
+    src_dir, out_docx, config_path, want_pdf, want_check, renderer_name="word", keep_pages=False
+):
+    """渲染编排：读配置 → 合并 md → pandoc 出正文 → post 排版 → 可选导 PDF 验收。"""
+    preflight(want_pdf, want_check, renderer_name)
+    cfg = _load_config(config_path)
+    ref = cfg.get("reference_doc") or os.path.join(KIT, "assets", "ref.docx")
+    # --out 指向不存在的目录时直接建好（外部审计：pandoc/SaveAs 遇缺父目录直接挂）
+    out_parent = os.path.dirname(os.path.abspath(out_docx))
+    if out_parent:
+        os.makedirs(out_parent, exist_ok=True)
+
+    tmp = tempfile.mkdtemp(prefix="texere_")
+    # 用 atexit 而不是在函数末尾 rmtree：任何 sys.exit（preflight、子进程报错、
+    # 配置有误）都会绕过末尾那行，临时目录就会烂在 %TEMP% 里（实测一天攒了 12 个）。
+    atexit.register(shutil.rmtree, tmp, ignore_errors=True)
+
+    merged, src_root, all_md = _merge_sources(src_dir, config_path, cfg, tmp)
+    body = os.path.join(tmp, "body.docx")
+    uniq = _resource_paths(src_root, cfg)
+    run(_build_pandoc_cmd(all_md, body, ref, uniq, cfg))
     print("[2/3] pandoc -> body.docx")
 
     run(
@@ -399,27 +456,7 @@ def render(
         print("[hint] 仅产出 docx（无渲染器依赖，秒级）；需要 PDF/真机验收时追加 --pdf --check")
 
     if want_pdf:
-        pdf = os.path.splitext(out_docx)[0] + ".pdf"
-        rndr = get_renderer(renderer_name)
-        res = rndr.render(out_docx, pdf, save_updated_fields=True)
-        if not res.ok:
-            sys.exit(
-                "PDF 导出失败（%s）：%s"
-                % (renderer_name, (res.errors[0] if res.errors else "未知错误"))
-            )
-        for w in res.warnings:
-            print("[warn] %s" % w)
-        if want_check:
-            run([sys.executable, os.path.join(KIT, "scripts", "check_pdf.py"), pdf])
-            # check_pages/ 默认随临时目录清理（外部反馈：29 张 PNG 散落工作目录）；
-            # 要肉眼检查时用 --keep-pages 留在原地
-            pages_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "check_pages")
-            if os.path.isdir(pages_dir):
-                if keep_pages:
-                    print("[check] 页面截图保留在 %s" % pages_dir)
-                else:
-                    shutil.move(pages_dir, os.path.join(tmp, "check_pages"))
-                    print("[check] 页面截图已随临时目录清理（保留用 --keep-pages）")
+        _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp)
     shutil.rmtree(tmp, ignore_errors=True)
     # 缺图时不在 check_images 里立即退出：先走完 PDF 导出与 --check（用户恰恰需要
     # 这些产物肉眼确认丢了哪几张图），再让退出码诚实反映「这份交付物没图」。
@@ -427,6 +464,22 @@ def render(
     # 不接 validate 的 CI 场景，此前缺图仍拿到退出码 0）。
     if not images_ok:
         sys.exit(1)
+
+
+def _outside_code_fences(md_text: str) -> str:
+    """去掉 ``` / ~~~ 围栏代码块，只留围栏外的正文。"""
+    out, fence = [], None
+    for line in md_text.splitlines():
+        s = line.strip()
+        if fence is None and (s.startswith("```") or s.startswith("~~~")):
+            fence = s[:3]
+            continue
+        if fence is not None:
+            if s.startswith(fence):
+                fence = None
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def check_images(md_text, docx_path):
@@ -438,7 +491,9 @@ def check_images(md_text, docx_path):
     返回 True 表示图片齐备（或源里根本没引图），False 表示有图缺失——
     调用方（render）据此在产出全部交付物后以非零码结束。
     """
-    n_ref = len(re.findall(r"!\[", md_text))
+    # 围栏里的 `![...]` 是示例代码不是引图（与 validate._source_md_segments 同一条
+    # 规则）：不排掉就把围栏算进引用数，凭空报缺图并以退出码 1 结束。
+    n_ref = len(re.findall(r"!\[", _outside_code_fences(md_text)))
     if not n_ref:
         return True
     from docx import Document

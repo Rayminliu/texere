@@ -210,3 +210,32 @@ def test_word_concurrent_renders_isolated(tmp_path):
         assert res.ok, res.errors
         assert os.path.getsize(pdfs[i]) > 0
         assert res.pdf == pdfs[i]
+
+
+def test_com_renderers_share_one_skeleton():
+    """Word / WPS 的 COM 链必须共用 _ComRenderer 骨架，不许回到两份平行副本。
+
+    平行副本的实际危害是改一边忘另一边（僵尸进程清理、陈旧 PDF 判据、超时看门狗
+    都曾只修在 Word 那一侧）。这里锁结构：render/available 只有骨架一份，
+    差异全部落在声明式的 ProgID 与钩子上。
+    """
+    base = r._ComRenderer
+
+    assert issubclass(r.WordRenderer, base) and issubclass(r.WPSRenderer, base)
+    assert r.WordRenderer.render is base.render
+    assert r.WPSRenderer.render is base.render
+    assert r.WordRenderer.available.__func__ is base.available.__func__
+    assert r.WPSRenderer.available.__func__ is base.available.__func__
+
+    # 差异只剩声明
+    assert r.WordRenderer.PROGID == "Word.Application"
+    assert r.WPSRenderer.PROGID == "KWPS.Application"
+    assert r.WordRenderer.TMP_PREFIX != r.WPSRenderer.TMP_PREFIX
+
+    # Word 独有的步骤不许悄悄跑到 WPS 上（WPS 没有 TOC 域 API / DisplayAlerts）
+    assert r.WordRenderer.prepare_document is not base.prepare_document
+    assert r.WPSRenderer.prepare_document is base.prepare_document
+    assert r.WordRenderer.collect_stats is not base.collect_stats
+    assert r.WPSRenderer.collect_stats is base.collect_stats
+    assert r.WordRenderer.configure_app is not base.configure_app
+    assert r.WPSRenderer.configure_app is base.configure_app

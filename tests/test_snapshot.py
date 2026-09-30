@@ -125,3 +125,31 @@ def test_snapshot_renderers_use_separate_dirs(tmp_path):
     assert run_script("snapshot.py", pdf, "--update", "--renderer", "libreoffice").returncode == 0
     assert (tmp_path / "baselines" / "word" / "meta.json").exists()
     assert (tmp_path / "baselines" / "libreoffice" / "meta.json").exists()
+
+
+def test_bad_cli_usage_fails_with_argparse_code():
+    """迁 argparse 后，参数边界错误统一由 argparse 报退出码 2。
+
+    手解 argv 时代这些用法要么 IndexError 崩栈（--dpi 缺值），要么静默忽略
+    （未知选项拼错），CI 里拿到的是「没跑到检查」而不是「命令写错了」。
+    """
+    for args in [
+        ("snapshot.py", ["x.pdf", "--dpi"]),  # 缺参数值
+        ("snapshot.py", ["x.pdf", "--renderer", "nosuch"]),  # 非法枚举
+        ("snapshot.py", ["x.pdf", "--nope"]),  # 未知选项
+        ("snapshot.py", []),  # 连 pdf 都没给
+        ("check_pdf.py", []),  # 同上
+        ("check_pdf.py", ["x.pdf", "--max-empty", "abc"]),  # 非整数
+    ]:
+        name, extra = args
+        r = run_script(name, *extra)
+        assert r.returncode == 2, (args, r.returncode, r.stderr[:200])
+        assert b"usage" in r.stderr.lower(), args
+
+
+def test_help_is_available_for_all_three_scripts():
+    """argparse 的附带收益：三个手解脚本第一次有可用的 --help。"""
+    for name in ("snapshot.py", "check_pdf.py", "finalize.py"):
+        r = run_script(name, "--help")
+        assert r.returncode == 0, (name, r.returncode)
+        assert b"usage" in r.stdout.lower(), name

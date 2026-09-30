@@ -140,7 +140,7 @@ def distill(path):
 
     # --- 建议 config ---
     if headers:
-        uniq = list(dict.fromkeys(headers))  # 保序去重（文档顺序第一節）
+        uniq = list(dict.fromkeys(headers))  # 保序去重：uniq[0] 就是文档里最先出现的页眉
         cfg["header"] = uniq[0]
         if len(uniq) > 1:
             report.append("")

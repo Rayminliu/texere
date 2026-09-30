@@ -16,10 +16,10 @@ config.json 字段（均可省）:
 所有手写 OOXML 均按 ECMA-376 子元素顺序插入，避免 Word 报"文档已损坏"。
 """
 
+import argparse
 import copy
 import json
 import re
-import sys
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
@@ -494,18 +494,12 @@ def find_h1(paras):
     return None
 
 
-def main(body_path, out_path, cfg_path):
-    cfg = {}
-    if cfg_path:
-        with open(cfg_path, encoding="utf-8-sig") as f:
-            cfg = json.load(f)
-    apply_style_cfg(cfg)
-    doc = Document(body_path)
-    body = doc.element.body
+def _strip_front_matter(doc):
+    """删前置书名页与空段，返回第一个一级标题的下标（没有则 None）。
 
-    # 1. 定位第一章标题；删除前置书名页与空段
-    #    表单/附件类文档没有一级标题也应当能处理：跳过目录（没有标题可索引），
-    #    封面照样插到最前面，表格与题注排版照做。
+    表单/附件类文档没有一级标题也要能处理：跳过目录（没有标题可索引），
+    封面照样插到最前面，表格与题注排版照做。
+    """
     h1_idx = find_h1(doc.paragraphs)
     if h1_idx is None:
         print("[warn] 未找到一级标题（表单/附件类文档常见）：")
@@ -536,7 +530,14 @@ def main(body_path, out_path, cfg_path):
                 print("       " + t[:60])
             print("       建议：从源文件删掉，或写进 config 的 cover 由封面承载")
 
-    # 2. 封面 + 目录 + 分节段（先追加到末尾再整体前移）
+    return h1_idx
+
+
+def _inject_front_pages(doc, body, cfg, h1_idx):
+    """按 config 生成封面段与目录域，插到正文最前面。
+
+    返回 (分节占位段, 是否需要第 1 节)——真正的分节由 _setup_sections 落地。
+    """
     created = []
 
     def np(text="", style=None, align=None, page_break=False):
@@ -592,7 +593,11 @@ def main(body_path, out_path, cfg_path):
     for p in created:
         anchor.addprevious(p._p)
 
-    # 3. 分节与页码：封面+目录为第 1 节（无页眉页脚），正文为第 2 节
+    return sect_para, create_sec1
+
+
+def _setup_sections(doc, body, cfg, sect_para, create_sec1):
+    """分节与页码：封面+目录为第 1 节（无页眉页脚），正文为第 2 节。"""
     body_sectPr = body.find(qn("w:sectPr"))
     if create_sec1:
         sec1 = copy.deepcopy(body_sectPr)
@@ -636,7 +641,9 @@ def main(body_path, out_path, cfg_path):
         pbdr.append(btm)
         insert_ordered(hp._p.get_or_add_pPr(), pbdr, PPR_ORDER)
 
-    # 4. 表格排版
+
+def _format_tables(doc):
+    """表格排版：宽度 100%、autofit、单元格边距、表头/斑马纹、字号。只改版式。"""
     for tbl in doc.tables:
         tblPr = tbl._tbl.tblPr
         w = tblPr.find(qn("w:tblW"))
@@ -699,7 +706,9 @@ def main(body_path, out_path, cfg_path):
                             color=S["table_header_color"] if is_head else None,
                         )
 
-    # 5. 表题 / 图注 居中、灰色、去斜体
+
+def _format_captions(doc):
+    """表题/图注居中、灰色、去斜体；返回处理条数（main 的人读输出要报）。"""
     n_cap = 0
     strict = uses_caption_styles(doc)  # 同上：有样式就不靠正则猜
     for p in doc.paragraphs:
@@ -729,7 +738,11 @@ def main(body_path, out_path, cfg_path):
                 )
             n_cap += 1
 
-    # 6. 打开时自动刷域 + 文档属性
+    return n_cap
+
+
+def _set_update_fields_and_props(doc, cfg):
+    """打开时自动刷域 + 写文档属性。"""
     settings = doc.settings.element
     if settings.find(qn("w:updateFields")) is None:
         uf = OxmlElement("w:updateFields")
@@ -739,6 +752,27 @@ def main(body_path, out_path, cfg_path):
     for k in ("title", "author", "subject", "comments"):
         if cfg.get(k):
             setattr(cp, k, cfg[k])
+
+
+def main(body_path, out_path, cfg_path):
+    """后处理编排：清前置 → 插封面/目录 → 分节 → 表格 → 题注 → 属性。
+
+    每一步都是只改版式、不碰文字的小函数（契约见模块 docstring）。
+    """
+    cfg = {}
+    if cfg_path:
+        with open(cfg_path, encoding="utf-8-sig") as f:
+            cfg = json.load(f)
+    apply_style_cfg(cfg)
+    doc = Document(body_path)
+    body = doc.element.body
+
+    h1_idx = _strip_front_matter(doc)
+    sect_para, create_sec1 = _inject_front_pages(doc, body, cfg, h1_idx)
+    _setup_sections(doc, body, cfg, sect_para, create_sec1)
+    _format_tables(doc)
+    n_cap = _format_captions(doc)
+    _set_update_fields_and_props(doc, cfg)
 
     doc.save(out_path)
     print(
@@ -753,7 +787,18 @@ def main(body_path, out_path, cfg_path):
     )
 
 
+def _build_parser():
+    p = argparse.ArgumentParser(
+        prog="post.py",
+        description="对 pandoc 产出的正文 docx 做后处理：封面/目录注入、分节、表格与题注排版。",
+        epilog="契约：只改版式，不改内容（不触碰正文与题注的文字）",
+    )
+    p.add_argument("body_path", help="pandoc 产出的正文 docx")
+    p.add_argument("out_path", help="后处理结果写出的路径")
+    p.add_argument("config", nargs="?", help="样式配置 json（可省，见模块 docstring 的字段表）")
+    return p
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        sys.exit("用法: python scripts/post.py <body.docx> <out.docx> [config.json]")
-    main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    a = _build_parser().parse_args()
+    main(a.body_path, a.out_path, a.config)

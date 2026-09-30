@@ -69,31 +69,65 @@ class RendererAdapter(abc.ABC):
         raise NotImplementedError
 
 
-class WordRenderer(RendererAdapter):
-    """本机 Microsoft Word（COM）渲染器——即原 finalize.py 的 Word / COM 逻辑。"""
+class _ComRenderer(RendererAdapter):
+    """本机 Office COM 渲染器的公共骨架（Word / WPS 共用）。
 
+    两条链之前逐行平行（各约 70 行）：复制临时件 → CoInitialize → DispatchEx →
+    开文档 → 更域 → ExportAsFixedFormat → 清理。任何一边改动（僵尸进程、
+    陈旧产物、超时看门狗）都得记着改另一边——收敛成骨架后，子类只声明
+    ProgID 和差异钩子。
+    """
+
+    PROGID = ""  # COM 程序标识，如 Word.Application
+    LABEL = ""  # 拿不到 COM 属性、以及失败兜底时的渲染器名
+    ENGINE = ""  # available() 报错措辞里的产品名（Word / WPS）
+    TMP_PREFIX = "texere_render_"
+
+    # ------------------------------------------------------------------ 钩子
+    def probe_label(self, app) -> str:
+        """available() 探测成功时回报的能力标签。"""
+        return getattr(app, "Name", self.LABEL)
+
+    def display_name(self, app) -> str:
+        """render() 成功时写进证据的 renderer_name。"""
+        return self.LABEL
+
+    def configure_app(self, app):
+        """应用级设置钩子（Word 需要关 DisplayAlerts）。"""
+
+    def prepare_document(self, doc):
+        """导出前的域更新；Word 子类额外刷 TOC + 重排。"""
+        doc.Fields.Update()
+
+    def collect_stats(self, app, doc) -> dict:
+        """页数 / 字数等统计；不支持的渲染器返回 {}。"""
+        return {}
+
+    # ------------------------------------------------------------------ 骨架
     @classmethod
     def available(cls):
         try:
             import pythoncom  # noqa: F401
             import win32com.client as win32  # noqa: F401
         except ImportError:
-            return False, "未安装 pywin32（Word 渲染器需要它）"
+            return False, "未安装 pywin32（%s 渲染器需要它）" % cls.ENGINE
         try:
             pythoncom.CoInitialize()
-            w = None
+            app = None
             try:
-                w = win32.DispatchEx("Word.Application")
-                name = "%s %s" % (w.Name, w.Version)
+                app = win32.DispatchEx(cls.PROGID)
+                name = cls().probe_label(app)
             finally:
-                if w is not None:
+                # DispatchEx 成功后探属性也会失败，Quit 必须无条件执行，
+                # 否则留下一个看不见的 Office 进程占用文档锁
+                if app is not None:
                     try:
-                        w.Quit()
+                        app.Quit()
                     except Exception:
                         pass
                 pythoncom.CoUninitialize()
         except Exception as e:
-            return False, "Word 启动失败（%s：%s）" % (type(e).__name__, e)
+            return False, "%s 启动失败（%s：%s）" % (cls.ENGINE, type(e).__name__, e)
         return True, name
 
     def render(
@@ -103,10 +137,9 @@ class WordRenderer(RendererAdapter):
         *,
         save_updated_fields: bool = False,
     ) -> RenderResult:
-        WD_PAGES, WD_WORDS = 2, 0
         WD_PDF = 17
         co_initialized = False
-        tmp_dir = tempfile.mkdtemp(prefix="texere_render_")
+        tmp_dir = tempfile.mkdtemp(prefix=self.TMP_PREFIX)
         tmp_src = os.path.join(tmp_dir, os.path.basename(docx_path))
         try:
             # 惰性 import 留在 try 内：pywin32 缺失也要走结构化失败，
@@ -117,44 +150,44 @@ class WordRenderer(RendererAdapter):
             shutil.copy2(docx_path, tmp_src)
             pythoncom.CoInitialize()
             co_initialized = True
-            word = win32.DispatchEx("Word.Application")
-            word.Visible = False
-            word.DisplayAlerts = 0
+            app = win32.DispatchEx(self.PROGID)
+            app.Visible = False
+            self.configure_app(app)
             try:
-                doc = word.Documents.Open(os.path.abspath(tmp_src), False, False, False)
-                for i in range(1, doc.TablesOfContents.Count + 1):
-                    doc.TablesOfContents(i).Update()
-                doc.Fields.Update()
-                doc.Repaginate()
-                stats = {
-                    "pages": doc.ComputeStatistics(WD_PAGES),
-                    "words": doc.ComputeStatistics(WD_WORDS),
-                    "tables": doc.Tables.Count,
-                    "inline_shapes": doc.InlineShapes.Count,
-                    "sections": doc.Sections.Count,
-                }
-                doc.ExportAsFixedFormat(os.path.abspath(pdf_path), WD_PDF)
-                ok = os.path.exists(pdf_path)
-                if save_updated_fields:
-                    doc.SaveAs(os.path.abspath(docx_path))
-                doc.Close(0)
+                doc = app.Documents.Open(os.path.abspath(tmp_src), False, False, False)
+                ok = False
+                stats = {}
+                try:
+                    self.prepare_document(doc)
+                    stats = self.collect_stats(app, doc)
+                    doc.ExportAsFixedFormat(os.path.abspath(pdf_path), WD_PDF)
+                    ok = os.path.exists(pdf_path)
+                    if save_updated_fields:
+                        doc.SaveAs(os.path.abspath(docx_path))
+                finally:
+                    # 中途抛异常也得关文档：否则 app.Quit() 可能卡在
+                    # 「保存更改？」提示上（DisplayAlerts 只压得住 Word）
+                    try:
+                        doc.Close(0)
+                    except Exception:
+                        pass
                 return RenderResult(
                     ok=ok,
                     pdf=pdf_path if ok else None,
-                    renderer_name=word.Name,
-                    renderer_version=word.Version,
-                    engine_path=word.Path,
+                    renderer_name=self.display_name(app),
+                    renderer_version=getattr(app, "Version", ""),
+                    engine_path=getattr(app, "Path", ""),
                     warnings=[],
                     errors=[],
                     stats=stats,
                 )
             finally:
-                word.Quit()
+                app.Quit()
         except Exception as e:  # 捕获一切 Office 异常，转成结构化 Result（不抛栈）
             return RenderResult(
                 ok=False,
                 pdf=None,
-                renderer_name="Microsoft Word",
+                renderer_name=self.LABEL,
                 renderer_version="",
                 engine_path="",
                 warnings=[],
@@ -165,6 +198,38 @@ class WordRenderer(RendererAdapter):
             if co_initialized:
                 pythoncom.CoUninitialize()
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+class WordRenderer(_ComRenderer):
+    """本机 Microsoft Word（COM）渲染器——即原 finalize.py 的 Word / COM 逻辑。"""
+
+    PROGID = "Word.Application"
+    LABEL = "Microsoft Word"
+    ENGINE = "Word"
+    TMP_PREFIX = "texere_render_"
+
+    def probe_label(self, app) -> str:
+        # Word 的 Name/Version 都可靠，拼成 “Microsoft Word 16.0”
+        return "%s %s" % (app.Name, app.Version)
+
+    def configure_app(self, app):
+        app.DisplayAlerts = 0  # 只有 Word 有这个属性
+
+    def prepare_document(self, doc):
+        for i in range(1, doc.TablesOfContents.Count + 1):
+            doc.TablesOfContents(i).Update()
+        doc.Fields.Update()
+        doc.Repaginate()  # 页数统计前必须重排，否则 ComputeStatistics 拿旧版面
+
+    def collect_stats(self, app, doc) -> dict:
+        WD_PAGES, WD_WORDS = 2, 0
+        return {
+            "pages": doc.ComputeStatistics(WD_PAGES),
+            "words": doc.ComputeStatistics(WD_WORDS),
+            "tables": doc.Tables.Count,
+            "inline_shapes": doc.InlineShapes.Count,
+            "sections": doc.Sections.Count,
+        }
 
 
 class FakeRenderer(RendererAdapter):
@@ -380,93 +445,19 @@ class LibreOfficeRenderer(RendererAdapter):
             )
 
 
-class WPSRenderer(RendererAdapter):
+class WPSRenderer(_ComRenderer):
     """本机 WPS Writer（COM: KWPS.Application）渲染器——与 WordRenderer 平行。
 
     仅在装了 WPS Office 的 Windows 上可用；逻辑与 WordRenderer 一致（开文档 →
-    更新域 → 导 PDF），只是换了个 ProgID。未验证环境里用 available() 探测。
+    更新域 → 导 PDF），只换了 ProgID，且不刷 TOC / 不收统计——因此它除了声明
+    差异属性外无需写任何代码（共用 _ComRenderer 骨架）。
+    未验证环境里用 available() 探测。
     """
 
-    @classmethod
-    def available(cls):
-        try:
-            import pythoncom  # noqa: F401
-            import win32com.client as win32  # noqa: F401
-        except ImportError:
-            return False, "未安装 pywin32（WPS 渲染器需要它）"
-        try:
-            pythoncom.CoInitialize()
-            app = None
-            try:
-                app = win32.DispatchEx("KWPS.Application")
-                name = getattr(app, "Name", "WPS Writer")
-            finally:
-                if app is not None:
-                    try:
-                        app.Quit()
-                    except Exception:
-                        pass
-                pythoncom.CoUninitialize()
-        except Exception as e:
-            return False, "WPS 启动失败（%s：%s）" % (type(e).__name__, e)
-        return True, name
-
-    def render(
-        self,
-        docx_path: str,
-        pdf_path: str,
-        *,
-        save_updated_fields: bool = False,
-    ) -> RenderResult:
-        WD_PDF = 17
-        co_initialized = False
-        tmp_dir = tempfile.mkdtemp(prefix="texere_render_wps_")
-        tmp_src = os.path.join(tmp_dir, os.path.basename(docx_path))
-        try:
-            # 同 Word：pywin32 缺失也要走结构化失败，不裸抛
-            import pythoncom
-            import win32com.client as win32
-
-            shutil.copy2(docx_path, tmp_src)
-            pythoncom.CoInitialize()
-            co_initialized = True
-            app = win32.DispatchEx("KWPS.Application")
-            app.Visible = False
-            try:
-                doc = app.Documents.Open(os.path.abspath(tmp_src), False, False, False)
-                doc.Fields.Update()
-                doc.ExportAsFixedFormat(os.path.abspath(pdf_path), WD_PDF)
-                ok = os.path.exists(pdf_path)
-                if save_updated_fields:
-                    doc.SaveAs(os.path.abspath(docx_path))
-                doc.Close(0)
-                return RenderResult(
-                    ok=ok,
-                    pdf=pdf_path if ok else None,
-                    renderer_name="WPS Writer",
-                    renderer_version=getattr(app, "Version", ""),
-                    engine_path=getattr(app, "Path", ""),
-                    warnings=[],
-                    errors=[],
-                    stats={},
-                )
-            finally:
-                app.Quit()
-        except Exception as e:  # 捕获一切 Office 异常，转成结构化 Result
-            return RenderResult(
-                ok=False,
-                pdf=None,
-                renderer_name="WPS Writer",
-                renderer_version="",
-                engine_path="",
-                warnings=[],
-                errors=[f"{type(e).__name__}: {e}"],
-                stats={},
-            )
-        finally:
-            if co_initialized:
-                pythoncom.CoUninitialize()
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+    PROGID = "KWPS.Application"
+    LABEL = "WPS Writer"
+    ENGINE = "WPS"
+    TMP_PREFIX = "texere_render_wps_"
 
 
 # 渲染器能力探测统一入口（每个渲染器各自声明 available()）

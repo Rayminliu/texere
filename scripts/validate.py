@@ -137,6 +137,10 @@ def _normalize(text: str) -> str:
             }
         )
     )
+    # pandoc 的 smart 排版会把源里的 -- 收成 en-dash、--- 收成 em-dash，
+    # 于是同一句话两侧分别是「2020--2024」和「2020–2024」。破折号长度不是正文
+    # 契约（实测源文件里写 -- 还是—纯属作者习惯），统一压成单个 - 再比。
+    t = re.sub(r"-{2,}", "-", t)
     t = re.sub(
         r"!\[[^\]]*\]\([^)]*\)\s*(?:\{[^}]*\})?", "", t
     )  # 图片：连 alt 和尾随的 pandoc 属性 {width=...} 一起丢
@@ -186,8 +190,29 @@ def _docx_text(doc) -> str:
     return "\n".join(parts)
 
 
+def _open_doc(docx_path: str, doc=None):
+    """共用已解析的 Document，没传才自己解。
+
+    调用方（generate_evidence_package）顶层解析一次注入；预解析失败时传 None，
+    这里回落自己解 → 调用方自己的 FileNotFoundError / PermissionError 分支
+    能照原样报错，不会把「文档打不开」误报成内容不符。
+    """
+    return Document(docx_path) if doc is None else doc
+
+
+def _sha256_files_dedup(paths) -> list:
+    """批量算 sha256，同一路径只读一次（重复用图在标书里很常见）。"""
+    cache = {}
+    out = []
+    for p in paths:
+        if p not in cache:
+            cache[p] = _sha256_file(p)
+        out.append(cache[p])
+    return out
+
+
 def check_source_content_integrity(
-    docx_path: str, expected_hash: str = None, source_md: str = None
+    docx_path: str, expected_hash: str = None, source_md: str = None, doc=None
 ) -> CheckResult:
     """检查源内容完整性。
 
@@ -202,7 +227,7 @@ def check_source_content_integrity(
             return CheckResult("source_content", ERROR, f"源 Markdown 不存在：{source_md}")
         try:
             md_text = open(source_md, encoding="utf-8-sig").read()
-            doc_text = _normalize(_docx_text(Document(docx_path)))
+            doc_text = _normalize(_docx_text(_open_doc(docx_path, doc)))
         except PermissionError as e:
             return CheckResult("source_content", FAIL, f"文件权限不足：{e}")
         except FileNotFoundError as e:
@@ -319,7 +344,7 @@ def _is_subsequence(needle: list[str], hay: list[str]) -> bool:
 
 
 def check_image_embedding(
-    docx_path: str, md_ref_text: str = None, md_path: str = None
+    docx_path: str, md_ref_text: str = None, md_path: str = None, doc=None
 ) -> CheckResult:
     """检查图片：能给源 md 就做逐图身份 + 顺序校验，否则退回数量下限。
 
@@ -334,7 +359,7 @@ def check_image_embedding(
     降级为 SKIP。
     """
     try:
-        doc = Document(docx_path)
+        doc = _open_doc(docx_path, doc)
         doc_shas = _docx_image_shas(doc)
         n_img = len(doc_shas) or len(doc.inline_shapes)
         # evidence：复用同一次扫描结果（doc_shas 即文档顺序的 sha256），绝不为了填
@@ -384,7 +409,7 @@ def check_image_embedding(
         raws = _md_image_raw_refs(md_ref_text)  # 与 paths 同序；None 位置的原始引用从这里取
         ev["unresolved_paths"] = [os.path.basename(r) for p, r in zip(paths, raws) if not p]
 
-        expected = [_sha256_file(p) for p in resolved]
+        expected = _sha256_files_dedup(resolved)
         missing = [resolved[i] for i, s in enumerate(expected) if s not in doc_shas]
         if missing:
             sample = " / ".join(os.path.basename(m) for m in missing[:3])
@@ -431,10 +456,10 @@ def check_image_embedding(
         return CheckResult("image_embedding", ERROR, f"未知错误：{type(e).__name__} - {e}")
 
 
-def check_section_count(docx_path: str) -> CheckResult:
+def check_section_count(docx_path: str, doc=None) -> CheckResult:
     """检查分节数合理性。"""
     try:
-        doc = Document(docx_path)
+        doc = _open_doc(docx_path, doc)
         n_sections = len(doc.sections)
 
         # 合理范围：至少 1 节，一般不超过 100 节
@@ -469,14 +494,14 @@ def count_toc_fields(doc) -> int:
     return n
 
 
-def check_toc_field(docx_path: str) -> CheckResult:
+def check_toc_field(docx_path: str, doc=None) -> CheckResult:
     """检查目录域是否存在。
 
     文档没有 TOC 域时返回 SKIP 而不是 PASS：不配目录是合法配置（toc:false、
     表单类文档），但那意味着「这项没验证」，不该计进 passed。
     """
     try:
-        doc = Document(docx_path)
+        doc = _open_doc(docx_path, doc)
         n = count_toc_fields(doc)
         if n == 0:
             return CheckResult(
@@ -1045,7 +1070,7 @@ def _check_profile_toc(doc) -> CheckResult:
     )
 
 
-def compile_profile_checks(profile, docx_path) -> list:
+def compile_profile_checks(profile, docx_path, doc=None) -> list:
     """把 profile 的声明字段编译成可执行断言（profile.<field>）。
 
     只覆盖 profile 真正声明了的字段；未声明的字段不凭空编造断言。
@@ -1055,7 +1080,7 @@ def compile_profile_checks(profile, docx_path) -> list:
     if not profile:
         return out
     try:
-        doc = Document(docx_path)
+        doc = _open_doc(docx_path, doc)
     except Exception as e:
         return [CheckResult("profile.load", ERROR, f"无法打开文档以执行 profile 断言：{e}")]
     page = profile.get("page") or {}
@@ -1090,25 +1115,9 @@ def _pandoc_version() -> str:
         return "unknown"
 
 
-def generate_evidence_package(
-    docx_path: str,
-    out_dir: str,
-    profile: dict = None,
-    expected_hash: str = None,
-    max_empty: int = 0,
-    baseline_dir: str = None,
-    source_md: str = None,
-    sample_visual: bool = False,
-    enforce_profile: bool = False,
-    renderer=None,
-    config_path: str = None,
-    reference_doc: str = None,
-):
-    """生成证据包：report.json + 截图 + signature。"""
-    os.makedirs(out_dir, exist_ok=True)
-
-    # 1. 生成结构化报告
-    report = {
+def _new_report(docx_path: str, profile: dict, config_path: str, reference_doc: str) -> dict:
+    """报告骨架：metadata + 空 checks + 归零的 summary。"""
+    return {
         "metadata": {
             "timestamp": datetime.now().isoformat(),
             "document": os.path.basename(docx_path),
@@ -1124,6 +1133,144 @@ def generate_evidence_package(
         # skipped 独立于 passed：「没检查」不许冒充实测通过。
         "summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
     }
+
+
+def _tally(report: dict, res, name: str = None):
+    """把一条 CheckResult 记进 report 并累计 summary。
+
+    FAIL 与 ERROR 都算不合格（检查崩了不等于文档合格）；SKIP 单独计数。
+    """
+    key = name or res.name
+    report["checks"][key] = {
+        "status": res.status,
+        "message": res.message,
+        "evidence": res.evidence,
+    }
+    report["summary"]["total"] += 1
+    if res.status == PASS:
+        report["summary"]["passed"] += 1
+    elif res.status == SKIP:
+        report["summary"]["skipped"] += 1
+    else:
+        report["summary"]["failed"] += 1
+
+
+def _run_checks(report: dict, checks: list):
+    """逐项跑检查：单项异常降级为该项 ERROR，绝不拖垮整条验证链。"""
+    for name, checker, args, kwargs in checks:
+        try:
+            res = checker(*args, **kwargs)
+            if not isinstance(res, CheckResult) or res.status not in (PASS, FAIL, SKIP, ERROR):
+                res = CheckResult(name, ERROR, f"检查返回了非预期结果：{res!r}")
+        except Exception as e:
+            res = CheckResult(name, ERROR, f"检查异常：{type(e).__name__} - {e}")
+        _tally(report, res, name)
+
+
+def _run_profile_asserts(report: dict, profile: dict, docx_path: str, doc):
+    """profile 契约断言（仅在 --enforce-profile 时计入门禁；profile 即文档规范）。
+
+    非法 profile 值（如 width: "abc"）会在编译断言时抛异常——整批包起来降级为
+    一条 ERROR。否则异常穿出会连带 report.json / signature 都写不出来，
+    整个证据包直接消失。
+    """
+    try:
+        for res in compile_profile_checks(profile, docx_path, doc=doc):
+            _tally(report, res)
+    except Exception as e:
+        _tally(report, CheckResult("profile_assert", ERROR, f"profile 断言执行失败：{e}"))
+
+
+def _write_screenshots(shared_pdf: str, out_dir: str):
+    """生成 PDF 截图证据（复用同一份导出 PDF）：首页 / 中间页 / 尾页。"""
+    if shared_pdf is None or pymupdf is None:
+        return
+    pdf_doc = pymupdf.open(shared_pdf)
+    try:
+        sample_pages = [0]
+        if len(pdf_doc) > 10:
+            sample_pages.append(len(pdf_doc) // 2)
+        sample_pages.append(len(pdf_doc) - 1)
+        for page_idx in sample_pages:
+            page = pdf_doc[page_idx]
+            zoom = pymupdf.Matrix(2, 2)  # 2x 缩放（证据图只给人看，不受基线口径约束）
+            pix = page.get_pixmap(matrix=zoom)
+            pix.save(os.path.join(out_dir, f"page-{page_idx + 1:03d}.png"))
+    finally:
+        pdf_doc.close()
+
+
+def _write_report(report: dict, out_dir: str) -> str:
+    """先落盘 report.json —— 它的 hash 要进证据清单，顺序不能反。"""
+    report_path = os.path.join(out_dir, "report.json")
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    return report_path
+
+
+def _write_signature(report: dict, out_dir: str, docx_path: str, report_path: str):
+    """证据清单（文件名沿用 signature，但它是 checksum manifest，不是密码学签名：
+    没有密钥，任何人都能重算这些 hash。它证明的是「这份证据记录了哪个产物」，
+    不是「这份证据没被改过」。真签名需要非对称密钥 + 验签方持公钥。）
+    """
+    sig_path = os.path.join(out_dir, "signature")
+    # 全量文件清单：report.json + 全部截图的 sha256——证据目录里任何一个文件
+    # 被事后改动都可检出（此前只盖 docx 与 report，截图是漏项）。
+    # signature 自身排除（自引用不可行）；排序保证清单确定性。
+    evidence_files = {}
+    for name in sorted(os.listdir(out_dir)):
+        p = os.path.join(out_dir, name)
+        if name == "signature" or not os.path.isfile(p):
+            continue
+        evidence_files[name] = _sha256_file(p)
+
+    with open(sig_path, "w", encoding="utf-8") as f:
+        f.write("# texere validation manifest (checksums, not a cryptographic signature)\n")
+        f.write("# Generated: %s\n" % report["metadata"]["timestamp"])
+        f.write("document_hash: %s\n" % _sha256_file(docx_path))
+        f.write("report_hash: %s\n" % _sha256_file(report_path))
+        f.write(
+            "checks_passed: %d/%d\n" % (report["summary"]["passed"], report["summary"]["total"])
+        )
+        # 单独记 skipped：证据里也要能看出「9 项里有几项其实没查」
+        f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
+        f.write("generated_at: %s\n" % report["metadata"]["timestamp"])
+        f.write("tool_version: %s\n" % __version__)
+        f.write("pandoc_version: %s\n" % report["metadata"].get("pandoc_version", "unknown"))
+        # 契约指纹：config 与 ref.docx 决定版式——证据缺了它们就缺「哪个契约」这一环
+        if report["metadata"].get("config_sha256"):
+            f.write("config_sha256: %s\n" % report["metadata"]["config_sha256"])
+        if report["metadata"].get("reference_sha256"):
+            f.write("reference_sha256: %s\n" % report["metadata"]["reference_sha256"])
+        for name, digest in evidence_files.items():
+            f.write("file[%s]: %s\n" % (name, digest))
+
+
+def generate_evidence_package(
+    docx_path: str,
+    out_dir: str,
+    profile: dict = None,
+    expected_hash: str = None,
+    max_empty: int = 0,
+    baseline_dir: str = None,
+    source_md: str = None,
+    sample_visual: bool = False,
+    enforce_profile: bool = False,
+    renderer=None,
+    config_path: str = None,
+    reference_doc: str = None,
+):
+    """生成证据包：report.json + 截图 + signature。
+
+    本函数只做编排：导出共享 PDF → 跑检查 → 落盘报告 → 写证据清单。
+    各阶段的具体实现拆在同名小函数里（_new_report / _run_checks /
+    _write_screenshots / _write_signature）。
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 1. 结构化报告骨架
+    report = _new_report(docx_path, profile, config_path, reference_doc)
 
     # 2. Word 只启动一次：导出共享 PDF，后面的页码/空白页/视觉比对/截图都用它
     tmp_dir = tempfile.mkdtemp(prefix="texere_validate_")
@@ -1149,152 +1296,68 @@ def generate_evidence_package(
         # 3. 执行所有检查
         md_ref_text = None
         if source_md and os.path.exists(source_md):
-            md_ref_text = open(source_md, encoding="utf-8-sig").read()
+            with open(source_md, encoding="utf-8-sig") as f:
+                md_ref_text = f.read()
 
+        # ---- docx 只解一次：共用 Document 实例注入给下游 docx 级检查 ----
+        # 272 页文档上 python-docx 的冷启动解压 + 构 lxml 树是大头，
+        # 而之前同一个文件在一条验证链里被解 6 次（4 个检查 + profile 断言 + 本函数）。
+        doc = None
+        try:
+            doc = Document(docx_path)
+        except Exception:
+            # 预解析失败不在此处定级：下游检查拿 doc=None 会自己重解一次，
+            # 从而保留各自的 FileNotFoundError / PermissionError 准确措辞。
+            pass
+
+        # kwargs 位统一存在（不用则传 {}），避开可变长解包陷阱
         checks = [
-            ("package_integrity", check_package_integrity, (docx_path,)),
+            ("package_integrity", check_package_integrity, (docx_path,), {}),
             (
                 "source_content",
                 check_source_content_integrity,
                 (docx_path, expected_hash, source_md),
+                {"doc": doc},
             ),
-            ("image_embedding", check_image_embedding, (docx_path, md_ref_text, source_md)),
-            ("section_count", check_section_count, (docx_path,)),
-            ("toc_field", check_toc_field, (docx_path,)),
-            ("page_numbering", check_page_numbering, (shared_pdf,)),
-            ("blank_pages", check_blank_pages, (shared_pdf, max_empty)),
+            (
+                "image_embedding",
+                check_image_embedding,
+                (docx_path, md_ref_text, source_md),
+                {"doc": doc},
+            ),
+            ("section_count", check_section_count, (docx_path,), {"doc": doc}),
+            ("toc_field", check_toc_field, (docx_path,), {"doc": doc}),
+            ("page_numbering", check_page_numbering, (shared_pdf,), {}),
+            ("blank_pages", check_blank_pages, (shared_pdf, max_empty), {}),
             (
                 "renderer_acceptance",
                 check_renderer_acceptance,
                 (export_ok, export_err, renderer_name, rndr_ok, rndr_why),
+                {},
             ),
             (
                 "visual_drift",
                 check_visual_drift,
                 (shared_pdf, baseline_dir, DEFAULT_MAX_DIFF, sample_visual),
+                {},
             ),
         ]
 
-        for name, checker, args in checks:
-            try:
-                res = checker(*args)
-                if not isinstance(res, CheckResult) or res.status not in (
-                    PASS,
-                    FAIL,
-                    SKIP,
-                    ERROR,
-                ):
-                    res = CheckResult(name, ERROR, f"检查返回了非预期结果：{res!r}")
-            except Exception as e:
-                res = CheckResult(name, ERROR, f"检查异常：{type(e).__name__} - {e}")
+        _run_checks(report, checks)
 
-            report["checks"][name] = {
-                "status": res.status,
-                "message": res.message,
-                "evidence": res.evidence,
-            }
-            status = res.status
-            report["summary"]["total"] += 1
-            if status == PASS:
-                report["summary"]["passed"] += 1
-            elif status == SKIP:
-                report["summary"]["skipped"] += 1
-            else:
-                # FAIL 与 ERROR 都算不合格：检查崩了不等于文档合格
-                report["summary"]["failed"] += 1
-
-        # 3b. profile 契约断言（仅在 --enforce-profile 时计入门禁；profile 即文档规范）
+        # 3b. profile 契约断言（仅在 --enforce-profile 时计入门禁）
         if enforce_profile:
-            try:
-                for res in compile_profile_checks(profile, docx_path):
-                    report["checks"][res.name] = {
-                        "status": res.status,
-                        "message": res.message,
-                        "evidence": res.evidence,
-                    }
-                    report["summary"]["total"] += 1
-                    if res.status == PASS:
-                        report["summary"]["passed"] += 1
-                    elif res.status == SKIP:
-                        report["summary"]["skipped"] += 1
-                    else:
-                        report["summary"]["failed"] += 1
-            except Exception as e:
-                report["checks"]["profile_assert"] = {
-                    "status": ERROR,
-                    "message": f"profile 断言执行失败：{e}",
-                    "evidence": {},
-                }
-                report["summary"]["total"] += 1
-                report["summary"]["failed"] += 1
+            _run_profile_asserts(report, profile, docx_path, doc)
 
         # 4. 生成 PDF 截图证据（复用同一份导出 PDF）
-        if shared_pdf is not None and pymupdf is not None:
-            pdf_doc = pymupdf.open(shared_pdf)
-            try:
-                # 抽样截图：第 1 页、中间页、最后一页
-                sample_pages = [0]
-                if len(pdf_doc) > 10:
-                    sample_pages.append(len(pdf_doc) // 2)
-                sample_pages.append(len(pdf_doc) - 1)
-
-                for page_idx in sample_pages:
-                    page = pdf_doc[page_idx]
-                    zoom = pymupdf.Matrix(2, 2)  # 2x 缩放（证据图只给人看，不受基线口径约束）
-                    pix = page.get_pixmap(matrix=zoom)
-                    img_path = os.path.join(out_dir, f"page-{page_idx + 1:03d}.png")
-                    pix.save(img_path)
-            finally:
-                pdf_doc.close()
+        _write_screenshots(shared_pdf, out_dir)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    # 5. 先落盘 report.json —— 它的 hash 要进证据清单，顺序不能反
-    report_path = os.path.join(out_dir, "report.json")
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-
-    # 6. 证据清单（文件名沿用 signature，但它是 checksum manifest，不是密码学签名：
-    #    没有密钥，任何人都能重算这些 hash。它证明的是「这份证据记录了哪个产物」，
-    #    不是「这份证据没被改过」。真签名需要非对称密钥 + 验签方持公钥。）
-    with open(docx_path, "rb") as f:
-        doc_hash = hashlib.sha256(f.read()).hexdigest()
-    with open(report_path, "rb") as f:
-        report_hash = hashlib.sha256(f.read()).hexdigest()
-
-    sig_path = os.path.join(out_dir, "signature")
-    # 全量文件清单：report.json + 全部截图的 sha256——证据目录里任何一个文件
-    # 被事后改动都可检出（此前只盖 docx 与 report，截图是漏项）。
-    # signature 自身排除（自引用不可行）；排序保证清单确定性。
-    evidence_files = {}
-    for name in sorted(os.listdir(out_dir)):
-        p = os.path.join(out_dir, name)
-        if name == "signature" or not os.path.isfile(p):
-            continue
-        with open(p, "rb") as f:
-            evidence_files[name] = hashlib.sha256(f.read()).hexdigest()
-
-    with open(sig_path, "w", encoding="utf-8") as f:
-        f.write("# texere validation manifest (checksums, not a cryptographic signature)\n")
-        f.write("# Generated: %s\n" % report["metadata"]["timestamp"])
-        f.write("document_hash: %s\n" % doc_hash)
-        f.write("report_hash: %s\n" % report_hash)
-        f.write(
-            "checks_passed: %d/%d\n" % (report["summary"]["passed"], report["summary"]["total"])
-        )
-        # 单独记 skipped：证据里也要能看出「9 项里有几项其实没查」
-        f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
-        f.write("generated_at: %s\n" % report["metadata"]["timestamp"])
-        f.write("tool_version: %s\n" % __version__)
-        f.write("pandoc_version: %s\n" % report["metadata"].get("pandoc_version", "unknown"))
-        # 契约指纹：config 与 ref.docx 决定版式——证据缺了它们就缺「哪个契约」这一环
-        if report["metadata"].get("config_sha256"):
-            f.write("config_sha256: %s\n" % report["metadata"]["config_sha256"])
-        if report["metadata"].get("reference_sha256"):
-            f.write("reference_sha256: %s\n" % report["metadata"]["reference_sha256"])
-        for name, digest in evidence_files.items():
-            f.write("file[%s]: %s\n" % (name, digest))
+    # 5-6. 先落盘 report.json，再以它为输入写证据清单
+    # （顺序不能反：清单要盖 report 的 hash）
+    report_path = _write_report(report, out_dir)
+    _write_signature(report, out_dir, docx_path, report_path)
 
     return report
 

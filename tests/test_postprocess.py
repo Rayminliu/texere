@@ -675,6 +675,34 @@ def test_missing_image_exits_nonzero(tmp_path):
     assert not leaked, "缺图退出后临时目录未清理：%s" % leaked
 
 
+def test_code_fence_image_examples_are_not_counted_as_refs(tmp_path):
+    """围栏代码块里的 `![...]` 是示例不是引图。
+
+    render 的缺图自检此前全文数 `![`，一份带 markdown 写法教程的文档会凭空
+    报「引用 3 张只嵌进 0 张」并以退出码 1 结束（与 validate._source_md_segments
+    早就排围栏的规则不对齐）。
+    """
+    import importlib.util
+
+    scripts = os.path.join(KIT, "scripts")
+    if scripts not in sys.path:  # render.py 依赖兄弟模块 _shared / renderers
+        sys.path.insert(0, scripts)
+    spec = importlib.util.spec_from_file_location(
+        "render_under_test", os.path.join(scripts, "render.py")
+    )
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    fenced = (
+        "# 标题\n\n```markdown\n![alt](img.png)\n![alt2](b.png)\n\t![tab](c.png)\n```\n\n正文。\n"
+    )
+    assert m._outside_code_fences(fenced).count("![") == 0
+    # 全文三处 `![` 都在围栏里 → 引图计数为 0，不碰 docx 也不误报
+    assert m.check_images(fenced, str(tmp_path / "unused.docx")) is True
+    # 围栏外真引图时仍然数得到
+    assert m._outside_code_fences(fenced + "![真实图](a.png)\n").count("![") == 1
+
+
 def test_images_survive_postprocess(tmp_path):
     """后处理绝不能把图片弄丢（曾被自动编号抹掉过 28 张）。"""
     pymupdf = pytest.importorskip("pymupdf")

@@ -22,7 +22,7 @@ KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(KIT, "scripts")
 DOC_PATH = os.path.join(KIT, "docs", "SCRIPT_HELP.md")
 
-# 用 argparse 的脚本（finalize/check_pdf/snapshot/post 是手解 sys.argv，另行覆盖）
+# 用 argparse 且有长选项的脚本（post.py 只有位置参数，无选项可对照，不入表）
 ARGPARSE_SCRIPTS = [
     "render.py",
     "validate.py",
@@ -30,6 +30,9 @@ ARGPARSE_SCRIPTS = [
     "edit.py",
     "distill.py",
     "make_ref.py",
+    "snapshot.py",
+    "check_pdf.py",
+    "finalize.py",
 ]
 SKIP_OPTIONS = {"--help"}
 
@@ -74,12 +77,9 @@ def test_script_help_docs_have_no_invented_options(doc_text):
     三个不存在的参数。虚构参数比漏写更恶劣——它教用户用不存在的东西。
     （只查带反引号的形如 `--opt` 的文档参数，避免误伤正文里的破折号词。）
     """
-    real = set()
+    real = set(SKIP_OPTIONS)  # --help 是 argparse 自带的，写进文档不算虚构
     for s in ARGPARSE_SCRIPTS:
         real |= _options_of(os.path.join(SCRIPTS_DIR, s))
-    # 手解 argv 的脚本，显式登记它们的真实选项
-    real |= {"--update", "--dpi", "--max-diff", "--max-empty"}  # snapshot / check_pdf
-    real |= {"--save-updated-fields"}  # finalize.py 手解：写回刷新后的域
     documented = set(re.findall(r"`(--[a-z][a-z0-9-]*)`", doc_text))
     fake = sorted(o for o in documented if o not in real)
     assert not fake, "文档写了代码里不存在的参数: %s" % fake

@@ -21,6 +21,74 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
 
+## 未发布 — 全面审查修复（scripts/ 全部 12 个脚本，三视角交叉审查）
+
+按简洁性 / 健壮性 / 最小改动三个视角逐行审查全部脚本，确认 12 个实际 BUG（均为代码阅读实证）
++ 性能资源项 + 重构项，分两批落地。断言从 297 增至 308，新增用例锁定被改动的每一条契约。
+
+### 破坏性修正
+
+- **patch 多行插入顺序**（最高危）：`insert_after` / `insert_before` 的 `content` 此前被写成
+  **倒序**（`addnext` 用正序遍历、`addprevious` 用逆序遍历，与 `edit.py` 里的正确参照正好相反）。
+  现在 `content` 顺序即文档顺序；按旧行为编写的补丁需要重排 content。锚点未命中时
+  `edit._anchors()` 抛的 `SystemExit` 不再中止整批操作（捕获 `(Exception, SystemExit)`，记为单条失败）。
+
+### BUG：产出错误或崩溃
+
+- **blank_pages 假 FAIL**：判空白页只看文本长度，纯附图页（有图无文）被计入空白页；现与
+  `check_pdf.py` 判据对齐，有图的页一律豁免。
+- **profile 断言无保护**：非法 profile 值（如 `width: "abc"`）抛 ValueError，report.json / signature
+  永不写出。现循环体包 try/except，异常降级为一条 `profile_assert` ERROR 并计入 failed。
+- **`--profile` 路径写错被静默忽略**：profile={} → enforce 空转 → 退出码 0；现直接退出并报路径。
+- **policy 不受 ERROR 门禁**：ENFORCE + ERROR 仍判 PASS，与 validate 自己「FAIL 与 ERROR 都算不合格」
+  矛盾；现 `raw in ("FAIL", "ERROR")` 一律不合格。
+- **finalize 无 PDF 仍退出 0**：只看 `res.errors`，Word 渲染器返回 `ok=False, errors=[]` 时打印 OK；
+  现 `not res.ok` 也以退出码 1 结束（`edit.py --verify` 依赖这个退出码）。
+- **LibreOffice 不检查退出码 + 陈旧 PDF 冒充**：soffice 失败但目录里有上次运行的同名 PDF 时被判成功；
+  现导出前删除陈旧产物、检查 `proc.returncode`、超时时强杀整棵进程树。
+- **post 空正文崩溃**：空白 md 经 pandoc 后 body 只剩 `sectPr`，`addprevious(None)` 抛 AttributeError；
+  现给出用户可读错误。
+- **distill 格式化崩溃**：模板 sectPr 缺 pgSz/pgMar 时 `cm(None)` 返回 None，`'%.1f' % None` TypeError；
+  现统一显示 `n/a`。
+- **源内容比对假 FAIL**：pandoc smart 把直引号排成弯引号、`--` 收成 en-dash、`...` 收成省略号，
+  `_normalize` 只映射了弯引号；现补齐破折号 / 省略号映射并把连续 `-` 压成单个，
+  `2020--2024` 与 `2020–2024` 视为同一句话。
+- **重复定义的 `_sha256_file`**：validate 里两个同名函数，后者（整文件读入、失败返回 None）遮蔽前者；
+  现统一用 `_shared.sha256_file`（流式，大图不再有内存尖峰），不可读文件走结构化失败。
+- **render `--config` 路径不存在被静默忽略**：显式传入的路径缺失现直接退出，不再交付「看着对」的错版式。
+- **render 缺图自检把代码围栏算进引图数**：与 validate 的段落抽取规则不对齐，带 markdown 教程段落的
+  文档会凭空报缺图并以退出码 1 结束；现排除 ``` / ~~~ 围栏。
+
+### 性能与资源
+
+- **同一个 docx 被 python-docx 解析最多 6 次**：`generate_evidence_package` 顶层解一次并把 `doc` 注入
+  各检查函数（预解析失败时回落自己解，保留「文件打不开」的准确措辞）；重复图片的 sha256 按路径去重。
+- **export_pdf_once 假超时**：`with ThreadPoolExecutor(...)` 退出时 `shutdown(wait=True)` 仍会等 COM 线程，
+  Word 挂死时超时形同虚设；现显式 `shutdown(wait=False, cancel_futures=True)`。
+- **`available()` 泄漏僵尸 Office 进程**：`DispatchEx` 成功但 `.Name` / `.Version` 抛异常时跳过 `Quit()`；
+  现 finally 无条件关闭。
+- **snapshot 全书像素一次性驻留**：272 页 A4@100dpi 峰值约 2GB，`--update` 分支还渲染第二遍；
+  现逐页渲染 + 逐页比对 + 即时释放。
+
+### 可维护性
+
+- 新增 **`scripts/_shared.py`**：版本号、`force_utf8_stdio()`、`sha256_file()`、`UTF8_ENV` 单一来源
+  （此前 8 个脚本逐字复制，改一处忘三处）。
+- **`renderers.py` 抽出 `_ComRenderer` 骨架**：Word 与 WPS 的 COM 链路各约 70 行、近乎逐行相同，
+  现收敛为子类只声明 ProgID / 标签与差异钩子；`doc.Close(0)` 移进 finally，异常路径不再留打开的文档。
+- **拆分过长函数**：`validate.generate_evidence_package` 207→113 行、`post.main` 257→31 行、
+  `render.render` 155→46 行，各步骤独立成可读小函数。
+- **CLI 迁移 argparse**：`snapshot.py` / `check_pdf.py` / `finalize.py` / `post.py` 此前手解 argv，
+  缺参数值会 IndexError 崩栈、未知选项静默忽略；现统一由 argparse 报错（退出码 2），
+  并第一次有可用的 `--help`。`docs/SCRIPT_HELP.md` 与 `tests/test_docs_sync.py` 同步。
+- **文件句柄卫生**：`json.dump(..., open(...))` 一律改为 `with open(...)`。
+
+### 已知未做（按设计排除）
+
+- validate 全 SKIP 时非零退出（fail-close）：会改变现有 CI 行为，需以新 flag 渐进启用。
+- post.py 去模块级 `global` 状态：改动面大且现有调用方不受影响，作为长期重构排后。
+- 字符串格式化全量 f-string 化：大范围 touch，交给 lint 自动修复而非人工逐行改。
+
 ## 0.7.3 — 2026-09-29 (代码复审修复：退出码诚实性 + 话术自洽)
 
 逐行审 render / post / validate 后采纳的三条（成熟度很高，仅以下几处挂得上）：

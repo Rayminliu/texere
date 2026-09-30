@@ -679,8 +679,11 @@ class TestPatchUnits:
     def _module():
         import importlib.util
 
+        scripts = os.path.join(KIT, "scripts")
+        if scripts not in sys.path:  # patch.py 依赖兄弟模块 _shared / edit
+            sys.path.insert(0, scripts)
         spec = importlib.util.spec_from_file_location(
-            "patch_under_test", os.path.join(KIT, "scripts", "patch.py")
+            "patch_under_test", os.path.join(scripts, "patch.py")
         )
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
@@ -704,6 +707,20 @@ class TestPatchUnits:
     def test_edit_module_imports(self):
         p = self._module()
         assert callable(p._edit_module()._set_cell_text)
+
+    def test_dry_run_reports_failure_instead_of_exiting_itself(self):
+        """dry_run_patch 的契约是 (bool, str)：失败要回报，不能自己 exit。
+
+        此前失败路径里直接 sys.exit(1)，调用方的 sys.exit(0 if success else 1)
+        永远走不到失败分支，库调用方也无从接手（只能拿到一个死掉的进程）。
+        """
+        from docx import Document
+
+        p = self._module()
+        patch = {"id": "t", "operations": [{"op": "teleport_paragraph"}]}
+        ok, msg = p.dry_run_patch(patch, Document())
+        assert ok is False, "未实现的操作必须回报失败"
+        assert "Dry run 失败" in msg and "teleport_paragraph" in msg
 
     @staticmethod
     def _table_doc():

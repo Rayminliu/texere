@@ -6,10 +6,12 @@
 退出码（供 CI 使用）：
   0 = 通过
   1 = PDF 无页，或近空白页数超过 --max-empty（默认 0）
+  2 = 命令行参数不合法（argparse）
 
   python scripts/check_pdf.py out.pdf && echo OK
 """
 
+import argparse
 import os
 import sys
 
@@ -18,57 +20,82 @@ from _shared import force_utf8_stdio
 
 force_utf8_stdio()
 
-if len(sys.argv) < 2:
-    sys.exit("用法: python scripts/check_pdf.py <file.pdf> [--max-empty N] [页码...]")
+NEAR_EMPTY_CHARS = 60  # 正文少于这个字符数且无图 → 视为近空白页
+DEFAULT_PAGES = (1, 2, 3)
+SNAPSHOT_DPI = 100
 
-_args = sys.argv[1:]
-PDF = _args[0]
-max_empty = 0
-pages_want = []
-_i = 1
-while _i < len(_args):
-    if _args[_i] == "--max-empty":
-        if _i + 1 >= len(_args):
-            sys.exit("--max-empty 需要一个整数参数")
-        try:
-            max_empty = int(_args[_i + 1])
-        except ValueError:
-            sys.exit(f"--max-empty 需要整数，得到 {_args[_i + 1]!r}")
-        _i += 2
-    else:
-        try:
-            pages_want.append(int(_args[_i]))
-        except ValueError:
-            sys.exit(f"页码需要整数，得到 {_args[_i]!r}")
-        _i += 1
 
-doc = pymupdf.open(PDF)
-print("pages:", doc.page_count)
+def _build_parser():
+    p = argparse.ArgumentParser(
+        prog="check_pdf.py",
+        description="PDF 目视验收：报总页数与近空白页清单，并渲染指定页为 PNG 供肉眼检查。",
+        epilog="退出码：0=通过；1=PDF 无页或近空白页超过 --max-empty；2=参数不合法。",
+    )
+    p.add_argument("pdf", help="待检查的 PDF")
+    p.add_argument(
+        "pages",
+        nargs="*",
+        type=int,
+        metavar="PAGE",
+        help="要渲染成 PNG 的页码（默认 %s）" % " ".join(str(x) for x in DEFAULT_PAGES),
+    )
+    p.add_argument(
+        "--max-empty",
+        dest="max_empty",
+        type=int,
+        default=0,
+        help="允许的近空白页数（默认 0）",
+    )
+    return p
 
-sparse = []
-for i, page in enumerate(doc):
-    text = page.get_text().strip()
-    imgs = len(page.get_images(full=True))
-    if len(text) < 60 and imgs == 0:
-        sparse.append((i + 1, len(text), text[:40].replace("\n", " / ")))
-print("near-empty pages:", len(sparse), "(max allowed: %d)" % max_empty)
-for s in sparse:
-    print("   p%-3d chars=%-4d %s" % s)
 
-out_dir = os.path.join(os.path.dirname(os.path.abspath(PDF)), "check_pages")
-os.makedirs(out_dir, exist_ok=True)
-targets = pages_want or [1, 2, 3]
-for pno in targets:
-    if 1 <= pno <= doc.page_count:
-        pix = doc[pno - 1].get_pixmap(dpi=100)
-        path = os.path.join(out_dir, "p%03d.png" % pno)
-        pix.save(path)
+def find_near_empty(doc):
+    """近空白页清单：正文 <60 字且没有图片。有图的封面/附图页不算空。"""
+    sparse = []
+    for i, page in enumerate(doc):
+        text = page.get_text().strip()
+        imgs = len(page.get_images(full=True))
+        if len(text) < NEAR_EMPTY_CHARS and imgs == 0:
+            sparse.append((i + 1, len(text), text[:40].replace("\n", " / ")))
+    return sparse
+
+
+def render_pages(doc, pdf, wanted):
+    """把 wanted 里的页渲染成 PNG 到 PDF 同目录的 check_pages/，返回写出的路径。"""
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "check_pages")
+    os.makedirs(out_dir, exist_ok=True)
+    written = []
+    for pno in wanted or list(DEFAULT_PAGES):
+        if 1 <= pno <= doc.page_count:
+            pix = doc[pno - 1].get_pixmap(dpi=SNAPSHOT_DPI)
+            path = os.path.join(out_dir, "p%03d.png" % pno)
+            pix.save(path)
+            written.append(path)
+    return written
+
+
+def main(argv=None):
+    a = _build_parser().parse_args(argv)
+    doc = pymupdf.open(a.pdf)
+    print("pages:", doc.page_count)
+
+    sparse = find_near_empty(doc)
+    print("near-empty pages:", len(sparse), "(max allowed: %d)" % a.max_empty)
+    for s in sparse:
+        print("   p%-3d chars=%-4d %s" % s)
+
+    for path in render_pages(doc, a.pdf, a.pages):
         print("rendered", path)
 
-if doc.page_count == 0:
-    print("FAIL: PDF 没有页")
-    sys.exit(1)
-if len(sparse) > max_empty:
-    print("FAIL: 近空白页 %d 页，超过阈值 %d" % (len(sparse), max_empty))
-    sys.exit(1)
-print("PASS: 空白页检查通过")
+    if doc.page_count == 0:
+        print("FAIL: PDF 没有页")
+        return 1
+    if len(sparse) > a.max_empty:
+        print("FAIL: 近空白页 %d 页，超过阈值 %d" % (len(sparse), a.max_empty))
+        return 1
+    print("PASS: 空白页检查通过")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

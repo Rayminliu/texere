@@ -44,6 +44,10 @@ Patch schema (JSON):
   ]
 }
 
+`insert_after` / `insert_before` 的 `content` 顺序就是它们在文档里的出现顺序：
+`"content": ["A", "B"]` 得到 A 在上、B 在下。此前多行插入会被写成倒序（已修正），
+按旧行为写的补丁需要把 content 重排回正常阅读顺序。
+
 `add_row` 的 `target.after_row` 是 0 基行号，新行插在该行之后；
 省略或取 -1 表示追加到表尾。这个字段此前只是「预留参数」——schema 收下、
 实现忽略，Agent 按文档写了会被静默追加到表尾，现在按声明语义落地。
@@ -474,14 +478,15 @@ def dry_run_patch(patch: dict, doc: Document) -> tuple[bool, str]:
             failed_ops.append((i, op_name, "异常：%s" % e))
 
     if failed_ops:
-        print(f"Dry run 失败：{len(failed_ops)}个操作失败", file=sys.stderr)
-        for i, op, msg in failed_ops:
-            print(f"  [{i}] {op}: {msg}", file=sys.stderr)
-        sys.exit(1)
-    else:
-        return True, "Dry run 成功：%d 个操作将通过\n" % len(successful_ops) + "\n".join(
-            "  [%d] %s: %s" % (i, op, msg) for i, op, msg in successful_ops
-        )
+        # 只回报结果，不在这里 sys.exit：本函数签名是 (bool, str)，调用方拿到
+        # False 才能自己决定退出码；内部抢先 exit 会让调用方的 else 分支成死代码。
+        detail = "\n".join("  [%d] %s: %s" % (i, op, msg) for i, op, msg in failed_ops)
+        return False, "Dry run 失败：%d 个操作不可执行\n%s" % (len(failed_ops), detail)
+    return (
+        True,
+        "Dry run 成功：%d 个操作将通过\n" % len(successful_ops)
+        + "\n".join("  [%d] %s: %s" % (i, op, msg) for i, op, msg in successful_ops),
+    )
 
 
 # =============================================================================
@@ -667,7 +672,7 @@ def main():
     if a.dry_run:
         print("\n[Dry Run]")
         success, msg = dry_run_patch(patch, doc)
-        print(msg)
+        print(msg, file=sys.stdout if success else sys.stderr)
         sys.exit(0 if success else 1)
 
     # Apply

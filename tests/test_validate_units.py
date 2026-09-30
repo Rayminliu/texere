@@ -266,11 +266,18 @@ def _docx_with_text(tmp_path, text, name="b.docx"):
 
 
 class TestMarkdownNormalization:
-    """这五条都是真实样例上踩出来的误报（曾一次报出 7 处假 FAIL），
+    """这些都是真实样例上踩出来的误报（曾一次报出 7 处假 FAIL），
     改匹配器时必须一并守住，否则 --source-md 会变成噪音源。"""
 
     def test_curly_and_straight_quotes_match(self):
         assert v._normalize("采用“感知—平台—应用”架构") == v._normalize('采用"感知—平台—应用"架构')
+
+    def test_smart_dashes_and_ellipsis_match_their_ascii_source(self):
+        # pandoc smart：源里的 -- / --- / ... 到 docx 变成 – / — / …
+        # （实测过：修前这两行都是假 FAIL）
+        assert v._normalize("统计区间 2020--2024 年") == v._normalize("统计区间 2020–2024 年")
+        assert v._normalize("感知---平台---应用") == v._normalize("感知—平台—应用")
+        assert v._normalize("详见附录...") == v._normalize("详见附录…")
 
     def test_pandoc_fenced_div_is_not_body(self):
         md = ':::: {custom-style="Lead"}\n正文内容足够长的这一句话\n::::\n'
@@ -744,3 +751,36 @@ class TestBlankPagesSparseExemption:
         assert res.status == v.FAIL, "1 空页 > 阈值 0"
         assert res.message.startswith("空白页：1/3")
         assert "豁免有意稀疏页 1" in res.message
+
+
+class TestSharedDocumentParse:
+    """Fix 16：一条验证链里同一个 docx 只解析一次，检查函数共用注入的 Document。
+
+    python-docx 每次 Document(path) 都要重新解 zip + 构 lxml 树，272 页文档上
+    这部分开销最大。generate_evidence_package 顶层解一次后注入，这里锁定：
+    给了 doc 就绝不再碰磁盘；没给 doc 仍能自己解（回落语义不破）。
+    """
+
+    class _NoParse:
+        """替身 Document：被调用即失败，用来证明检查函数没再解析文件。"""
+
+        def __call__(self, *a, **kw):
+            raise AssertionError("检查函数不应再解析 docx")
+
+    def test_checks_use_injected_doc_without_reparsing(self, tmp_path, monkeypatch):
+        f = _save_docx(tmp_path, "shared.docx")
+        doc = Document(f)
+        monkeypatch.setattr(v, "Document", self._NoParse())
+
+        assert v.check_section_count(f, doc=doc).status == v.PASS
+        assert v.check_toc_field(f, doc=doc).status == v.SKIP
+        assert v.check_image_embedding(f, doc=doc).status == v.SKIP
+        assert v.check_source_content_integrity(f, doc=doc).status == v.SKIP
+        assert v.compile_profile_checks({"page": {}}, f, doc=doc) == []
+
+    def test_falls_back_to_own_parse_when_doc_not_given(self, tmp_path):
+        """不传 doc 时行为不变：自己解析并按原语义报错。"""
+        f = _save_docx(tmp_path, "fallback.docx")
+        assert v.check_section_count(f).status == v.PASS
+        # 文件不存在 → 该检查报 ERROR（查不了不算合格），而不是静默 PASS
+        assert v.check_section_count(str(tmp_path / "nope.docx")).status == v.ERROR
