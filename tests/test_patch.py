@@ -708,6 +708,38 @@ class TestPatchUnits:
         p = self._module()
         assert callable(p._edit_module()._set_cell_text)
 
+    @staticmethod
+    def _anchor_doc():
+        from docx import Document
+
+        doc = Document()
+        doc.add_paragraph("前文")
+        doc.add_paragraph("锚点段落")
+        doc.add_paragraph("后文")
+        return doc
+
+    def test_multiline_insert_keeps_document_order_in_both_directions(self):
+        """insert_after / insert_before 的多行 content 都按书写顺序落地。
+
+        两处曾经一起写反（addnext 用正序遍历、addprevious 用逆序遍历），
+        只测一个方向只能守住一半。
+        """
+        p = self._module()
+        for op_name in ("insert_after", "insert_before"):
+            doc = self._anchor_doc()
+            ok, msg = getattr(p, op_name + "_op")(
+                doc, {"target": {"anchor": "锚点段落"}, "content": ["A", "B", "C"]}
+            )
+            assert ok, (op_name, msg)
+            texts = [q.text for q in doc.paragraphs]
+            i_anchor = texts.index("锚点段落")
+            i_a, i_b, i_c = texts.index("A"), texts.index("B"), texts.index("C")
+            assert i_a < i_b < i_c, "%s 把 content 写成了倒序：%s" % (op_name, texts)
+            if op_name == "insert_after":
+                assert i_anchor < i_a and i_c < texts.index("后文")
+            else:
+                assert texts.index("前文") < i_a and i_c < i_anchor
+
     def test_dry_run_reports_failure_instead_of_exiting_itself(self):
         """dry_run_patch 的契约是 (bool, str)：失败要回报，不能自己 exit。
 

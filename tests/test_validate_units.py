@@ -709,7 +709,10 @@ class TestProfileContract:
 
 
 class TestBlankPagesSparseExemption:
-    """签字 / 盖章 / 无正文声明属于**有意稀疏**，不计入空页（README 已知边界的表单尾页误报）。"""
+    """签字 / 盖章 / 无正文声明属于**有意稀疏**，不计入空页（README 已知边界的表单尾页误报）。
+
+    纯附图页（有图无文）走另一条豁免：判空必须同时满足「文字极少 + 无图」。
+    """
 
     @staticmethod
     def _pdf(tmp_path, lines):
@@ -722,6 +725,31 @@ class TestBlankPagesSparseExemption:
         p = tmp_path / "t.pdf"
         doc.save(str(p))
         return str(p)
+
+    def test_image_only_page_is_not_blank(self, tmp_path):
+        """纯附图页（有图无文）不算空白页——标书的附图页 / 案例页很常见。
+
+        判据过去只看文字长度，整页只有图的页被当成空页而假 FAIL。
+        """
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page()
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 120, 90))
+        pix.set_rect(pix.irect, (30, 60, 200))
+        page.insert_image(pymupdf.Rect(72, 100, 192, 190), pixmap=pix)
+        p = tmp_path / "fig.pdf"
+        doc.save(str(p))
+
+        res = v.check_blank_pages(str(p), max_empty=0)
+        assert res.status == v.PASS, "有图的页不该算空白页：%s" % res.message
+
+        # 无图又无文才是真空白页（双条件判空，不能反过来把真空页漏掉）
+        empty = tmp_path / "empty.pdf"
+        d2 = pymupdf.open()
+        d2.new_page()
+        d2.save(str(empty))
+        assert v.check_blank_pages(str(empty), max_empty=0).status == v.FAIL
 
     def test_signature_page_exempt(self, tmp_path):
         pdf = self._pdf(tmp_path, ["盖章"])
