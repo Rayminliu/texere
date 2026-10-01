@@ -93,7 +93,7 @@ flowchart LR
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.7.3",
+    "document": "bid.docx", "tool_version": "0.7.4",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },
