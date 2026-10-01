@@ -1,6 +1,6 @@
 [English](README.md) | 简体中文
 
-# texere —— 面向 AI agent 的可验证 Office 文档流水线
+# texere —— 面向 AI 工作流的可验证文档基础设施
 
 [![CI](https://github.com/Rayminliu/texere/actions/workflows/ci.yml/badge.svg)](https://github.com/Rayminliu/texere/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/Rayminliu/texere)](https://github.com/Rayminliu/texere/tags)
@@ -10,7 +10,9 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
-确定性文档编译 + 证据链验证：Markdown + Word 模板 → DOCX → 真实渲染器（Word / WPS / LibreOffice）→ PDF → 版式回归 → 证据。
+从结构化意图生成 Office 文档，并用真实渲染与证据链验证交付质量：Markdown + Word 模板 → DOCX → 真实渲染器（Word / WPS / LibreOffice）→ PDF → 版式回归 → 证据。
+
+![texere 证明流水线：纯 Markdown 变成一份自带「9 项检查全通过」凭据、经真 Word 渲染的文档](assets/hero-verified.png)
 
 > **项目状态：维护模式。** 核心架构与验收流程已稳定；后续主要处理缺陷、兼容性问题和文档修正。
 
@@ -80,6 +82,8 @@ flowchart LR
 | ![minutes](assets/previews/minutes.png) | ![report](assets/previews/report.png) |
 | 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 | 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 |
 | ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
+
+一份文档从 Markdown → 编译 → 渲染 → 验证的完整走位，见[旗舰案例 Showcase](docs/showcase.md)。
 
 #### 凭据
 
@@ -442,6 +446,7 @@ python -m pytest -q                                    # 全量：分层测试�
 | `docs/TABLES.zh-CN.md` / `docs/TABLES.md` | 表格写法、grid table、视觉控制 |
 | `docs/VALIDATION.zh-CN.md` / `docs/VALIDATION.md` | 9 项检查逐项说明、人工门槛、注意事项 |
 | `docs/EDITING.zh-CN.md` / `docs/EDITING.md` | 编辑操作、Patch schema、重排流程 |
+| `docs/showcase.md` | 一份投标文件的端到端走位：Markdown → 编译 → 渲染 → 验证证据 |
 
 所以：**本手册不列 CLI 参数表**——只给你真要跑的那几条命令，其余指向 SCRIPT_HELP。
 脚本新增了参数却没写进 SCRIPT_HELP，或者 SCRIPT_HELP 编了个不存在的参数，`test_docs_sync.py`
@@ -460,6 +465,7 @@ python -m pytest -q                                    # 全量：分层测试�
 | `scripts/validate.py` | 统一验证入口：9 项自动检查、结构化报告、证据包 |
 | `scripts/snapshot.py` | PDF 版式快照回归：逐像素比对 `baselines/`，漂移即 exit 1 |
 | `scripts/make_previews.py` | 重生示例画廊图（逐个渲染示例，挑选代表页） |
+| `scripts/make_hero.py` | 从已入库素材合成 README 首屏 Hero 图（仅用 PyMuPDF，不需 Word / pandoc） |
 | `scripts/patch.py` | 对 agent 友好的 Patch API：声明式操作、dry-run、哈希前置条件、评估 |
 | `scripts/edit.py` | 编辑已有 docx：改文字 / 增删段落 / 改单元格 / 改页眉页脚 |
 | `scripts/distill.py` | 蒸馏模板 docx，输出建议 config（页面设置 / 字体 / 页眉页脚） |

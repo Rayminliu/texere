@@ -66,6 +66,14 @@
   「346 assertions / 346 项断言」，改述 L1–L4 分层。守卫 `test_stated_test_count_is_current` 反转为
   `test_docs_do_not_hardcode_test_count`——从「文档数字 == 收集数」改为「禁止文档出现精确断言计数」（反漂移更强，
   且去掉 `subprocess` 依赖）；h1–h3 镜像序列、内部锚点、仓库地图、脚本覆盖等同步守卫全程绿。
+- **首屏 Hero 合成图 + 旗舰 Showcase + tagline 重定位**（Commit A：纯文档 + 确定性生成图，**不依赖外部渲染环境**）：
+  新增 `scripts/make_hero.py`——仅用 PyMuPDF（`check` extra，已在 `requirements.txt`）把已入库的 `assets/previews/tender.png`
+  与「通过态」9 检查凭据合成一张 `Intent → Document → Proof` 对比面板 `assets/hero-verified.png`（文本纯 ASCII、勾/点用矢量
+  图元，**不需 Word / pandoc**，重跑即刷新）；中英 README 首屏在定位语下方嵌入该 Hero。中文 H1/tagline 从「面向 AI agent 的
+  …流水线」重定位为「面向 AI 工作流的可验证文档基础设施」（降级 Agent 为入口、核心=文档正确性）；新增 `docs/showcase.md`
+  以一份投标文件端到端叙事（复用现有图，非教程），两份 README 正文与文档地图链向它。`make_hero.py` 无 argparse 选项，
+  不进 `ARGPARSE_SCRIPTS` / `SCRIPT_HELP`；仓库地图与脚本覆盖镜像守卫同步补行并全程绿。**不新增用例，收集数仍 346。**
+  （真·端到端绿色 evidence 需一次真实 Word 渲染并固化产物，留作后续独立的 Commit B，不与文档改动耦合。）
 
 内部重构，净搬 + re-export 未改行为；因下沉新增 1 项进程内 evidence 用例 + 1 项依赖方向守卫，
 收集数 344 → **346**。文档不再写死该计数（见上条 README 证据优先重排：改述 L1–L4，

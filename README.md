@@ -12,6 +12,8 @@ English | [简体中文](README.zh-CN.md)
 
 Deterministic document compilation with evidence-backed verification: Markdown + a Word template → DOCX → a real renderer (Word / WPS / LibreOffice) → PDF → visual regression → evidence.
 
+![texere proof pipeline: plain Markdown becomes a Word-rendered document carrying a passing 9-check receipt](assets/hero-verified.png)
+
 > **Status: Maintenance mode.** Core architecture and validation workflow are considered stable. Future changes are primarily bug fixes, compatibility fixes, and documentation updates.
 
 ```mermaid
@@ -84,6 +86,8 @@ ships its Markdown + config and runs with one command; regenerate these with
 | ![minutes](assets/previews/minutes.png) | ![report](assets/previews/report.png) |
 | Contract (`contract/`) — clause sections, in-cell line breaks, signature block | Table styling (`tables/`) — multi-level headers, merged cells, column widths |
 | ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
+
+One document traced end to end — Markdown → compiled → rendered → verified — is walked through step by step in the [Showcase](docs/showcase.md).
 
 #### The receipt
 
@@ -486,6 +490,7 @@ Every piece of information lives in exactly **one** place; the other files link 
 | `docs/TABLES.md` (+ `.zh-CN` mirror) | Table syntax, grid tables, visual control |
 | `docs/VALIDATION.md` (+ `.zh-CN` mirror) | The 9 checks one by one, the manual gate, caveats |
 | `docs/EDITING.md` (+ `.zh-CN` mirror) | Editing operations, Patch schema, re-typesetting |
+| `docs/showcase.md` | End-to-end walkthrough of one tender: Markdown → compiled → rendered → verified evidence |
 
 So: **this manual never lists a CLI flag table** — it shows the commands you'll actually run and points at
 SCRIPT_HELP for the rest. `test_docs_sync.py` fails the commit if a script grows an option that isn't
@@ -504,6 +509,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `scripts/validate.py` | Unified validation entry — 9 automated checks, structured report, evidence package |
 | `scripts/snapshot.py` | PDF layout snapshot regression: pixel comparison against `baselines/`, exits 1 on drift |
 | `scripts/make_previews.py` | Regenerate the examples gallery images (renders each example, picks a representative page) |
+| `scripts/make_hero.py` | Compose the README hero image from committed assets (PyMuPDF only, no Word / pandoc) |
 | `scripts/patch.py` | Agent-friendly Patch API — declarative operations, dry-run, hash precondition, assessment |
 | `scripts/edit.py` | Edit an existing docx: replace / insert / delete / table cells / headers and footers |
 | `scripts/distill.py` | Distill a template docx into a suggested `config.json` (page setup, fonts, headers, footers) |
