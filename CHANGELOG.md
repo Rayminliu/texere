@@ -58,9 +58,18 @@
 - **文档同步**：`_verify`/`_visual_diff`/`_evidence`/`_compile`/`_mutate` 补进中英两份 README 仓库地图（与模块
   首次落地同批）；`docs/VALIDATION.md` + `.zh-CN.md` 新增「能力模块与测试分层」一节；`test_docs_sync` 仓库地图
   + 中英同构 + 计数守卫全程绿。
+- **README 证据优先重排 + 计数守卫反转**（纯文案 + 一个测试函数改名，不新增用例、收集数不变）：中英 README
+  首屏从「能力清单」改为「证据优先」——`See the result` 由 h3 升为 h2，新增 h4「成品 / 凭据」子块，内联一份
+  **通过态 `report.json` 形状**（9 项检查名与真实结构逐字对齐；**不链接** 被 gitignore 的 `evidence/report.json`，
+  只嵌已入库的 `evidence/page-001/004.png`、`assets/previews/`、`baselines/word/`）+ 四态语义（SKIP 不计通过）
+  + 0.00% 像素漂移；新增 `## Verification layers` / `## 验证分层`（L1–L4）。撤除 README×2 / SKILL 共 7 处写死的
+  「346 assertions / 346 项断言」，改述 L1–L4 分层。守卫 `test_stated_test_count_is_current` 反转为
+  `test_docs_do_not_hardcode_test_count`——从「文档数字 == 收集数」改为「禁止文档出现精确断言计数」（反漂移更强，
+  且去掉 `subprocess` 依赖）；h1–h3 镜像序列、内部锚点、仓库地图、脚本覆盖等同步守卫全程绿。
 
 内部重构，净搬 + re-export 未改行为；因下沉新增 1 项进程内 evidence 用例 + 1 项依赖方向守卫，
-断言数 344 → **346**（已同步 README×2 / SKILL 写死计数，`test_stated_test_count_is_current` 对拍绿）。
+收集数 344 → **346**。文档不再写死该计数（见上条 README 证据优先重排：改述 L1–L4，
+`test_stated_test_count_is_current` 反转为 `test_docs_do_not_hardcode_test_count`）。
 
 ## 未发布 — 流水线优化与文档完善（依赖 / 重复 / 多语言 / 知识同步四轨道）
 

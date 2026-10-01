@@ -1,6 +1,6 @@
 English | [简体中文](README.zh-CN.md)
 
-# texere — verified Chinese Word documents, from Markdown
+# texere — a verified Office document pipeline
 
 [![CI](https://github.com/Rayminliu/texere/actions/workflows/ci.yml/badge.svg)](https://github.com/Rayminliu/texere/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/Rayminliu/texere)](https://github.com/Rayminliu/texere/tags)
@@ -10,7 +10,7 @@ English | [简体中文](README.zh-CN.md)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
-Markdown + a Word template → DOCX → a renderer (Word / WPS / LibreOffice) → PDF → visual regression → evidence.
+Deterministic document compilation with evidence-backed verification: Markdown + a Word template → DOCX → a real renderer (Word / WPS / LibreOffice) → PDF → visual regression → evidence.
 
 > **Status: Maintenance mode.** Core architecture and validation workflow are considered stable. Future changes are primarily bug fixes, compatibility fixes, and documentation updates.
 
@@ -49,9 +49,12 @@ exported to PDF, and compared page by page against a layout baseline. Don't trus
 
 **Contents** · [Quick start](#quick-start) · [Examples](#see-the-result) ·
 [Workflows](#usage) · [Validation](#validation-and-evidence-package) ·
-[Editing](#editing-an-existing-docx) · [Docs](#documentation-map)
+[Editing](#editing-an-existing-docx) · [Verification layers](#verification-layers) ·
+[Docs](#documentation-map)
 
-### See the result
+## See the result
+
+#### The document
 
 **You write this** (`examples/tender/01_bid.md`):
 
@@ -81,6 +84,44 @@ ships its Markdown + config and runs with one command; regenerate these with
 | ![minutes](assets/previews/minutes.png) | ![report](assets/previews/report.png) |
 | Contract (`contract/`) — clause sections, in-cell line breaks, signature block | Table styling (`tables/`) — multi-level headers, merged cells, column widths |
 | ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
+
+#### The receipt
+
+Every delivery ships with a machine-readable receipt: a structured `report.json`,
+sampled page screenshots, and a SHA-256 checksum manifest. Shape of a passing
+report — same fields and check names as any real run:
+
+```json
+{
+  "metadata": {
+    "document": "bid.docx", "tool_version": "0.7.3",
+    "pandoc_version": "pandoc 3.11",
+    "renderer": { "name": "Microsoft Word" }
+  },
+  "checks": {
+    "package_integrity":   { "status": "PASS" },
+    "source_content":      { "status": "SKIP" },
+    "image_embedding":     { "status": "PASS" },
+    "section_count":       { "status": "PASS" },
+    "toc_field":           { "status": "PASS" },
+    "page_numbering":      { "status": "PASS" },
+    "blank_pages":         { "status": "PASS" },
+    "renderer_acceptance": { "status": "PASS" },
+    "visual_drift":        { "status": "SKIP" }
+  },
+  "summary": { "total": 9, "passed": 7, "failed": 0, "skipped": 2 }
+}
+```
+
+Each check reports `PASS` / `FAIL` / `SKIP` / `ERROR`; `SKIP` means a precondition was
+missing and is **never counted as passed** — only `FAIL` / `ERROR` set exit code 1. Point
+it at a corrupted docx and `package_integrity` fails immediately while the PDF-derived
+checks auto-skip (see `tests/test_validate.py`). Re-exporting the same layout through the
+same renderer measures **0.00 %** pixel drift against `baselines/word/`.
+
+![rendered page 1](evidence/page-001.png) ![rendered page 4](evidence/page-004.png)
+
+Full check-by-check detail: [Validation and evidence package](#validation-and-evidence-package).
 
 > **Platform**: DOCX generation is cross-platform. PDF / renderer acceptance needs a renderer —
 > **Word** (Windows + Microsoft Word), **LibreOffice** (soffice, any OS), or **WPS** (Windows + WPS Office).
@@ -217,7 +258,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 346 assertions, ~6 min (measured 6m1s, needs a renderer — defaults to Word)
+python -m pytest -q                                              # layered suite (L1–L4), ~6 min — needs a renderer, Word by default
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -345,6 +386,25 @@ they are what `render.py --sample` and every example uses — and open the refer
 3. Before delivery, run `--pdf --check` and look through the page images: Word opens it, no blank pages,
    header rows shaded, captions centred. Only then package it.
 
+## 🧬 Verification layers
+
+The suite is layered so a change's blast radius is obvious and the fast half runs
+without Office:
+
+- **L1 — pure-logic / structural invariants**: package integrity, image embedding
+  identity + order, TOC field, section count — in-process, no renderer needed.
+- **L2 — renderer-agnostic PDF invariants**: page numbering, blank pages, visual drift
+  against a baseline; any renderer producing the same PDF yields the same verdict.
+- **L3 — contract enforcement**: layout-only post-processing (never rewrites body or
+  caption text), `content_fixes` as an explicit opt-in table, profile→assertion,
+  `--verify` after edits.
+- **L4 — governance guards**: CLI options ↔ SCRIPT_HELP two-way, config schema ↔ CONFIG
+  ↔ render, style-key four-way sync, EN/ZH README mirror structure, module dependency
+  direction (`test_module_boundaries.py`), and the docs-count guard in this file's tests.
+
+Per-check detail lives in [`docs/VALIDATION.md`](docs/VALIDATION.md) — the single source,
+not duplicated here.
+
 ## 🏛️ Three pillars
 
 1. **Compiler, not converter** — Markdown → Semantic IR → Layout Spec → DOCX. Every visual rule is explicit
@@ -403,7 +463,7 @@ pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + 
 pre-commit run --all-files                             # lint + format + a Word-free test subset
 # Word half: skipped on CI, only verifiable locally (patch/validate e2e + Word/WPS contracts)
 python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # full suite: 346 assertions, ~6 min (measured 6m1s; before releases / renderer-chain changes)
+python -m pytest -q                                    # full layered suite (L1–L4): ~6 min (measured 6m1s; before releases / renderer-chain changes)
 ```
 
 > **Hosted CI runs the renderer-free half** ([ci.yml](.github/workflows/ci.yml)): ruff + the fast subset +
@@ -465,7 +525,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` (CLI reference, **Chinese-only**), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — the latter four each with a `.zh-CN` mirror |
 | `baselines/` | Snapshot baselines (per-renderer dirs, e.g. baselines/word/) |
-| `tests/` | 346 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), dependency-boundary guard (`test_module_boundaries.py`: core `_*.py` must never import a CLI facade), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
+| `tests/` | Layered pytest suite (L1–L4): layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), dependency-boundary guard (`test_module_boundaries.py`: core `_*.py` must never import a CLI facade), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## 📜 License

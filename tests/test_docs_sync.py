@@ -12,7 +12,6 @@ pre-commit hook 会在 commit 时拦住。反向失配（文档写了代码里�
 import ast
 import os
 import re
-import subprocess
 import sys
 import unicodedata
 
@@ -357,31 +356,24 @@ STATED_COUNT = [
 COUNT_DOCS = ["README.md", "README.zh-CN.md", "SKILL.md"]
 
 
-def test_stated_test_count_is_current():
-    """文档里写死的「N 项断言」必须等于 pytest 实际收集数。
+def test_docs_do_not_hardcode_test_count():
+    """文档不得写死精确断言数——加一条用例不该改三份文档。
 
-    这个数字在 3 份文档里出现 6 次，加一条用例忘记改文档，就是「文档吹嘘比
-    实际多」——恰好是本套件一直在治的那种病，这次轮到治自己。
+    旧守卫要求「文档数字 == pytest 收集数」，每加一条用例就要同步 README×2 +
+    SKILL 共 7 处，维护成本大于收益且正是本套件一直在治的漂移病。改为反向约束：
+    出现 `N assertions` / `N pytest assertions` / `N 项…断言` 即失败；精确计数下沉到
+    实际运行 pytest 时才知道，文档只讲 L1–L4 分层与结构常量（9 检查 / 四态 / 0.00%）。
     """
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "--no-header"],
-        cwd=KIT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    m = re.search(r"(\d+) tests? collected", result.stdout)
-    assert m, "没能从 pytest 输出里拿到收集数:\n" + result.stdout[-500:]
-    real = int(m.group(1))
     stale = []
     for doc in COUNT_DOCS:
         with open(os.path.join(KIT, doc), encoding="utf-8") as f:
             text = f.read()
         for pat in STATED_COUNT:
             for hit in pat.findall(text):
-                if int(hit) != real:
-                    stale.append((doc, hit))
-    assert not stale, "文档里的断言数过期了（实际收集 %d 项）: %s" % (real, stale)
+                stale.append((doc, hit))
+    assert not stale, (
+        "文档不应写死精确断言数（改用 L1–L4 分层叙述，见 docs/VALIDATION.md）: %s" % stale
+    )
 
 
 def test_config_schema_matches_docs_and_render():

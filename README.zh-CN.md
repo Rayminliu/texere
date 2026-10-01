@@ -1,6 +1,6 @@
 [English](README.md) | 简体中文
 
-# texere —— 从 Markdown 生成可验收的中文 Word 文档
+# texere —— 面向 AI agent 的可验证 Office 文档流水线
 
 [![CI](https://github.com/Rayminliu/texere/actions/workflows/ci.yml/badge.svg)](https://github.com/Rayminliu/texere/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/Rayminliu/texere)](https://github.com/Rayminliu/texere/tags)
@@ -10,7 +10,7 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
-Markdown + Word 模板 → DOCX → 渲染器(Word/WPS/LibreOffice) → PDF → 版式回归 → 证据。
+确定性文档编译 + 证据链验证：Markdown + Word 模板 → DOCX → 真实渲染器（Word / WPS / LibreOffice）→ PDF → 版式回归 → 证据。
 
 > **项目状态：维护模式。** 核心架构与验收流程已稳定；后续主要处理缺陷、兼容性问题和文档修正。
 
@@ -47,9 +47,12 @@ flowchart LR
 （真 Word / WPS / LibreOffice）里打开、导出 PDF，并与版式基线逐页比对；不信“读回正常”，只看真渲染。
 
 **目录** · [快速开始](#快速开始) · [看看产物](#看看产物) · [用法](#用法) ·
-[验证与证据包](#验证与证据包) · [编辑已有 docx](#编辑已有-docx) · [文档地图](#文档地图)
+[验证与证据包](#验证与证据包) · [编辑已有 docx](#编辑已有-docx) ·
+[验证分层](#验证分层) · [文档地图](#文档地图)
 
-### 看看产物
+## 看看产物
+
+#### 成品
 
 **你写的是这个**（`examples/tender/01_bid.md`）：
 
@@ -77,6 +80,42 @@ flowchart LR
 | ![minutes](assets/previews/minutes.png) | ![report](assets/previews/report.png) |
 | 技术服务合同（`contract/`）——条款章节、单元格内换行、签署栏 | 表格排版（`tables/`）——多级表头、合并单元格、列宽控制 |
 | ![contract](assets/previews/contract.png) | ![tables](assets/previews/tables.png) |
+
+#### 凭据
+
+每份交付都自带机器可读凭据：结构化 `report.json`、抽样页面截图、SHA-256 校验清单。
+下面是「一份通过态报告」的形状——字段名与检查项与任何真实运行逐字一致：
+
+```json
+{
+  "metadata": {
+    "document": "bid.docx", "tool_version": "0.7.3",
+    "pandoc_version": "pandoc 3.11",
+    "renderer": { "name": "Microsoft Word" }
+  },
+  "checks": {
+    "package_integrity":   { "status": "PASS" },
+    "source_content":      { "status": "SKIP" },
+    "image_embedding":     { "status": "PASS" },
+    "section_count":       { "status": "PASS" },
+    "toc_field":           { "status": "PASS" },
+    "page_numbering":      { "status": "PASS" },
+    "blank_pages":         { "status": "PASS" },
+    "renderer_acceptance": { "status": "PASS" },
+    "visual_drift":        { "status": "SKIP" }
+  },
+  "summary": { "total": 9, "passed": 7, "failed": 0, "skipped": 2 }
+}
+```
+
+每项检查报 `PASS` / `FAIL` / `SKIP` / `ERROR`；`SKIP` 表示前置条件缺失、这项根本没查，
+**绝不计为通过**——只有 `FAIL` / `ERROR` 会让退出码变成 1。把它指向一个损坏的 docx，
+`package_integrity` 会立刻 FAIL、PDF 派生项自动 SKIP（见 `tests/test_validate.py`）。
+同一版式经同一渲染器重复导出，相对 `baselines/word/` 的像素漂移实测为 **0.00%**。
+
+![渲染页 1](evidence/page-001.png) ![渲染页 4](evidence/page-004.png)
+
+逐项明细见[验证与证据包](#验证与证据包)。
 
 > **运行平台**：DOCX 生成本身跨平台。PDF / 渲染器验收需要一个渲染器——
 > **Word**（Windows + 本机 Microsoft Word）、**LibreOffice**（soffice，任意系统）、**WPS**（Windows + WPS Office）。
@@ -206,7 +245,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # 模板 �
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # 重建排版模板
 python scripts/snapshot.py 标书.pdf --update                     # 录版式基线（确认版式无误后）
 python scripts/snapshot.py 标书.pdf                              # 回归比对，漂移即 exit 1
-python -m pytest -q                                              # 346 项断言，约 6 分钟（实测 6 分 01 秒，需本机渲染器，默认 Word）
+python -m pytest -q                                              # 分层测试套件（L1–L4），约 6 分钟（实测 6 分 01 秒，需本机渲染器，默认 Word）
 ```
 
 可运行示例——每个目录自带 Markdown + config，一条命令跑通（见 [examples/README.md](examples/README.md)）：
@@ -324,6 +363,17 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 3. 交付前跑 `--pdf --check` 并肉眼过一遍渲染图：所选渲染器能打开、无空白页、表头灰底、题注居中，
    四条都过再封包。
 
+## 🧬 验证分层
+
+测试按层组织，让一次改动的波及范围一目了然，且快的那一半不启 Office：
+
+- **L1 — 纯逻辑 / 结构不变量**：包完整性、图片嵌入身份与顺序、目录域、分节数——进程内，无需渲染器；
+- **L2 — 渲染器无关的 PDF 派生检查**：页码、空白页、相对基线的版式漂移；任何渲染器产出同一 PDF 得到同一结论；
+- **L3 — 契约执行**：只改版式的后处理（绝不改写正文与题注）、`content_fixes` 显式 opt-in 表、profile→断言、编辑后 `--verify`；
+- **L4 — 治理守卫**：CLI 参数 ↔ SCRIPT_HELP 双向、config schema ↔ CONFIG ↔ render 三方、style 键四方同步、中英 README 镜像结构、依赖方向（`test_module_boundaries.py`）、以及本文件测试里的文档计数守卫。
+
+逐项细节住在 [`docs/VALIDATION.zh-CN.md`](docs/VALIDATION.zh-CN.md)——单一来源，此处不复述。
+
 ## 🏛️ 三条支柱
 
 1. **是编译器，不是转换器** —— Markdown → 语义 IR → 版式规格 → DOCX。每条视觉规则都明写在设计契约里
@@ -371,7 +421,7 @@ pip install ruff pre-commit && pre-commit install      # ruff 一个工具顶 fl
 pre-commit run --all-files                             # lint + 格式 + 不启 Word 的测试子集
 # Word 半边：CI 跳过、仅本机能验的部分（patch/validate e2e + Word/WPS 契约）
 python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # 全量：346 项断言，约 6 分钟（实测 6 分 01 秒；发版 / 改渲染链路前跑）
+python -m pytest -q                                    # 全量：分层测试套件（L1–L4），约 6 分钟（实测 6 分 01 秒；发版 / 改渲染链路前跑）
 ```
 
 > **托管 CI 跑无渲染器的那一半**（[ci.yml](.github/workflows/ci.yml)）：ruff + 快速子集 +
@@ -431,7 +481,7 @@ python -m pytest -q                                    # 全量：346 项断言�
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `SCRIPT_HELP.md`（CLI 参考，**仅中文单份**）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——后四者各有 `.zh-CN` 镜像 |
 | `baselines/` | 快照基线（按渲染器分目录，如 baselines/word/） |
-| `tests/` | 346 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、依赖方向守卫（`test_module_boundaries.py`：core `_*.py` 绝不 import CLI 壳）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
+| `tests/` | 分层 pytest 套件（L1–L4）：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、依赖方向守卫（`test_module_boundaries.py`：core `_*.py` 绝不 import CLI 壳）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、禁止文档写死断言计数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 📜 许可
