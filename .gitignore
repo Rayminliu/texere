@@ -7,9 +7,17 @@ __pycache__/
 check_pages/
 sample_out.docx
 sample_out.pdf
+sample_test.docx
 
 # validate.py 的证据包输出（临时验证产物；含 CI 同款目录命名变体）
 evidence*/
+# 例外：README 与 docs/showcase.md 首屏直接引的两张成品截图是入库资产，
+# 重跑 validate 后应该能直接 git add，而不是被上一条静默吃掉。父目录被
+# 忽略时文件级 ! 无效（git 不会下降进去），所以要先放行目录、再忽略其内容。
+!evidence/
+evidence/*
+!evidence/page-001.png
+!evidence/page-004.png
 tmp_test.docx
 
 # make_previews.py 的渲染中间产物

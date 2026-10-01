@@ -1,4 +1,4 @@
-# CONFIG.zh-CN.md
+# TABLES.zh-CN.md
 
 > 从 `README.zh-CN.md` 下沉而来的表格参考。中英两份由 `tests/test_docs_sync.py` 守着同构。
 
