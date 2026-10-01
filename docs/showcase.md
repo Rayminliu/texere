@@ -82,7 +82,8 @@ checks auto-skip — the validator does not lie to look green. Full detail: [VAL
 ## 5 · Evidence — the receipt
 
 The run ships a structured `report.json`, sampled page screenshots, and a SHA-256 manifest.
-Shape of a passing report — field names identical to any real run:
+Shape of a passing report — field and check names identical to any real run, excerpted for
+brevity (the full nine are in the table above):
 
 ```json
 {

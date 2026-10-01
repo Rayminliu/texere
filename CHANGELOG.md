@@ -74,6 +74,32 @@
   以一份投标文件端到端叙事（复用现有图，非教程），两份 README 正文与文档地图链向它。`make_hero.py` 无 argparse 选项，
   不进 `ARGPARSE_SCRIPTS` / `SCRIPT_HELP`；仓库地图与脚本覆盖镜像守卫同步补行并全程绿。**不新增用例，收集数仍 346。**
   （真·端到端绿色 evidence 需一次真实 Word 渲染并固化产物，留作后续独立的 Commit B，不与文档改动耦合。）
+- **全项目审计修正（三视角只读审计 + 逐项读码复核后综合；Tier 1 正确性 / Tier 2 守卫 / Tier 3 卫生）**：
+  - **Tier 1（证据可信度 bug，均配回归用例）**：`validate.py` 读 `--source-md` 时过 `_outside_code_fences`，与
+    `render.py` 用同一条围栏规则（此前文档里一个围栏示例 `![...]` 会让 `image_embedding` 凭空 FAIL，而 render 判 OK）；
+    `_verify._source_md_segments` 认 `~~~` 围栏且只由同字符围栏关闭（判定与 `_compile` 同源，消除 `source_content` 假 FAIL）；
+    `renderers.py` 的 `app.Quit()` 包进 `try/except` 并把结果先存局部变量——COM 偶发 RPC 错误（本机实测
+    `0x800706be`）不再在 finally 里丢弃已算好的 return，**成功导出的 PDF 不再被误判为失败**，异常降级为 `warnings`；
+    `validate.print_report` 不再自行 `sys.exit(1)`（退出码统一由 `main()` 末尾决定），从而失败时也能打印
+    `Evidence package saved to ...`——恰是最需要知道证据在哪的时刻。CLI 选项 / stdout 措辞 / exit 语义均未变；
+    `render --sample --pdf` + `snapshot.py` 对 `baselines/word/` 实测 **0.00%**。
+  - **Tier 2（把刚开的口子焊住，纯测试 + 一个新增常量）**：`_verify.CHECK_NAMES` 成为九项检查名的单一来源，
+    `test_check_names_have_single_source` 用 ast/文本对拍 `validate.py` 注册表、`make_hero.CHECKS`、README×2 的
+    report 摘录、`docs/showcase.md` 检查表与摘录（Hero 图与 Showcase 是对「不摆拍」的承诺，改名不跟就是谎报）；
+    `test_relative_links_in_docs_resolve` 守 README×2 + `docs/showcase.md` 的相对链接与图片（既有锚点守卫只看
+    `](#锚点)`，跨目录路径错一个只会默默显示碎图）；`test_doc_h1_does_not_name_another_markdown_file` 拦「H1 写成
+    别的文件名」这一类复制粘贴错型；`test_precommit_ruff_rev_matches_requirements_pin` 兑现 ruff 版本三源同步的
+    口头约定（此前只查 requirements↔pyproject，钩子那一侧无守卫）；`test_changelog_top_release_matches_version`
+    把 CHANGELOG 首个带版本号的标题对齐当前版本（顶部合法的「未发布」段不影响判定）。
+  - **Tier 3（文档与仓库卫生）**：修 `docs/TABLES.zh-CN.md` 的 H1（曾顶着一行 `# CONFIG.zh-CN.md`）；删除零引用的
+    入库死文件 `sample_test.docx` 并补进 `.gitignore`；`.gitignore` 为已入库并被 README/showcase 直接嵌入的
+    `evidence/page-001.png`、`page-004.png` 加白名单例外（父目录被忽略时文件级 `!` 无效，故先 `!evidence/` 放行
+    目录、再 `evidence/*` 忽略其内容），`report.json` 与 `evidence-*` 变体仍保持忽略。
+  - **本轮不做的已记录在案**（maintenance-mode：不为顺手而改）：profile 五份近乎重复不引继承机制、`timeout=300`
+    不提取为常量、9 个 CLI 壳顶层裸调 `force_utf8_stdio()` 不下沉、多处 `subprocess.run` 不批量加 timeout、
+    Word 超时 taskkill 安全网、`_write_screenshots` 落盘保护域。理由见审计计划 Tier 4。
+
+新增 25 项用例（Tier 1 回归 7 + Tier 2 守卫 18），收集数 346 → **371**；文档不写死该计数。
 
 内部重构，净搬 + re-export 未改行为；因下沉新增 1 项进程内 evidence 用例 + 1 项依赖方向守卫，
 收集数 344 → **346**。文档不再写死该计数（见上条 README 证据优先重排：改述 L1–L4，

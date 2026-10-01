@@ -679,3 +679,165 @@ def test_snapshot_thresholds_have_single_source():
                 f"{script}:{t.lineno} 把 {t.id} 又硬编码成字面量 {node.value.value!r}；"
                 f"请引用 _shared.BASELINE_DPI / _shared.DEFAULT_MAX_DIFF"
             )
+
+
+# =============================================================================
+# 本轮新增的三张面（Hero 图 / Showcase / make_hero）原本完全在守卫之外：
+# test_internal_anchors_resolve 只查 `](#锚点)`，断言计数守卫不含 showcase，
+# 仓库地图也不管图与表格里的检查名。下面三条把刚开的口子焊住。
+# =============================================================================
+
+LINK_DOCS = ["README.md", "README.zh-CN.md", "docs/showcase.md"]
+LINK_IN_DOC = re.compile(r"!?\[[^\]]*\]\(([^)]+)")
+
+
+def _outside_fences(text):
+    """去掉 ``` 围栏内容（代码示例里的 `![...]` 不是真链接）。"""
+    out, in_fence = [], False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            out.append(line)
+    return "\n".join(out)
+
+
+@pytest.mark.parametrize("doc", LINK_DOCS)
+def test_relative_links_in_docs_resolve(doc):
+    """文档里的相对链接与图片必须指向真实存在的文件。
+
+    锁定的是 `assets/hero-verified.png`、`docs/showcase.md`、`../evidence/page-00*.png`
+    这类跨目录相对路径——错一个只会默默显示碎图，预览里不报锚点错，只能由测试兜。
+    目录目标合法（GitHub 能链到目录）；行内代码里的写法示例（如输入要求里的
+    `` ![图 1-1](a.jpg){width=13cm} ``）是语法说明不是引用，不计入。
+    """
+    path = os.path.join(KIT, doc)
+    text = _outside_fences(open(path, encoding="utf-8").read())
+    text = re.sub(r"`[^`\n]*`", "", text)  # 去掉行内代码：里面的 []() 是语法示例
+    base = os.path.dirname(path)
+    dead = []
+    for raw in set(LINK_IN_DOC.findall(text)):
+        target = raw.strip().split("#", 1)[0]
+        if not target or target.startswith(("<", "http://", "https://", "mailto:")):
+            continue
+        if not os.path.exists(os.path.normpath(os.path.join(base, target))):
+            dead.append(raw)
+    assert not dead, "%s 里这些相对链接指向不存在的文件: %s" % (doc, sorted(dead))
+
+
+def _module_literal_list(py_path, var):
+    """取回模块级 `VAR = [...] / (...)` 的字面量列表（ast，不 import 避开依赖）。"""
+    for node in ast.parse(open(py_path, encoding="utf-8").read()).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == var for t in node.targets
+        ):
+            return list(ast.literal_eval(node.value))
+    raise AssertionError("%s 里找不到模块级 %s" % (py_path, var))
+
+
+def _validate_registry_names():
+    """validate.py 里 checks 注册表的检查名，按运行时顺序。"""
+    src = open(os.path.join(SCRIPTS_DIR, "validate.py"), encoding="utf-8").read()
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.Assign) or not any(
+            isinstance(t, ast.Name) and t.id == "checks" for t in node.targets
+        ):
+            continue
+        names = []
+        for elt in node.value.elts:
+            assert isinstance(elt, ast.Tuple) and isinstance(elt.elts[0], ast.Constant), (
+                'validate.py 的 checks 注册表项必须是 ("name", fn, args, kwargs)'
+            )
+            names.append(elt.elts[0].value)
+        return names
+    raise AssertionError("validate.py 里找不到 checks 注册表")
+
+
+REPORT_KEY = re.compile(r'"([a-z_]+)"\s*:\s*\{\s*"status"')
+SHOWCASE_TABLE_HEAD = "| Check |"
+
+
+def _showcase_check_table(text):
+    """docs/showcase.md 里 `| Check | … |` 表格首列的反引号检查名。"""
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.startswith(SHOWCASE_TABLE_HEAD))
+    except StopIteration:
+        raise AssertionError("docs/showcase.md 缺少 `%s` 表头" % SHOWCASE_TABLE_HEAD)
+    names = []
+    for line in lines[start + 2 :]:
+        if not line.startswith("|"):
+            break
+        m = re.match(r"^\|\s*`([a-z_]+)`\s*\|", line)
+        assert m, "showcase 检查表首列不是反引号检查名: %s" % line
+        names.append(m.group(1))
+    return names
+
+
+def test_check_names_have_single_source():
+    """九项检查名：代码 ↔ Hero 图 ↔ README ↔ Showcase 逐字对齐（含顺序）。
+
+    CHANGELOG 声称它们“逐字对齐”，而这类声明没有守卫就只是善意：validate 改名
+    而 hero/showcase 没跟着改，首屏那张“凭据”就成了谎报 —— 正是本项目立身之本
+    的反面。不用 import 读取（make_hero 要 pymupdf、validate 要 docx，CI 未必装齐），
+    全部走 ast / 文本解析，确定且零依赖。
+    """
+    declared = _module_literal_list(os.path.join(SCRIPTS_DIR, "_verify.py"), "CHECK_NAMES")
+    assert len(declared) == 9, "检查名单应当是 9 项（Hero 图上写的就是 9 checks）: %s" % declared
+
+    assert _validate_registry_names() == declared, (
+        "validate.py 的 checks 注册表与 _verify.CHECK_NAMES 漂移"
+    )
+    assert _module_literal_list(os.path.join(SCRIPTS_DIR, "make_hero.py"), "CHECKS") == declared, (
+        "scripts/make_hero.py 的 CHECKS 与 _verify.CHECK_NAMES 漂移：Hero 图会谎报"
+    )
+
+    for doc in ("README.md", "README.zh-CN.md"):
+        text = open(os.path.join(KIT, doc), encoding="utf-8").read()
+        got = REPORT_KEY.findall(text)
+        assert got == declared, "%s 的 report 摘录检查名与单一来源不符: %s" % (doc, got)
+
+    sc = open(os.path.join(KIT, "docs", "showcase.md"), encoding="utf-8").read()
+    assert _showcase_check_table(sc) == declared, "showcase 检查表与单一来源不符"
+    # 证据节里的 json 是省略摘录：必须仍是声明顺序的子序列
+    excerpt = REPORT_KEY.findall(sc)
+    assert set(excerpt) <= set(declared), "showcase 引用了不存在的检查名: %s" % sorted(
+        set(excerpt) - set(declared)
+    )
+    assert excerpt == [n for n in declared if n in set(excerpt)], (
+        "showcase 的 report 摘录检查名顺序与声明顺序不一致: %s" % excerpt
+    )
+
+
+H1_AS_MDNAME = re.compile(r"^#\s+([A-Za-z0-9_.-]+\.md)\s*$")
+
+
+def _first_h1(path):
+    for line in _outside_fences(open(path, encoding="utf-8").read()).splitlines():
+        m = re.match(r"^# \S", line)
+        if m:
+            return line
+    return None
+
+
+@pytest.mark.parametrize(
+    "doc",
+    ["README.md", "README.zh-CN.md"]
+    + sorted("docs/" + f for f in os.listdir(os.path.join(KIT, "docs")) if f.endswith(".md")),
+)
+def test_doc_h1_does_not_name_another_markdown_file(doc):
+    """文档 H1 长得像文件名时，就必须是它自己的名字。
+
+    踩过的坑：docs/TABLES.zh-CN.md 顶着一行 `# CONFIG.zh-CN.md`（复制粘贴没改标题）
+    一直活着。散文式标题（SCRIPT_HELP.md 的“Texere 脚本帮助文档”、showcase.md 的
+    长标题）不受约束，只拦这一类错型。
+    """
+    h1 = _first_h1(os.path.join(KIT, doc))
+    assert h1 is not None, "%s 没有 H1 标题" % doc
+    m = H1_AS_MDNAME.match(h1)
+    if m:
+        assert m.group(1) == os.path.basename(doc), (
+            "%s 的 H1 写的是 `%s`，应为 `# %s`（复制粘贴没改标题）"
+            % (doc, m.group(1), os.path.basename(doc))
+        )

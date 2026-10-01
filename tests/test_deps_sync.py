@@ -147,3 +147,27 @@ def test_whitelist_entries_are_justified():
     req = _requirements_index()
     for name in RUNTIME_WHITELIST:
         assert name in req or name in pp, f"白名单 {name} 两边都不存在，是死条目，删掉"
+
+
+def test_precommit_ruff_rev_matches_requirements_pin():
+    """ruff 版本三源同步：pre-commit 的 rev 必须等于 requirements 钉的精确版。
+
+    requirements.txt 与 pyproject 的对拍由上面几条守着，但钩子那一侧只有注释在
+    口头声称同步。钩子跑旧版 ruff、CI/本地跑新版时，格式与规则差异会直接在
+    commit 时把不一致的代码定下来。
+    """
+    cfg = open(os.path.join(KIT, ".pre-commit-config.yaml"), encoding="utf-8").read()
+    m = re.search(
+        r"repo:\s*https://github\.com/astral-sh/ruff-pre-commit\s*\n\s*rev:\s*v?([0-9][\d.]*)",
+        cfg,
+    )
+    assert m, ".pre-commit-config.yaml 里找不到 ruff-pre-commit 的 rev"
+    req = _requirements_index()
+    pinned = [c[1] for c in req.get("ruff", []) if c[0] == "=="]
+    assert pinned, "requirements.txt 没把 ruff 钉成精确版，rev 无从对齐"
+    # _requirements_index 把版本解析成 (0, 16, 8) 这种比较元组，rev 对齐同一口径
+    rev = tuple(int(p) for p in m.group(1).split("."))
+    assert rev == pinned[0], (
+        "ruff 版本漂移：pre-commit rev=%s vs requirements==%s；"
+        "两处要一起改（升 ruff 是一个动作，不是两个）" % (m.group(1), ".".join(map(str, pinned[0])))
+    )
