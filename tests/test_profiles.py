@@ -99,6 +99,40 @@ def test_cn_profiles_toc_title_matches_render_default():
         )
 
 
+# profile 刻意保持自包含、不做继承（设计意图见 docs/VALIDATION 的「Profile 契约边界」一节）；
+# 代价是同一份版式事实在多个 profile 里各写一遍。历史真出过漂移（toc.title 半角/
+# 全角三份互不一致，见 CHANGELOG），所以「重复就必须逐字等值」得由机器守：
+# 改一处忘四处时当场红。真正有意分叉的段请写进该节并在下面名单里移出。
+SHARED_SEGMENTS_WITH_FORMAL = {
+    "tender-v1": ("page", "styles", "caption", "table", "header", "footer", "toc"),
+    "application-v1": ("styles", "caption", "table", "header"),
+}
+
+
+def test_duplicated_segments_match_formal_cn_byte_for_byte():
+    """与 formal-cn-v1 共享的段必须逐字等值（自包含不等于可以各写一套）。
+
+    这里不做 base/extends：profile 是需要独立审计的验收契约，继承会把「哪份契约
+    被签了」变成「合并后的结果是什么」，也会改动证据里嵌入的 profile 与 report_hash。
+    """
+    formal = _load("formal-cn-v1.json")
+    for name, segs in SHARED_SEGMENTS_WITH_FORMAL.items():
+        other = _load(name + ".json")
+        missing = [s for s in segs if s not in other]
+        assert not missing, "%s 缺段：%s" % (name, missing)
+        drift = sorted(s for s in segs if other[s] != formal[s])
+        assert not drift, (
+            "%s 的 %s 与 formal-cn-v1 不再逐字等值——要么是有意分叉（写进 docs/VALIDATION 的"
+            "「Profile 契约边界」一节并从本名单移出），要么就是改一处忘四处的漂移：\n%s vs %s"
+            % (
+                name,
+                drift,
+                json.dumps({s: formal[s] for s in drift}, ensure_ascii=False),
+                json.dumps({s: other[s] for s in drift}, ensure_ascii=False),
+            )
+        )
+
+
 def test_profile_keys_covered_by_docs():
     """各 profile 的顶层键都必须被文档措辞覆盖（契约边界节的词汇表）。
 

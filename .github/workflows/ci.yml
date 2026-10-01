@@ -24,6 +24,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # 挂起的子进程（soffice / pandoc）不该靠 runner 默认的 6 小时超时来兜：
+    # 到点直接杀 job、日志里连栈都看不到。20 分钟 = 当前全量耗时（分钟级）的宽裕上限，
+    # 卡死时能在一轮 CI 内暴露，而不是占着配额空转半天。
+    timeout-minutes: 20
     env:
       # 开发机是 GBK locale、runner 是 UTF-8：显式钉死 UTF-8 模式，
       # 同一份代码两边只许有一套解码行为
@@ -110,6 +114,8 @@ jobs:
   # Word/WPS 用例仍 SKIP（托管 runner 无 COM），验收仍在本机。
   render-libreoffice:
     runs-on: ubuntu-latest
+    # 同上：这一层真启 soffice 导出，最需要一道硬超时上限
+    timeout-minutes: 20
     env:
       PYTHONUTF8: "1"
     steps:

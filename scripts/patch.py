@@ -87,7 +87,6 @@ from _shared import __version__, force_utf8_stdio
 from docx import Document
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-force_utf8_stdio()
 
 
 # =============================================================================
@@ -202,6 +201,9 @@ def generate_patch_evidence(
 
 
 def main():
+    # 副作用只在入口执行：被 import（工具复用/测试）时不碰宿主 stdio
+    force_utf8_stdio()
+
     ap = argparse.ArgumentParser(description="texere patch — Agent-friendly document editing API")
     ap.add_argument("docx", help="Document to patch")
     ap.add_argument("patch_file", help="Patch JSON file")

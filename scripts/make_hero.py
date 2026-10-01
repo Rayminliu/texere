@@ -36,18 +36,32 @@ CODE = (0.80, 0.84, 0.90)  # 等宽代码前景
 SANS = "helv"  # Helvetica（latin-1 足够）
 MONO = "cour"  # Courier 等宽，凭据像 CI 日志
 
-# 与 validate.py report.json 逐字同名的 9 项检查（不摆拍，字段即真）
+# 与 validate.py report.json 逐字同名的 9 项检查。**状态也是真值**，逐项照抄两份
+# README 里的 report 摘录：source_content 只有带 --source-md 才查得到，visual_drift
+# 只有录基那台机器的 Word + 字体才可比 —— 缺前置条件是 SKIP，不是 PASS（项目铁律：
+# SKIP 永不冒充实测通过）。守卫见 test_docs_sync.py::test_check_names_have_single_source，
+# 它现在同时比对名字与状态。
 CHECKS = [
-    "package_integrity",
-    "source_content",
-    "image_embedding",
-    "section_count",
-    "toc_field",
-    "page_numbering",
-    "blank_pages",
-    "renderer_acceptance",
-    "visual_drift",
+    ("package_integrity", "PASS"),
+    ("source_content", "SKIP"),
+    ("image_embedding", "PASS"),
+    ("section_count", "PASS"),
+    ("toc_field", "PASS"),
+    ("page_numbering", "PASS"),
+    ("blank_pages", "PASS"),
+    ("renderer_acceptance", "PASS"),
+    ("visual_drift", "SKIP"),
 ]
+
+
+def summary():
+    """汇总数字从 CHECKS 自己算：图上「9 checks / 0 failed / 2 skipped」与逐项标记
+    必须同源。此前九行一律画 PASS、汇总行却写 2 skipped，是同一张图自相矛盾。
+    """
+    total = len(CHECKS)
+    passed = sum(1 for _n, st in CHECKS if st == "PASS")
+    skipped = sum(1 for _n, st in CHECKS if st == "SKIP")
+    return total, passed, total - passed - skipped, skipped
 
 
 def pt(x, y):
@@ -140,18 +154,32 @@ def main():
     text(page, 76, 616, "PROOF", size=15, color=SUB, bold=True)
     text(page, 176, 616, "report.json", size=14, font=MONO, color=DIM)
     ly = 650
-    for name in CHECKS:
-        check(page, 96, ly, width=2)
+    for name, status in CHECKS:
+        # PASS 是绿勾，SKIP 是空心圆 + 灰色标签：状态不同就不许共用同一个记号
+        if status == "PASS":
+            check(page, 96, ly, width=2)
+        else:
+            hollow(page, 102, ly - 3, r=4)
         text(page, 122, ly, name, size=15, font=MONO, color=CODE)
-        text(page, 470, ly, "PASS", size=15, font=MONO, color=GREEN, bold=True)
+        text(
+            page,
+            470,
+            ly,
+            status,
+            size=15,
+            font=MONO,
+            color=GREEN if status == "PASS" else SUB,
+            bold=status == "PASS",
+        )
         ly += 27
-    # 汇总行
+    # 汇总行：四个数字全部由 CHECKS 计数得出（单一来源，杜绝再次自相矛盾）
+    total, passed, failed, skipped = summary()
     sy = ly + 12
-    text(page, 96, sy, "9 checks", size=15, font=MONO, color=CODE)
+    text(page, 96, sy, "%d checks" % total, size=15, font=MONO, color=CODE)
     check(page, 214, sy, width=2)
-    text(page, 236, sy, "0 failed", size=15, font=MONO, color=CODE)
+    text(page, 236, sy, "%d failed" % failed, size=15, font=MONO, color=CODE)
     hollow(page, 356, sy - 5, r=4)
-    text(page, 368, sy, "2 skipped", size=15, font=MONO, color=CODE)
+    text(page, 368, sy, "%d skipped" % skipped, size=15, font=MONO, color=CODE)
     text(page, 500, sy, "drift 0.00%", size=15, font=MONO, color=GREEN, bold=True)
 
     # 中：箭头（连接 INPUT 与 OUTPUT）
@@ -174,7 +202,7 @@ def main():
         page,
         stamp.x0 + 22,
         stamp.y0 + 60,
-        "9 checks  /  0.00% drift",
+        "%d checks  /  0.00%% drift" % total,
         size=13,
         font=MONO,
         color=(0.72, 0.86, 0.78),

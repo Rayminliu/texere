@@ -736,6 +736,20 @@ def _module_literal_list(py_path, var):
     raise AssertionError("%s 里找不到模块级 %s" % (py_path, var))
 
 
+def _module_literal_pairs(py_path, var):
+    """取回模块级 `VAR = [(name, status), ...]` 的二元组清单（同样走 ast）。
+
+    make_hero 的 CHECKS 带状态后必须是这个形状：不能只比名字不比状态，
+    否则「九行全画 PASS、汇总写 2 skipped」这类错按名字比对是抓不到的。
+    """
+    items = _module_literal_list(py_path, var)
+    for it in items:
+        assert isinstance(it, (list, tuple)) and len(it) == 2, (
+            "%s 的 %s 每项必须是 (name, status) 二元组，实际: %r" % (py_path, var, it)
+        )
+    return [(n, s) for n, s in items]
+
+
 def _validate_registry_names():
     """validate.py 里 checks 注册表的检查名，按运行时顺序。"""
     src = open(os.path.join(SCRIPTS_DIR, "validate.py"), encoding="utf-8").read()
@@ -789,7 +803,8 @@ def test_check_names_have_single_source():
     assert _validate_registry_names() == declared, (
         "validate.py 的 checks 注册表与 _verify.CHECK_NAMES 漂移"
     )
-    assert _module_literal_list(os.path.join(SCRIPTS_DIR, "make_hero.py"), "CHECKS") == declared, (
+    hero = _module_literal_pairs(os.path.join(SCRIPTS_DIR, "make_hero.py"), "CHECKS")
+    assert [n for n, _s in hero] == declared, (
         "scripts/make_hero.py 的 CHECKS 与 _verify.CHECK_NAMES 漂移：Hero 图会谎报"
     )
 
@@ -808,6 +823,81 @@ def test_check_names_have_single_source():
     assert excerpt == [n for n in declared if n in set(excerpt)], (
         "showcase 的 report 摘录检查名顺序与声明顺序不一致: %s" % excerpt
     )
+
+
+REPORT_STATUS = re.compile(r'"([a-z_]+)"\s*:\s*\{\s*"status":\s*"([A-Z]+)"')
+SUMMARY_LINE = re.compile(
+    r'"summary":\s*\{\s*"total":\s*(\d+),\s*"passed":\s*(\d+),'
+    r'\s*"failed":\s*(\d+),\s*"skipped":\s*(\d+)'
+)
+RECEIPT_DOCS = ["README.md", "README.zh-CN.md", "docs/showcase.md"]
+
+
+def _hero_checks():
+    """Hero 图的 (检查名, 状态)——ast 读，不 import（make_hero 要 pymupdf）。"""
+    return _module_literal_pairs(os.path.join(SCRIPTS_DIR, "make_hero.py"), "CHECKS")
+
+
+def _hero_counts():
+    """Hero 汇总行的四个数字，从逐项状态当场算出（与图内 summary() 同一口径）。"""
+    hero = _hero_checks()
+    total = len(hero)
+    passed = sum(1 for _n, s in hero if s == "PASS")
+    skipped = sum(1 for _n, s in hero if s == "SKIP")
+    return total, passed, total - passed - skipped, skipped
+
+
+@pytest.mark.parametrize("doc", RECEIPT_DOCS)
+def test_hero_check_statuses_match_the_published_receipt(doc):
+    """Hero 图上每项的 PASS/SKIP，必须与文档 report 摘录里同一项的状态逐字相等。
+
+    名字对拍抓不到这一类谎报：曾经九行一律画绿勾写 PASS，而汇总行印「2 skipped」，
+    同时 README 写的是 source_content / visual_drift = SKIP。首屏那张图就是「凭据」
+    本身，它摆拍 = 项目立身之本被自己违反，所以状态也得进契约。
+    """
+    text = open(os.path.join(KIT, doc), encoding="utf-8").read()
+    published = dict(REPORT_STATUS.findall(text))
+    assert published, "%s 的 report 摘录没抓到任何 status" % doc
+    hero = dict(_hero_checks())
+    bad = {n: (hero[n], published[n]) for n in hero if n in published and hero[n] != published[n]}
+    assert not bad, "%s 与 Hero 图状态不一致（hero, 文档）: %s" % (doc, bad)
+
+
+def test_hero_summary_matches_extracted_statuses():
+    """Hero 汇总行的四个数字 = 逐项状态计数 = 三份文档摘录的 summary。
+
+    数字同源：图上 passed/skipped 由 CHECKS 算出，再与 README×2 / showcase 的
+    `"summary": {"total": 9, "passed": 7, ...}` 对拍——自相矛盾不可能再静悄悄出现。
+    """
+    counts = _hero_counts()
+    for doc in RECEIPT_DOCS:
+        text = open(os.path.join(KIT, doc), encoding="utf-8").read()
+        m = SUMMARY_LINE.search(text)
+        assert m, "%s 里没抓到 summary 计数" % doc
+        got = tuple(int(g) for g in m.groups())
+        assert got == counts, (
+            "%s 的 summary %s 与 Hero 逐项状态计数 %s 不一致（total/passed/failed/skipped）"
+            % (doc, got, counts)
+        )
+
+
+def test_docs_do_not_pin_a_stale_tool_version():
+    """文档摘录里写死的 tool_version 必须等于当前版本——否则升版本就等于谎报凭据。
+
+    与 test_changelog_top_release_matches_version 同型：把「逐字对齐」从口头承诺
+    变成机器约束。保留具体版本号（它让摘录像真产物）但钉住它不许过期。
+    """
+    ver = re.search(
+        r'__version__\s*=\s*"([^"]+)"',
+        open(os.path.join(SCRIPTS_DIR, "_version.py"), encoding="utf-8").read(),
+    ).group(1)
+    for doc in RECEIPT_DOCS:
+        text = open(os.path.join(KIT, doc), encoding="utf-8").read()
+        for pinned in re.findall(r'"tool_version":\s*"([^"]+)"', text):
+            assert pinned == ver, (
+                "%s 摘录里的 tool_version=%s 已过期（当前 %s）；升版本时这份摘录要一起改"
+                % (doc, pinned, ver)
+            )
 
 
 H1_AS_MDNAME = re.compile(r"^#\s+([A-Za-z0-9_.-]+\.md)\s*$")

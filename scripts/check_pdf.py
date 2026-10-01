@@ -18,8 +18,6 @@ import sys
 import pymupdf
 from _shared import BASELINE_DPI, force_utf8_stdio
 
-force_utf8_stdio()
-
 NEAR_EMPTY_CHARS = 60  # 正文少于这个字符数且无图 → 视为近空白页
 DEFAULT_PAGES = (1, 2, 3)
 # DPI 单一来源：口径同 snapshot.py / validate.py，收敛到 _shared.BASELINE_DPI，
@@ -77,26 +75,33 @@ def render_pages(doc, pdf, wanted):
 
 
 def main(argv=None):
+    # 副作用只在入口执行（且必须在 argparse 之前：--help / 报错文案也要走 UTF-8）
+    force_utf8_stdio()
+
     a = _build_parser().parse_args(argv)
     doc = pymupdf.open(a.pdf)
-    print("pages:", doc.page_count)
+    try:
+        print("pages:", doc.page_count)
 
-    sparse = find_near_empty(doc)
-    print("near-empty pages:", len(sparse), "(max allowed: %d)" % a.max_empty)
-    for s in sparse:
-        print("   p%-3d chars=%-4d %s" % s)
+        sparse = find_near_empty(doc)
+        print("near-empty pages:", len(sparse), "(max allowed: %d)" % a.max_empty)
+        for s in sparse:
+            print("   p%-3d chars=%-4d %s" % s)
 
-    for path in render_pages(doc, a.pdf, a.pages):
-        print("rendered", path)
+        for path in render_pages(doc, a.pdf, a.pages):
+            print("rendered", path)
 
-    if doc.page_count == 0:
-        print("FAIL: PDF 没有页")
-        return 1
-    if len(sparse) > a.max_empty:
-        print("FAIL: 近空白页 %d 页，超过阈值 %d" % (len(sparse), a.max_empty))
-        return 1
-    print("PASS: 空白页检查通过")
-    return 0
+        if doc.page_count == 0:
+            print("FAIL: PDF 没有页")
+            return 1
+        if len(sparse) > a.max_empty:
+            print("FAIL: 近空白页 %d 页，超过阈值 %d" % (len(sparse), a.max_empty))
+            return 1
+        print("PASS: 空白页检查通过")
+        return 0
+    finally:
+        # 不关句柄就一直占着这份 PDF，Windows 上后续删除 / 重导会 PermissionError
+        doc.close()
 
 
 if __name__ == "__main__":

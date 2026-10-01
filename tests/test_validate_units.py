@@ -11,6 +11,8 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
+import types
 
 import pytest
 from docx import Document
@@ -919,3 +921,123 @@ class TestEvidenceInProcess:
 
         # provenance 记录的是注入的 noop 渲染器身份，而不是假的 Word
         assert report["metadata"]["renderer"]["name"] == "_NoopRenderer"
+
+    def test_screenshot_failure_keeps_the_evidence_package(
+        self, tmp_path, make_docx, noop_renderer, monkeypatch
+    ):
+        """截图环节抛异常不许带走整份证据包（B-4）。
+
+        真实触发路径：page-001.png 是入库资产，被图片查看器占用时 pix.save 抛
+        PermissionError，异常穿出 try 会让 report.json / signature 都写不出来——
+        验证跑完了却交不出凭据，而且恰好在用户最需要看凭据的失败时刻。
+        """
+        docx = make_docx("shotfail.docx", ["正文一段"])
+        out = str(tmp_path / "ev")
+
+        def boom(pdf, dst):
+            raise PermissionError("page-001.png 正被其他程序占用")
+
+        monkeypatch.setattr(v, "_write_screenshots", boom)
+        report = v.generate_evidence_package(docx, out, renderer=noop_renderer)
+
+        assert os.path.exists(os.path.join(out, "report.json"))
+        assert os.path.exists(os.path.join(out, "signature"))
+        # 失败要留痕（不静默吞），但只进 metadata：九项名单有四方对拍，
+        # 不能为记一笔截图失败而添第十个名字
+        assert "PermissionError" in report["metadata"]["screenshot_error"]
+        assert len(report["checks"]) == 9 and report["summary"]["total"] == 9
+
+    def test_evidence_lands_even_when_an_earlier_stage_raises(
+        self, tmp_path, make_docx, noop_renderer, monkeypatch
+    ):
+        """落盘搬进 finally 的兜底：截图之外的异常同样不许吃掉证据。
+
+        同时验证原始异常不被顶掉——finally 里再抛新异常会把真正的原因掩盖，
+        所以落盘失败只能告警。
+        """
+        docx = make_docx("crash.docx", ["正文一段"])
+        out = str(tmp_path / "ev")
+
+        def boom(*a, **kw):
+            raise RuntimeError("导出阶段炸了")
+
+        monkeypatch.setattr(v, "export_pdf_once", boom)
+        with pytest.raises(RuntimeError, match="导出阶段"):
+            v.generate_evidence_package(docx, out, renderer=noop_renderer)
+        assert os.path.exists(os.path.join(out, "report.json"))
+        assert os.path.exists(os.path.join(out, "signature"))
+
+    def test_one_locked_page_does_not_take_down_the_others(self, tmp_path, monkeypatch):
+        """单页写盘失败只丢那一页：其余截图照写，失败页码回报上层留痕，句柄仍要关。"""
+        saved, closed = [], []
+
+        class FakePix:
+            def __init__(self, idx):
+                self.idx = idx
+
+            def save(self, path):
+                if self.idx == 0:
+                    raise PermissionError("首页被图片查看器占用")
+                saved.append(os.path.basename(path))
+
+        class FakePage:
+            def __init__(self, idx):
+                self.idx = idx
+
+            def get_pixmap(self, matrix=None):
+                return FakePix(self.idx)
+
+        class FakePdf:
+            def __init__(self, n):
+                self.n = n
+
+            def __len__(self):
+                return self.n
+
+            def __getitem__(self, i):
+                return FakePage(i)
+
+            def close(self):
+                closed.append(True)
+
+        fake = types.SimpleNamespace(open=lambda p: FakePdf(12), Matrix=lambda *a: None)
+        monkeypatch.setattr(v, "pymupdf", fake)
+
+        failed = v._write_screenshots("fake.pdf", str(tmp_path))
+        # 12 页 → 首页 + 中间页(6) + 尾页(11)；首页被占，另两页必须仍然落盘
+        assert failed == [1]
+        assert saved == ["page-007.png", "page-012.png"]
+        assert closed == [True]
+
+    def test_cli_line_does_not_leak_machine_paths(
+        self, tmp_path, make_docx, noop_renderer, monkeypatch
+    ):
+        """证据里的 cli 只留文件名：report.json 是对外交付物，不该带用户名与临时目录。
+
+        以前直接 `" ".join(sys.argv)`，真跑一次就把
+        `C:\\Users\\<user>\\AppData\\Local\\Temp\\pytest-of-<user>\\...` 写进交付证据。
+        """
+        docx = make_docx("leak.docx", ["正文一段"])
+        out = str(tmp_path / "ev")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                os.path.join(SCRIPTS, "validate.py"),
+                docx,
+                "--out",
+                out,
+                "--config",
+                os.path.join(tempfile.gettempdir(), "cfg.json"),
+                "--enforce-profile=on",
+            ],
+        )
+        report = v.generate_evidence_package(docx, out, renderer=noop_renderer)
+
+        cli = report["metadata"]["cli"]
+        assert cli, "cli 不许被剥空"
+        for secret in (tempfile.gettempdir(), os.path.expanduser("~")):
+            assert secret not in cli, "cli 泄露了本机路径：%s" % cli
+        # 选项名与文件名都要保留：它们才回答「用哪些开关跑的哪份文档」
+        assert "validate.py" in cli and "leak.docx" in cli and "cfg.json" in cli
+        assert "--enforce-profile=on" in cli

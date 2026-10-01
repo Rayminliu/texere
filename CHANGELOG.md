@@ -98,6 +98,62 @@
   - **本轮不做的已记录在案**（maintenance-mode：不为顺手而改）：profile 五份近乎重复不引继承机制、`timeout=300`
     不提取为常量、9 个 CLI 壳顶层裸调 `force_utf8_stdio()` 不下沉、多处 `subprocess.run` 不批量加 timeout、
     Word 超时 taskkill 安全网、`_write_screenshots` 落盘保护域。理由见审计计划 Tier 4。
+- **全项目审计第二轮（首屏诚实性 + 证据正确性 + 挂起点；三视角规划 + 逐项读码/实测复核）**：
+  原 6 项设计债判定为 2 做 4 不做，复核规划时另挖出 4 个清单外真缺陷一并修。CLI 选项 / stdout 措辞 /
+  exit 语义（SKIP 不计通过）/ report 字段名全程冻结；`render --sample --pdf` + `snapshot.py` 对
+  `baselines/word/` 实测 **0.00%**。
+  - **Tier 1 首屏不再说谎**：`make_hero.py` 的 `CHECKS` 从 `list[str]` 改为 `(name, status)`，逐项照抄两份
+    README 的真实摘录（`source_content` / `visual_drift` = SKIP），渲染按状态分流（PASS 绿勾 / SKIP 空心圆灰字），
+    汇总行三个数字改由同一数据结构计数得出——此前同一张图九行一律画 PASS、却又印「2 skipped」，与 README 的
+    `7 passed / 2 skipped` 直接矛盾，而脚本注释自称「不摆拍，字段即真」；重生成 `assets/hero-verified.png`。
+    守卫从「只比名单」升级为「名单 + 逐项状态 + 汇总数字 + `tool_version` 未过期」四层对拍
+    （`test_hero_check_statuses_match_the_published_receipt` / `test_hero_summary_matches_extracted_statuses` /
+    `test_docs_do_not_pin_a_stale_tool_version`，全走 ast/正则零 import，Hero 图不需 pymupdf 也能对拍），
+    每条新守卫都做过「改回摆拍形态必红」的否定测试实证。
+  - **Tier 2 证据与资源正确性（B-4 三层修法，不是单一吞异常）**：`_write_screenshots` 的 `pymupdf.open` 移进
+    try、逐页 `pix.save` 单独容错并返回失败页码；调用点把截图异常记进 `metadata.screenshot_error`（九项名单有
+    四方对拍且硬断言 `len == 9`，不为记一笔失败而添第十个名字）；`_write_report` / `_write_signature` 从 finally
+    之后搬进 finally，且自身失败只告警——不再出现「验证跑完却交不出凭据」，也不让 finally 里的新异常顶掉在飞
+    的原始异常。`metadata.cli` 由 `" ".join(sys.argv)` 改为逐参数剥目录（真跑一次实测旧值含
+    `C:\Users\<user>\AppData\Local\Temp\...`，而证据是对外交付物）；`snapshot.py` / `check_pdf.py` 的 pymupdf 句柄
+    改为 `try/finally: doc.close()`（七条 return 全路径共用一个出口；Windows 上句柄不关会一直占住那份 PDF，
+    后续删除 / 重导会 PermissionError）。回归用例 4 项进零 Word 的 `test_validate_units.py`（单页被占用不带走
+    其余页 / 截图失败仍交出证据 / 更早阶段异常仍交出证据且不掩盖原异常 / cli 不泄本机路径）。
+  - **Tier 3 挂起点与超时层级**：`edit.py --verify` 的 subprocess 补 `timeout=300`——下游 `finalize.py` 直连
+    `WordRenderer().render` 而 COM 渲染接口无任何超时形参，Word 冻结时终端会永久卡死；已知局限（`run(timeout)`
+    只杀直接子进程，Word COM 可能成孤儿）写在原地注释里。`_evidence._pandoc_version` 与 `render._pandoc` 补
+    `timeout=30`（前者在 report.json 写入关键路径上，两者走既有 `except` 回落 `"unknown"` / `"?"`，措辞不变）；
+    修 `validate.export_pdf_once` 超时层级倒挂：外层写死 300 < LO 内层 600 且从不向下传参，外层先弃等并报
+    「300s」而 soffice 实跑到 600s 才被强杀、强杀逻辑形同虚设，改为「读得到内层就取内层 + `_OUTER_MARGIN`，
+    读不到（Word / WPS 走 COM）才用 `_OUTER_FALLBACK`」；守卫
+    `test_outer_watchdog_exceeds_inner_engine_timeout`（ast 对拍两侧默认值，并钉住 LO 的 600 不得被缩小），
+    同样做过否定测试。`ci.yml` 两个 job 补 `timeout-minutes: 20`（此前挂起只能等 runner 默认 6 小时）。
+  - **Tier 4 契约与约定卫生**：`tests/conftest.py` 的 `_NoopRenderer.render` 删掉死形参 `timeout=300`，docstring
+    不再描述一个不存在的契约（真实契约是 `render(docx, pdf, *, save_updated_fields=False)`，`validate.py` 从不传
+    timeout）；profiles 不加继承而是加等值守卫（`tender-v1` 与 `formal-cn-v1` 的 7 个共享段、`application-v1` 的
+    4 个逐字等值，实测今日成立、历史真出过 `toc.title` 半角/全角三份互不一致的漂移）+ 在
+    `docs/VALIDATION.md` / `.zh-CN.md` 的「Profile 契约边界」节把「刻意自包含、不做继承」声明为设计决策（计划原写
+    `docs/CONFIG.md`，但 CONFIG 只讲 config.json、无 profile 章节，写进去就是第二份复述）；`force_utf8_stdio()`
+    从 8 个 CLI 壳顶层下沉进各自 `main()` 首行（向 `render.py` 的既定约定对齐；`errors="replace"` 单向有损，
+    宿主 stdio 被改掉会把潜伏编码问题静默吞掉），`tests/test_render_import.py` 由单文件守卫参数化为
+    9 壳 × 3 项（顶层无副作用 / main() 内必调 / import 零输出）并做过否定测试。
+  - **被实测否决的方案**：给 `render.py` 的 `wait_timeout` 套 `ThreadPoolExecutor` 看门狗是**假修复**——实测
+    `shutdown(wait=False, cancel_futures=True)` 后主流程 0.04s 返回、进程 wall clock 6.107s（解释器退出仍会 join
+    非守护 worker），COM 真挂住时终端照样收不到退出码。该不对称及其后果已精确写进
+    `docs/SCRIPT_HELP.md` §Renderer 已知边界，让「不做」成为有据决策而非悬案。
+  - **本轮仍然不做（含理由）**：Word `taskkill` 安全网——`SCRIPT_HELP.md` 已明文「只记录不实现」，COM 在本进程内
+    无自有 PID，按镜像名杀会吞掉用户自己打开的 Word / 未保存文档，按 PID 精确回收需新增 COM→PID 归属判定
+    = 新机制；profile `base/extends`——仓库零继承机制且证据里嵌入整个 profile，合并语义会改动 `report_hash`，
+    改用等值守卫；timeout 提取统一常量——300（子进程挂钟）/ 300（线程软看门狗，不约束进程）/ 600（LO 强杀）/
+    30（版本探测）语义实测互异，统一会制造虚假单一事实并掩盖刚被暴露的层级倒挂；Commit B 字面版真凭据入库——
+    `cli` / timestamp / hash 机器相关且泄本机路径，入库即成为「永不更新的历史化石」，改用状态对拍 + `cli` 脱敏 +
+    指向 CI `upload-artifact` 的完整证据包；LO `-env:UserInstallation`——缺本机症状实证且改变 LO 首次初始化行为；
+    `make_ref.py` 的顶层 `force_utf8_stdio()`——它没有 `main()`，整个模块体就是脚本本体（顶层 parse_args → 末尾
+    doc.save）且从不被 import，收敛需把脚本重构成 `main()`，属结构重构；已在 `test_render_import.py` 模块
+    docstring 与本条双处存档。
+
+新增 35 项用例（Tier 1 首屏对拍 5 + Tier 2 证据回归 4 + Tier 3 超时层级 1 + Tier 4 profile 等值 1 +
+stdio 守卫参数化 24），收集数 371 → **406**；文档不写死该计数。
 
 新增 25 项用例（Tier 1 回归 7 + Tier 2 守卫 18），收集数 346 → **371**；文档不写死该计数。
 

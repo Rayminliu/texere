@@ -15,8 +15,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _shared import force_utf8_stdio
 from renderers import WordRenderer
 
-force_utf8_stdio()
-
 
 def _build_parser():
     p = argparse.ArgumentParser(
@@ -48,6 +46,9 @@ def report(res, pdf):
 
 
 def main(argv=None):
+    # 副作用只在入口执行（且必须在 argparse 之前：--help / 报错文案也要走 UTF-8）
+    force_utf8_stdio()
+
     a = _build_parser().parse_args(argv)
     pdf = a.pdf or os.path.splitext(a.src)[0] + ".pdf"
 

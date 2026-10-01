@@ -99,6 +99,14 @@ profile 与渲染 config 是**两个不同的对象**，刻意不打通：
 视觉漂移检查回退读它）与 `acceptance.renderers`（多渲染器验收矩阵，如 `["word", "wps"]`；
 由 `policy.py` 消费，未接入 validate 退出码）。
 
+**profile 刻意保持自包含、不做继承**（这是设计决策，不是没注意到重复）：5 个内置 profile 各自
+写完整契约，没有 `base` / `extends`。理由：一份 profile 就是要独立审计的验收契约，「本次签的
+是哪份契约」必须一眼可读；继承会把它变成「合并之后的结果」，并改动证据里嵌入的 profile
+与 `report_hash`。代价是同一份版式事实在多个 profile 里各写一遍，因此不靠人眼防漂移：
+`tests/test_profiles.py::test_duplicated_segments_match_formal_cn_byte_for_byte` 要求与
+`formal-cn-v1` 共享的段逐字等值（段名单见守卫里的 `SHARED_SEGMENTS_WITH_FORMAL`）。
+有意分叉请写进本节并从守卫名单移出，不要悄悄改。
+
 ### 人工门槛
 
 9 项检查管的是结构，头一遍过某份新文档时，这四件事仍然得靠人：

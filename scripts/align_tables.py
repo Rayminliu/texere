@@ -27,9 +27,6 @@ import sys
 from _shared import display_width as dw
 from _shared import force_utf8_stdio
 
-# Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
-force_utf8_stdio()
-
 GRID_SEP_RE = re.compile(r"^\++[-=+]+\+$")
 BLOCK_LINE_RE = re.compile(r"^\s*[+|]")
 
@@ -157,6 +154,10 @@ def process_text(text):
 
 
 def main(argv=None):
+    # Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）。
+    # 副作用只在入口执行（且在 argparse 之前：--help / 报错文案也要走 UTF-8）
+    force_utf8_stdio()
+
     ap = argparse.ArgumentParser(
         description="grid table 显示宽度对齐器（单元格内容字节不变，仅重排竖线与填充）"
     )

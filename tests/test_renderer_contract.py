@@ -15,6 +15,7 @@
 另含集成层测试：超时结构化、并发无相互污染、Word 并发隔离（真机）。
 """
 
+import ast
 import hashlib
 import importlib.util
 import os
@@ -149,6 +150,72 @@ def test_export_pdf_once_timeout_is_structured(tmp_path):
     assert ok is False
     assert "超时" in err
     assert not (os.path.exists(pdf) and os.path.getsize(pdf) == 0)
+
+
+def _ast_param_default(rel_path, class_name, func_name, param):
+    """ast 读某个函数参数的默认值字面量；参数不存在或默认值非字面量时返回 None。
+
+    位置参数与关键字-only 参数都要看：LibreOfficeRenderer.render 的 timeout 就在
+    `*` 之后（契约里的 save_updated_fields 同样是 kw-only）。
+    不 import：这类守卫要在没装齐依赖（docx / pymupdf / soffice）的 CI 上也能跑。
+    """
+    with open(os.path.join(KIT, rel_path), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    body = tree.body
+    if class_name:
+        matched = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name]
+        assert matched, "找不到类 %s" % class_name
+        body = matched[0].body
+    fn = [n for n in body if isinstance(n, ast.FunctionDef) and n.name == func_name]
+    assert fn, "找不到函数 %s" % func_name
+    a = fn[0].args
+    pairs = list(zip(a.args[len(a.args) - len(a.defaults) :], a.defaults))
+    pairs += [(arg, d) for arg, d in zip(a.kwonlyargs, a.kw_defaults) if d is not None]
+    found = [d for arg, d in pairs if arg.arg == param]
+    if not found:
+        return None
+    value = ast.literal_eval(found[0])
+    return value if isinstance(value, int) else None
+
+
+def _ast_module_literal(rel_path, var):
+    """ast 读模块级字面量常量。"""
+    with open(os.path.join(KIT, rel_path), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == var for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError("找不到模块级常量 %s" % var)
+
+
+def test_outer_watchdog_exceeds_inner_engine_timeout():
+    """超时层级不许倒挂：validate 的外层预算必须大于渲染器内层 watchdog。
+
+    倒挂时的真实形态：外层写死 300 < LibreOffice 内层 600，外层先弃等并报
+    「PDF 导出超时 (300s)」，soffice 却接着跑到 600s 才被强杀 —— 报的时限是假的，
+    内层强杀逻辑形同虚设。这里同时守住：内层放大值不许被缩小、外层不许
+    再钉死一个具体秒数、COM 路径（无内层超时）必须有兜底预算而不是无限等。
+    """
+    inner = _ast_param_default("scripts/renderers.py", "LibreOfficeRenderer", "render", "timeout")
+    assert isinstance(inner, int) and inner > 0, "LibreOfficeRenderer.render 必须保留内层强杀超时"
+    # 600 不是随手写的：它是当前唯一有实证必要的放大值（272 页 / 252 表 / 112 图
+    # 端到端 66.9–69.7s，300s 已有 4.3× 余量），把它改小会误杀大文档的合法导出
+    assert inner >= 600, "LO 内层强杀超时不得被缩小（当前口径 600s）"
+
+    outer_default = _ast_param_default("scripts/validate.py", None, "export_pdf_once", "timeout")
+    assert outer_default is None, "外层预算必须按渲染器算（timeout=None），不许再写死秒数"
+
+    margin = _ast_module_literal("scripts/validate.py", "_OUTER_MARGIN")
+    fallback = _ast_module_literal("scripts/validate.py", "_OUTER_FALLBACK")
+    assert margin > 0
+    assert v._outer_budget(r.LibreOfficeRenderer()) == inner + margin > inner
+
+    # Word / WPS 的 render 没有超时形参（COM 阻塞不可控），只能靠外层兜底
+    assert _ast_param_default("scripts/renderers.py", "_ComRenderer", "render", "timeout") is None
+    assert v._outer_budget(r.WordRenderer()) == fallback
+    assert v._outer_budget(r.WPSRenderer()) == fallback
 
 
 def test_export_pdf_once_concurrent_no_pollution(tmp_path):

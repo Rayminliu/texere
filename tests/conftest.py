@@ -27,8 +27,10 @@ from renderers import RenderResult  # noqa: E402  复用真实渲染器的结果
 class _NoopRenderer:
     """测试注入渲染器：不调用任何 Office，永远导出失败。
 
-    契约与 `renderers.Renderer` 对齐（`render(docx, pdf, timeout)` + 类方法
-    `available()`），但 `render()` 直接返回 `ok=False` 的结构化结果。validate 用
+    契约与 `renderers.RendererAdapter` 对齐（`render(docx, pdf, *,
+    save_updated_fields=False)` + 类方法 `available()`）：注意 render 没有 timeout
+    形参——超时是 `validate.export_pdf_once` 在外层给的预算，不是渲染器接口的一部分。
+    这里 `render()` 直接返回 `ok=False` 的结构化结果。validate 用
     `available()` 判渲染器在不在——不在则 `renderer_acceptance` 只能 SKIP（不许冒充
     验收失败），且 `shared_pdf` 为 None，页码 / 空白页 / 视觉漂移一并 SKIP。
     """
@@ -37,7 +39,7 @@ class _NoopRenderer:
     def available(cls):
         return (False, "noop 渲染器：不启动 Office，PDF 派生检查据此 SKIP")
 
-    def render(self, docx_path, pdf_path, timeout=300):
+    def render(self, docx_path, pdf_path, *, save_updated_fields=False):
         return RenderResult(
             ok=False,
             pdf=None,

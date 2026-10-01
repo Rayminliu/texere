@@ -31,6 +31,7 @@
 import argparse
 import concurrent.futures
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -80,7 +81,6 @@ from docx import Document
 from renderers import SUPPORTED_RENDERERS, RenderResult, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-force_utf8_stdio()
 
 
 # =============================================================================
@@ -367,18 +367,43 @@ def check_toc_field(docx_path: str, doc=None) -> CheckResult:
         return CheckResult("toc_field", ERROR, f"目录域检查异常：{type(e).__name__} - {e}")
 
 
+# 超时层级规则：外层预算必须大于内层引擎自己的 watchdog。
+# LibreOfficeRenderer.render 的 timeout=600 是真强杀（杀 soffice 进程树），而这里的
+# 外层只是「放弃等这个线程」。以前外层写死 300 < 内层 600：外层先弃等并报错称
+# 「PDF 导出超时 (300s)」，soffice 却接着跑到 600s 才被强杀 —— 报的时限是假的，
+# 内层强杀形同虚设。规则：读得到渲染器的内层 timeout 就取「内层 + 余量」；
+# 读不到（Word / WPS 走 COM，render 没有超时形参）才用 300 的兜底预算。
+# 守卫：tests/test_renderer_contract.py::test_outer_watchdog_exceeds_inner_engine_timeout
+_OUTER_MARGIN = 30
+_OUTER_FALLBACK = 300
+
+
+def _outer_budget(rndr) -> int:
+    """本渲染器的外层预算：内层引擎超时 + 余量；无内层超时时用兜底值。"""
+    try:
+        param = inspect.signature(rndr.render).parameters.get("timeout")
+    except (TypeError, ValueError):  # 自定义可调用对象可能没有可读签名
+        return _OUTER_FALLBACK
+    if param is not None and isinstance(param.default, int):
+        return param.default + _OUTER_MARGIN
+    return _OUTER_FALLBACK
+
+
 def export_pdf_once(
-    docx_path: str, pdf_path: str, timeout: int = 300, renderer=None
+    docx_path: str, pdf_path: str, timeout: int = None, renderer=None
 ) -> tuple[bool, str, "RenderResult"]:
     """用渲染器导一次 PDF，供所有基于 PDF 的检查共享。
 
     旧实现里页码/空白页/Word 验收/视觉比对/截图各自启动一次 Word（一次 validate
     要起 4-5 次 Word COM，慢且容易残留孤儿进程）；这里收敛为一次导出，
     且渲染器可插拔（word / libreoffice / wps），见 scripts/renderers.py。
+    timeout=None 表示按渲染器给预算（见 _outer_budget 的层级规则），不是一律 300。
     返回三元组 (ok, err, result)：result 是渲染器产出的 RenderResult——即使导出
     失败也带 renderer_name / engine_path，供 evidence 记录 provenance。
     """
     rndr = renderer or get_renderer("word")
+    if timeout is None:
+        timeout = _outer_budget(rndr)
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
         res = ex.submit(rndr.render, docx_path, pdf_path).result(timeout=timeout)
@@ -578,23 +603,36 @@ def _run_profile_asserts(report: dict, profile: dict, docx_path: str, doc):
         _tally(report, CheckResult("profile_assert", ERROR, f"profile 断言执行失败：{e}"))
 
 
-def _write_screenshots(shared_pdf: str, out_dir: str):
-    """生成 PDF 截图证据（复用同一份导出 PDF）：首页 / 中间页 / 尾页。"""
+def _write_screenshots(shared_pdf: str, out_dir: str) -> list:
+    """生成 PDF 截图证据（复用同一份导出 PDF）：首页 / 中间页 / 尾页。
+
+    返回写盘失败的页码（1-based）列表，正常时为空。单页失败不许带走其余页：
+    Windows 下 page-001.png 是入库资产，被图片查看器 / 资源管理器预览占用时
+    pix.save 会抛 PermissionError，以前这会让整批截图连同 report.json 一起消失。
+    """
     if shared_pdf is None or pymupdf is None:
-        return
-    pdf_doc = pymupdf.open(shared_pdf)
+        return []
+    failed_pages = []
+    pdf_doc = None
     try:
+        # open 也在 try 内：拿不到句柄同样只是「没截图」，而不是证据包消失
+        pdf_doc = pymupdf.open(shared_pdf)
         sample_pages = [0]
         if len(pdf_doc) > 10:
             sample_pages.append(len(pdf_doc) // 2)
         sample_pages.append(len(pdf_doc) - 1)
         for page_idx in sample_pages:
-            page = pdf_doc[page_idx]
-            zoom = pymupdf.Matrix(2, 2)  # 2x 缩放（证据图只给人看，不受基线口径约束）
-            pix = page.get_pixmap(matrix=zoom)
-            pix.save(os.path.join(out_dir, f"page-{page_idx + 1:03d}.png"))
+            try:
+                page = pdf_doc[page_idx]
+                zoom = pymupdf.Matrix(2, 2)  # 2x 缩放（证据图只给人看，不受基线口径约束）
+                pix = page.get_pixmap(matrix=zoom)
+                pix.save(os.path.join(out_dir, f"page-{page_idx + 1:03d}.png"))
+            except Exception:
+                failed_pages.append(page_idx + 1)
     finally:
-        pdf_doc.close()
+        if pdf_doc is not None:
+            pdf_doc.close()
+    return failed_pages
 
 
 def generate_evidence_package(
@@ -702,14 +740,27 @@ def generate_evidence_package(
             _run_profile_asserts(report, profile, docx_path, doc)
 
         # 4. 生成 PDF 截图证据（复用同一份导出 PDF）
-        _write_screenshots(shared_pdf, out_dir)
+        # 截图是证据的辅助件，不许反噬主件：异常穿出会让 report.json / signature
+        # 都写不出来（与 _run_profile_asserts 同型的坑）。失败只记进 metadata——
+        # 九项检查名单有四方对拍，不能为了记一笔截图失败而添第十个名字。
+        try:
+            shot_failed = _write_screenshots(shared_pdf, out_dir)
+        except Exception as e:
+            report["metadata"]["screenshot_error"] = f"{type(e).__name__}: {e}"
+        else:
+            if shot_failed:
+                report["metadata"]["screenshot_pages_failed"] = shot_failed
     finally:
+        # 5-6. 先落盘 report.json，再以它为输入写证据清单（顺序不能反：清单要盖
+        # report 的 hash）。两者必须在 finally：验证跑完却交不出凭据，恰恰发生在
+        # 用户最需要知道「哪里错了」的时刻。落盘自身失败时只告警，不在 finally 里
+        # 抛新异常——那会把在飞的原始异常顶掉，真正的原因就查不出来了。
+        try:
+            report_path = _write_report(report, out_dir)
+            _write_signature(report, out_dir, docx_path, report_path)
+        except Exception as e:
+            print(f"[warn] 证据落盘失败：{type(e).__name__}: {e}", file=sys.stderr)
         shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    # 5-6. 先落盘 report.json，再以它为输入写证据清单
-    # （顺序不能反：清单要盖 report 的 hash）
-    report_path = _write_report(report, out_dir)
-    _write_signature(report, out_dir, docx_path, report_path)
 
     return report
 
@@ -759,6 +810,9 @@ def print_report(report: dict, quiet: bool = False):
 
 
 def main():
+    # 副作用只在入口执行：被 import（工具复用/测试）时不碰宿主 stdio
+    force_utf8_stdio()
+
     ap = argparse.ArgumentParser(
         description="texere document validator — Compiler + Contract + Evidence"
     )

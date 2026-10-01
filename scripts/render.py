@@ -218,8 +218,11 @@ def _pandoc():
             text=True,
             encoding="utf-8",
             errors="replace",
+            # 版本探测必须有时限：pandoc 挂起时这里会卡住整条渲染链路（包括 --doctor）。
+            # 超时与「拿不到版本」同口径回落 "?"，措辞不变（与 _evidence._pandoc_version 同档）。
+            timeout=30,
         ).stdout
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return exe, "?"
     m = re.search(r"(\d+\.\d+(?:\.\d+)?)", out.splitlines()[0] if out else "")
     return exe, m.group(1) if m else "?"

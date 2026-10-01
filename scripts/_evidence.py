@@ -40,11 +40,42 @@ def _pandoc_version() -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
+            # 探测必须有时限：这条在 report.json 的写入关键路径上（metadata.pandoc_version），
+            # pandoc 挂起会让整个证据包永不产出。超时走下面的 except → "unknown"，
+            # 不改变任何检查结论，只是不再永挂（与 renderers._soffice_version 同档）。
+            timeout=30,
         ).stdout
         _PANDOC_VERSION_CACHE = (out.splitlines() or ["unknown"])[0].strip()
     except Exception:
         _PANDOC_VERSION_CACHE = "unknown"
     return _PANDOC_VERSION_CACHE
+
+
+def _scrub_path(arg: str) -> str:
+    """剥掉路径的目录部分只留文件名；剥空了回落到原值（不许把参数弄丢）。"""
+    return os.path.basename(arg.rstrip("/\\")) or arg
+
+
+def _cli_line() -> str:
+    """命令行进证据，但不带目录：证据是对外交付物。
+
+    以前直接 `" ".join(sys.argv)`，真跑一次的 report.json 里就是
+    `...\\scripts\\validate.py C:\\Users\\<user>\\AppData\\Local\\Temp\\...`——
+    把操作者的用户名、工作目录与临时路径一并交给客户/审计方。选项名与
+    文件名保留（它们才回答「用哪些开关跑的哪份文档」）。
+    """
+    parts = []
+    for i, a in enumerate(sys.argv):
+        if i == 0:
+            parts.append(_scrub_path(a))
+        elif a.startswith("-") and "=" in a:
+            flag, _, val = a.partition("=")
+            parts.append(f"{flag}={_scrub_path(val)}")
+        elif a.startswith("-"):
+            parts.append(a)
+        else:
+            parts.append(_scrub_path(a))
+    return " ".join(parts)
 
 
 def _new_report(docx_path: str, profile: dict, config_path: str, reference_doc: str) -> dict:
@@ -56,7 +87,7 @@ def _new_report(docx_path: str, profile: dict, config_path: str, reference_doc: 
             "tool_version": __version__,
             "profile": profile or {},
             # provenance：证据要能回答「哪个产物 + 哪份契约 + 哪个转换器」（外部审计 R2）
-            "cli": " ".join(sys.argv),
+            "cli": _cli_line(),
             "pandoc_version": _pandoc_version(),
             "config_sha256": _sha256_file(config_path),
             "reference_sha256": _sha256_file(reference_doc),

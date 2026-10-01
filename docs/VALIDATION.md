@@ -102,6 +102,16 @@ Optional keys (valid in any profile; none of the five built-in profiles uses the
 (visual-drift fallback when `--baseline` is not passed) and `acceptance.renderers`
 (multi-renderer acceptance matrix, e.g. `["word", "wps"]`; consumed by `policy.py`, which is not wired into the validate exit code).
 
+**Profiles are deliberately self-contained — no inheritance** (a design decision, not an oversight):
+each of the five built-in profiles states its whole contract, there is no `base` / `extends`. The reason:
+a profile is the acceptance contract that gets audited on its own, so "which contract did this run sign"
+must stay readable at a glance; inheritance turns it into "whatever the merge produced" and would change
+the profile embedded in the evidence and the `report_hash`. The price is that the same layout facts are
+written out in several profiles, so drift is not left to human review:
+`tests/test_profiles.py::test_duplicated_segments_match_formal_cn_byte_for_byte` requires every segment
+shared with `formal-cn-v1` to be byte-identical (the segment list lives in `SHARED_SEGMENTS_WITH_FORMAL`).
+If a fork is intentional, document it in this section and drop the segment from the guard — never change it silently.
+
 ### Manual gate
 
 The 9 checks cover structure; four things stay human, on the first pass over any new document:

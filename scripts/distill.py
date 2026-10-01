@@ -23,8 +23,6 @@ from _ooxml import style_fonts
 from _shared import force_utf8_stdio
 from docx import Document
 
-force_utf8_stdio()
-
 EMU_PER_CM = 360000
 
 
@@ -165,6 +163,9 @@ def distill(path):
 
 
 def main():
+    # 副作用只在入口执行（且必须在 argparse 之前：--help / 报错文案也要走 UTF-8）
+    force_utf8_stdio()
+
     ap = argparse.ArgumentParser()
     ap.add_argument("docx")
     ap.add_argument("--out", help="把建议 config 写成 json")

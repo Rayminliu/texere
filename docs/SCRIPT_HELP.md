@@ -421,6 +421,16 @@ python scripts/finalize.py <doc.docx> <out.pdf> [--save-updated-fields]
   （把渲染放进可被 `terminate` 的子进程）。当前 `validate` 走的是 WordRenderer 默认路径，
   单次 `validate` 通常足够；高并发 / 长文档场景若遇僵尸，优先用 LibreOffice 后端
   （子进程，超时会被强杀，见 `renderers._kill_process_tree`）。
+- **线程超时不等于「这一轮一定能交出退出码」**（实测，故不给 `render.py` 的
+  `wait_timeout` 加线程看门狗）：`ThreadPoolExecutor` 的 worker 是非守护线程，
+  `shutdown(wait=False, cancel_futures=True)` 只是主流程不再等它（实测 0.04s 返回），
+  解释器退出时仍会 join 这个卡死的 worker（实测进程 wall clock 6.107s ≈ worker 剩余
+  睡眠时长）。也就是说：COM 真挂住时，加线程看门狗只会给出「超时了」的错觉，
+  终端照样收不到退出码——这是假修复，不做。真的解只有进程级隔离或按 PID 回收
+  Word，而后者会误杀用户自己打开的 Word / 未保存文档，属于上一条「只记录不实现」。
+  需要硬时限的外部调用（`edit.py --verify` 调 finalize 的子进程、LibreOffice 后端的
+  soffice 调用、`--doctor` 与证据里的 pandoc 版本探测）都走 `subprocess` + `timeout=`，
+  那条路能真杀子进程，代价只是可能留下 Word 孤儿进程。
 - **`LibreOfficeRenderer` 不回写刷新后的域**：`save_updated_fields=True` 仅 Word / WPS
   支持；LO 出 PDF 后会带 warning，交付 docx 请仍走 Word / WPS。
 - **跨渲染器视觉一致性未实测**：同一份 docx 经 Word / LO / WPS 出的 PDF 在字体、分页、

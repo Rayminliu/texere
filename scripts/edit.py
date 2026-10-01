@@ -56,7 +56,6 @@ from _shared import UTF8_ENV, __version__, force_utf8_stdio, sha256_file
 from docx import Document
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-force_utf8_stdio()
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -300,15 +299,26 @@ def cmd_verify(path):
     tmp = tempfile.mkdtemp(prefix="texere_edit_")
     try:
         pdf = os.path.join(tmp, "verify.pdf")
-        r = subprocess.run(
-            [sys.executable, os.path.join(KIT, "scripts", "finalize.py"), path, pdf],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            # 子进程管道统一 UTF-8，避免 GBK→utf-8 解码乱码（同 render.py）
-            env=UTF8_ENV,
-        )
+        try:
+            r = subprocess.run(
+                [sys.executable, os.path.join(KIT, "scripts", "finalize.py"), path, pdf],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                # 子进程管道统一 UTF-8，避免 GBK→utf-8 解码乱码（同 render.py）
+                env=UTF8_ENV,
+                # 时限 300s：finalize 直连 WordRenderer().render，而 COM 渲染没有任何超时形参，
+                # Word 冻结时这条 subprocess 会永不返回，终端跟着永久卡死。与
+                # validate.export_pdf_once 的外层预算同档（见该处的层级说明）。
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            # 只杀直接子进程（finalize.py）；Word COM 实例可能留在原地成为孤儿。
+            # 这一已知边界记在 docs/SCRIPT_HELP.md「Word 安全网：只记录不实现」，
+            # 本步只求终端不再无限挂死，措辞仍走同一条失败出口。
+            print("[warn] 验收超时（300s）：Word 没有响应", file=sys.stderr)
+            sys.exit("验收失败：Word 打不开改后的文档，结构可能已损坏（备份仍在）")
         print(r.stdout.strip())
         if r.returncode != 0:
             print(r.stderr.strip()[:1500])
@@ -322,6 +332,9 @@ def cmd_verify(path):
 
 
 def main():
+    # 副作用只在入口执行：被 import（工具复用/测试）时不碰宿主 stdio
+    force_utf8_stdio()
+
     ap = argparse.ArgumentParser(add_help=True)
     ap.add_argument("docx")
     ap.add_argument("--list", action="store_true", help="只打印结构，不改文件")

@@ -24,8 +24,6 @@ from _shared import BASELINE_DPI as DEFAULT_DPI
 from _shared import DEFAULT_MAX_DIFF, force_utf8_stdio
 from _visual_diff import diff_ratio
 
-force_utf8_stdio()
-
 # 阈值单一事实源在 _shared：0.1%。实测：同一文档重复导出 PDF 的差异为 0.00%，
 # 而改一个页眉文字会产生 0.16%，所以阈值必须压到 0.1% 才能抓住这种"小但真实"的漂移；0.5% 会直接漏报。
 RENDERERS = ("word", "libreoffice", "wps")
@@ -65,6 +63,9 @@ def parse_args(argv):
 
 
 def main(argv):
+    # 副作用只在入口执行（且必须在 argparse 之前：--help / 报错文案也要走 UTF-8）
+    force_utf8_stdio()
+
     pdf, dpi, max_diff, update, renderer = parse_args(argv)
     if not os.path.exists(pdf):
         sys.exit("找不到 PDF: " + pdf)
@@ -73,58 +74,64 @@ def main(argv):
     meta_path = os.path.join(base_dir, "meta.json")
 
     doc = pymupdf.open(pdf)
+    try:
+        if update:
+            os.makedirs(base_dir, exist_ok=True)
+            for i in range(doc.page_count):
+                doc[i].get_pixmap(dpi=dpi).save(os.path.join(base_dir, "p%03d.png" % (i + 1)))
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump({"dpi": dpi, "pages": doc.page_count, "renderer": renderer}, f)
+            print("baseline recorded: %d pages @ %d dpi -> %s" % (doc.page_count, dpi, base_dir))
+            return 0
 
-    if update:
-        os.makedirs(base_dir, exist_ok=True)
-        for i in range(doc.page_count):
-            doc[i].get_pixmap(dpi=dpi).save(os.path.join(base_dir, "p%03d.png" % (i + 1)))
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump({"dpi": dpi, "pages": doc.page_count, "renderer": renderer}, f)
-        print("baseline recorded: %d pages @ %d dpi -> %s" % (doc.page_count, dpi, base_dir))
-        return 0
-
-    if not os.path.exists(meta_path):
-        sys.exit("没有基线，先跑：python scripts/snapshot.py %s --update" % os.path.basename(pdf))
-    with open(meta_path, encoding="utf-8") as f:
-        meta = json.load(f)
-    if meta.get("renderer", "word") != renderer:
-        print(
-            "FAIL: 基线由 %s 录制，本次 --renderer %s——跨渲染器的像素不可比"
-            % (meta.get("renderer", "word"), renderer)
-        )
-        return 1
-    if meta.get("dpi") != dpi:
-        print(
-            "[warn] 基线 dpi=%s，本次 %s，结果不可比；用 --dpi %s 或重录基线"
-            % (meta.get("dpi"), dpi, meta.get("dpi"))
-        )
-        return 1
-    if meta.get("pages") != doc.page_count:
-        print("FAIL: 页数 %d != 基线 %d" % (doc.page_count, meta.get("pages")))
-        return 1
-
-    worst, bad = 0.0, []
-    for i in range(doc.page_count):
-        bp = os.path.join(base_dir, "p%03d.png" % (i + 1))
-        if not os.path.exists(bp):
-            print("FAIL: 缺少基线 %s" % bp)
+        if not os.path.exists(meta_path):
+            sys.exit(
+                "没有基线，先跑：python scripts/snapshot.py %s --update" % os.path.basename(pdf)
+            )
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        if meta.get("renderer", "word") != renderer:
+            print(
+                "FAIL: 基线由 %s 录制，本次 --renderer %s——跨渲染器的像素不可比"
+                % (meta.get("renderer", "word"), renderer)
+            )
             return 1
-        cur = doc[i].get_pixmap(dpi=dpi).samples
-        r = diff_ratio(cur, pymupdf.Pixmap(bp).samples)
-        del cur  # 及时释放内存
-        worst = max(worst, r)
-        if r > max_diff:
-            bad.append((i + 1, r))
-    for pno, r in bad:
-        print("   p%-3d diff=%.2f%%" % (pno, r * 100))
-    if bad:
-        print(
-            "FAIL: %d 页版式漂移，最大 %.2f%%（阈值 %.2f%%）"
-            % (len(bad), worst * 100, max_diff * 100)
-        )
-        return 1
-    print("PASS: %d 页与基线一致（最大差异 %.2f%%）" % (doc.page_count, worst * 100))
-    return 0
+        if meta.get("dpi") != dpi:
+            print(
+                "[warn] 基线 dpi=%s，本次 %s，结果不可比；用 --dpi %s 或重录基线"
+                % (meta.get("dpi"), dpi, meta.get("dpi"))
+            )
+            return 1
+        if meta.get("pages") != doc.page_count:
+            print("FAIL: 页数 %d != 基线 %d" % (doc.page_count, meta.get("pages")))
+            return 1
+
+        worst, bad = 0.0, []
+        for i in range(doc.page_count):
+            bp = os.path.join(base_dir, "p%03d.png" % (i + 1))
+            if not os.path.exists(bp):
+                print("FAIL: 缺少基线 %s" % bp)
+                return 1
+            cur = doc[i].get_pixmap(dpi=dpi).samples
+            r = diff_ratio(cur, pymupdf.Pixmap(bp).samples)
+            del cur  # 及时释放内存
+            worst = max(worst, r)
+            if r > max_diff:
+                bad.append((i + 1, r))
+        for pno, r in bad:
+            print("   p%-3d diff=%.2f%%" % (pno, r * 100))
+        if bad:
+            print(
+                "FAIL: %d 页版式漂移，最大 %.2f%%（阈值 %.2f%%）"
+                % (len(bad), worst * 100, max_diff * 100)
+            )
+            return 1
+        print("PASS: %d 页与基线一致（最大差异 %.2f%%）" % (doc.page_count, worst * 100))
+        return 0
+    finally:
+        # 七条 return 路径共用这个出口：不关句柄就会一直占着那份 PDF，
+        # Windows 上紧接着删除 / 重导同一份文件就撞 PermissionError
+        doc.close()
 
 
 if __name__ == "__main__":
