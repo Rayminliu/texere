@@ -10,7 +10,9 @@ requires-python = ">=3.10"
 dependencies = [
     # post.py 大量使用 python-docx 的 OOXML 底层 API（OxmlElement / qn / schema 顺序），
     # 故锁主版本：升到 2.x 前必须先跑 --sample 回归。
-    "python-docx>=1.1,<2.0",
+    # 下限 1.2 是实测基线（uv.lock 解析 1.2.0）；与 requirements.txt 由
+    # tests/test_deps_sync.py 守住同步，不许双轨漂移。
+    "python-docx>=1.2,<2.0",
     # python-docx 的底层依赖，显式声明防止被其他包降级导致难懂的报错。
     "lxml>=5.2,<7",
 ]
@@ -50,6 +52,12 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    # 必须真 Word/WPS COM 渲染才有意义的 L3/L4 契约用例（页码/空白页/渲染器验收/
+    # 视觉漂移/证据截图/provenance 等）。无 Office 的 CI 全量步可用 -m 'not word'
+    # 单独控制这层，剩下的快子集不启 Word。
+    "word: 需要本机真 Word/WPS COM 渲染的 L3/L4 契约用例",
+]
 
 # 注意：pandoc 与 Microsoft Word 是系统级依赖，pip/uv 都无法安装。
 # 用 `python scripts/render.py --doctor` 检查。

@@ -68,14 +68,23 @@ jobs:
           ruff check .
           ruff format --check .
 
-      # pre-commit 同款快速子集：130 项、约 15 秒
+      # pre-commit 同款快速子集：不启渲染器、秒级。0.7.x 起纳入更多纯逻辑/契约文件
+      # （test_deps_sync 依赖守卫、test_policy / test_profiles 契约、test_postprocess
+      # 仅 pandoc 那部分），统一带 -m "not word" 把任何需真 Office 的用例挡在门外。
       - name: 快速子集（不启渲染器）
-        run: python -m pytest tests/test_version.py tests/test_docs_sync.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q
+        run: python -m pytest tests/test_version.py tests/test_docs_sync.py tests/test_deps_sync.py tests/test_validate_units.py tests/test_edit.py tests/test_patch.py tests/test_snapshot.py tests/test_policy.py tests/test_profiles.py tests/test_postprocess.py -m "not word" -q
 
-      # 全量套件：需要 Word/WPS/LibreOffice 的用例由 available() 守卫自动 SKIP，
-      # 预期结果「全绿 + 若干 skipped」；有硬 FAIL 说明守卫漏了，那是真缺陷
-      - name: 全量 pytest
-        run: python -m pytest -q
+      # 全量套件按 word marker 分两层，Word 边界显式可控（测试金字塔兑现）：
+      #   - not word：逻辑 + 不启 Word 的 CLI 契约（stdout/退出码/--help/证据结构），
+      #     托管 runner 秒级；本机跑它直接跳过 ~20 个 Word 往返；
+      #   - word：需真 Word/WPS COM 的 L3/L4 契约；托管 runner 无 COM，validate.py
+      #     的渲染类检查靠 available() 守卫自动 SKIP，断言（检查名存在 / 其余检查
+      #     PASS / 退出码只数 FAIL）仍成立——证明 marker 边界没漏。
+      - name: 全量 pytest（not word）
+        run: python -m pytest -m "not word" -q
+
+      - name: 全量 pytest（word 契约）
+        run: python -m pytest -m word -q
 
       # 证据链冒烟：纯 docx 渲染（不带 --pdf，不碰渲染器）→ validate。
       # 渲染类检查降级为 SKIP，退出码仍为 0

@@ -51,15 +51,38 @@ Patch schema (JSON):
 `add_row` 的 `target.after_row` 是 0 基行号，新行插在该行之后；
 省略或取 -1 表示追加到表尾。这个字段此前只是「预留参数」——schema 收下、
 实现忽略，Agent 按文档写了会被静默追加到表尾，现在按声明语义落地。
+
+实现分层：声明式操作的执行内核（schema 校验 / 前置条件 / 7 个 op 原语 /
+assess·dry_run·apply·validate 编排）已下沉到 `_mutate.py`，统一返回
+`MutationResult`。本文件是 thin CLI 壳——re-export 同名符号、把 `MutationResult`
+降级回历史一致的 `tuple[bool, str]`，并保留 argparse / sys.exit / stdout 措辞 /
+证据写盘等 CLI 语义。
 """
 
 import argparse
-import hashlib
 import json
 import os
 import sys
 from datetime import datetime
 
+from _mutate import (
+    _edit_module,  # noqa: F401  re-export：test_patch 哨兵直访 p._edit_module
+    apply_patch,
+    assess_patch,
+    check_hash_precondition,
+    check_must_contain_precondition,
+    compute_docx_hash,
+    dry_run_patch,
+    validate_patch_result,
+    validate_patch_schema,
+)
+from _mutate import add_row_op as _add_row_op
+from _mutate import del_row_op as _del_row_op
+from _mutate import delete_paragraph_op as _delete_paragraph_op
+from _mutate import insert_after_op as _insert_after_op
+from _mutate import insert_before_op as _insert_before_op
+from _mutate import replace_text_op as _replace_text_op
+from _mutate import set_cell_op as _set_cell_op
 from _shared import __version__, force_utf8_stdio
 from docx import Document
 
@@ -68,490 +91,51 @@ force_utf8_stdio()
 
 
 # =============================================================================
-# Patch Schema Validation
+# Operations —— 壳层适配：_mutate 的 MutationResult 降级回 tuple[bool, str]
+# （签名与措辞与历史逐字节一致，test_patch.py 的进程内用例不改一行即绿）
 # =============================================================================
-
-
-def validate_patch_schema(patch: dict) -> tuple[bool, list[str]]:
-    """验证 Patch JSON 是否符合 schema。"""
-    errors = []
-
-    # 必需字段
-    if "id" not in patch:
-        errors.append("缺少必需字段：id")
-    if "operations" not in patch:
-        errors.append("缺少必需字段：operations")
-    elif not isinstance(patch["operations"], list):
-        errors.append("operations 必须是数组")
-
-    # 验证每个 operation
-    for i, op in enumerate(patch.get("operations", [])):
-        if "op" not in op:
-            errors.append(f"operation[{i}] 缺少必需字段：op")
-            continue
-
-        valid_ops = {
-            "replace_text",
-            "insert_after",
-            "insert_before",
-            "delete_paragraph",
-            "set_cell",
-            "add_row",
-            "del_row",
-        }
-        if op["op"] not in valid_ops:
-            errors.append(f"operation[{i}] 无效的 op: {op['op']}")
-
-        if "target" not in op:
-            errors.append(f"operation[{i}] 缺少必需字段：target")
-
-    # 验证 preconditions（可选）
-    if "preconditions" in patch:
-        pc = patch["preconditions"]
-        if "hash" in pc and not isinstance(pc["hash"], str):
-            errors.append("preconditions.hash 必须是字符串")
-        if "must_contain" in pc and not isinstance(pc["must_contain"], list):
-            errors.append("preconditions.must_contain 必须是数组")
-
-    if errors:
-        print("Patch schema validation failed:", file=sys.stderr)
-        for error in errors:
-            print(f"  - {error}", file=sys.stderr)
-        return False, errors
-    return True, []
-
-
-# =============================================================================
-# Hash Precondition
-# =============================================================================
-
-
-def compute_docx_hash(docx_path: str) -> str:
-    """计算 DOCX 文件的 SHA256 hash。"""
-    sha256 = hashlib.sha256()
-    with open(docx_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256.update(chunk)
-    return sha256.hexdigest()
-
-
-def check_hash_precondition(docx_path: str, expected_hash: str) -> tuple[bool, str]:
-    """检查文档 hash 是否匹配。"""
-    actual = compute_docx_hash(docx_path)
-    if actual == expected_hash:
-        return True, "Hash 校验通过"
-    else:
-        return (
-            False,
-            f"Hash 不匹配 (期望:{expected_hash[:16]}..., 实际:{actual[:16]}...)",
-        )
-
-
-def check_must_contain_precondition(doc: Document, must_contain: list[str]) -> tuple[bool, str]:
-    """检查文档是否包含所有必需文本。"""
-    missing = []
-    for text in must_contain:
-        found = False
-        for para in doc.paragraphs:
-            if text in para.text:
-                found = True
-                break
-        if not found:
-            missing.append(text)
-
-    if missing:
-        return False, f"缺少必需文本：{missing}"
-    return True, "所有必需文本都存在"
-
-
-# =============================================================================
-# Operations Implementation
-# =============================================================================
-
-
-def _edit_module():
-    """取同目录的 edit 模块（跨 run 替换、单元格写入等都复用它）。
-
-    不能写 `from scripts import edit`：以 `python scripts/patch.py` 运行时
-    sys.path[0] 是 scripts/ 而不是仓库根，Python 会把 scripts 解析成一个空的
-    命名空间包，于是 set_cell / insert_after / insert_before / add_row 全部抛
-    "cannot import name 'edit' from 'scripts'" —— 而这四个 op 又把它兜进
-    `except Exception`，表现是「操作失败」而不是「导入失败」，长期被当成
-    目标不存在。这里显式把脚本目录放进 sys.path 再按模块名导入。
-    """
-    import importlib
-
-    here = os.path.dirname(os.path.abspath(__file__))
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    return importlib.import_module("edit")
 
 
 def replace_text_op(doc: Document, op: dict) -> tuple[bool, str]:
     """替换文本操作。"""
-    target = op["target"]
-    expected_old = op.get("expected_old_text")
-    new_text = op["new_text"]
-
-    para_idx = target.get("paragraph")
-    if para_idx is None:
-        return False, "target.paragraph 是必需的"
-
-    try:
-        para = doc.paragraphs[para_idx]
-        old_text = para.text
-
-        if expected_old and expected_old not in old_text:
-            return False, f"预期旧文本不存在：{expected_old} (实际：{old_text[:50]})"
-
-        # 使用 edit.py 的跨 run 替换逻辑
-        edit = _edit_module()
-
-        # 构造 pairs
-        pairs = [(expected_old or old_text, new_text)]
-        n = edit.replace_in_paragraph(para, pairs)
-
-        if n > 0:
-            return True, f"成功替换 (第{para_idx}段)"
-        else:
-            return False, "未找到匹配文本"
-    except IndexError:
-        return False, f"段落索引越界：{para_idx}"
-    except Exception as e:
-        return False, f"替换失败：{e}"
+    res = _replace_text_op(doc, op)
+    return res.ok, res.message
 
 
 def insert_after_op(doc: Document, op: dict) -> tuple[bool, str]:
     """在锚点后插入操作。"""
-    target = op["target"]
-    content = op["content"]
-    style = op.get("style", "Normal")
-
-    anchor_text = target.get("anchor")
-    if not anchor_text:
-        return False, "target.anchor 是必需的"
-
-    try:
-        edit = _edit_module()
-
-        hits = edit._anchors(doc, anchor_text, all_mode=True)
-        if not hits:
-            return False, f"找不到锚点：{anchor_text}"
-
-        for para_idx, anchor_para in hits:
-            # addnext 每次插在锚点紧邻之后，逆序遍历使最终文档顺序与 content 一致
-            for line in reversed(content):
-                edit._clone_paragraph(anchor_para, line, style, doc, before=False)
-
-        return True, f"在 {len(hits)} 个位置插入 {len(content)} 段"
-    except (Exception, SystemExit) as e:
-        return False, f"插入失败：{e}"
+    res = _insert_after_op(doc, op)
+    return res.ok, res.message
 
 
 def insert_before_op(doc: Document, op: dict) -> tuple[bool, str]:
     """在锚点前插入操作。"""
-    target = op["target"]
-    content = op["content"]
-    style = op.get("style", "Normal")
-
-    anchor_text = target.get("anchor")
-    if not anchor_text:
-        return False, "target.anchor 是必需的"
-
-    try:
-        edit = _edit_module()
-
-        hits = edit._anchors(doc, anchor_text, all_mode=True)
-        if not hits:
-            return False, f"找不到锚点：{anchor_text}"
-
-        for para_idx, anchor_para in hits:
-            # addprevious 天然保持正序，顺序遍历即可
-            for line in content:
-                edit._clone_paragraph(anchor_para, line, style, doc, before=True)
-
-        return True, f"在 {len(hits)} 个位置插入 {len(content)} 段"
-    except (Exception, SystemExit) as e:
-        return False, f"插入失败：{e}"
+    res = _insert_before_op(doc, op)
+    return res.ok, res.message
 
 
 def delete_paragraph_op(doc: Document, op: dict) -> tuple[bool, str]:
     """删除段落操作。"""
-    target = op["target"]
-
-    para_idx = target.get("paragraph")
-    if para_idx is None:
-        return False, "target.paragraph 是必需的"
-
-    try:
-        para = doc.paragraphs[para_idx]
-        para._p.getparent().remove(para._p)
-        return True, f"已删除第{para_idx}段"
-    except IndexError:
-        return False, f"段落索引越界：{para_idx}"
-    except Exception as e:
-        return False, f"删除失败：{e}"
+    res = _delete_paragraph_op(doc, op)
+    return res.ok, res.message
 
 
 def set_cell_op(doc: Document, op: dict) -> tuple[bool, str]:
     """设置单元格值操作。"""
-    target = op["target"]
-    value = op["value"]
-
-    try:
-        edit = _edit_module()
-
-        ti = target.get("table")
-        ri = target.get("row")
-        ci = target.get("column")
-
-        if None in (ti, ri, ci):
-            return False, "target 需要 table, row, column"
-
-        cell = edit._cell(doc, ti, ri, ci)
-        old = cell.text
-        edit._set_cell_text(cell, value, doc.tables[ti])
-
-        return True, f"单元格 [{ti}][{ri},{ci}]: {old[:20]} -> {value[:20]}"
-    except Exception as e:
-        return False, f"设置单元格失败：{e}"
-
-
-def _insert_row(table, after_row):
-    """在 after_row（0 基）之后插入一行并返回它；after_row 为 None/负数时追加到表尾。
-
-    python-docx 的 add_row() 只会追加，且产出的是裸行（丢边框/底纹/字号）。
-    要让 after_row 真正生效，走 edit.py cmd_add_rows 的路子：deepcopy 锚点行的
-    <w:tr> 继承全部格式，清掉文字，再 addnext 插到锚点之后。
-    """
-    import copy
-
-    from docx.table import _Row
-
-    edit = _edit_module()
-
-    rows = table.rows
-    n = len(rows)
-    if after_row is None or after_row < 0:
-        return table.add_row()
-    if after_row >= n:
-        raise IndexError("after_row %d 越界（表共 %d 行）" % (after_row, n))
-
-    src_tr = rows[after_row]._tr
-    new_tr = copy.deepcopy(src_tr)
-    edit._clear_row_text(new_tr)
-    src_tr.addnext(new_tr)
-    return _Row(new_tr, table)
+    res = _set_cell_op(doc, op)
+    return res.ok, res.message
 
 
 def add_row_op(doc: Document, op: dict) -> tuple[bool, str]:
-    """添加行操作：插在 target.after_row（0 基）之后，缺省追加到表尾。
-
-    新行克隆锚点行的格式，文字先清空再按 values 写入；未给值的单元格留空，
-    不会残留锚点行的旧文字。
-    """
-    target = op["target"]
-    values = op.get("values", [])
-
-    try:
-        ti = target.get("table")
-        if ti is None:
-            return False, "target.table 是必需的"
-        if not 0 <= ti < len(doc.tables):
-            return False, f"表格索引越界：{ti}（共 {len(doc.tables)} 个表）"
-
-        edit = _edit_module()
-        table = doc.tables[ti]
-        after_row = target.get("after_row")
-        row = _insert_row(table, after_row)
-
-        for i, v in enumerate(values):
-            if i < len(row.cells):
-                edit._set_cell_text(row.cells[i], v, table)
-
-        where = "表尾" if (after_row is None or after_row < 0) else f"第{after_row}行之后"
-        return True, f"表{ti}: 在{where}新增 1 行（{len(values)}列）"
-    except Exception as e:
-        return False, f"添加行失败：{e}"
+    """添加行操作：插在 target.after_row（0 基）之后，缺省追加到表尾。"""
+    res = _add_row_op(doc, op)
+    return res.ok, res.message
 
 
 def del_row_op(doc: Document, op: dict) -> tuple[bool, str]:
     """删除行操作。"""
-    target = op["target"]
-
-    try:
-        ti = target.get("table")
-        ri = target.get("row")
-
-        if None in (ti, ri):
-            return False, "target 需要 table 和 row"
-
-        # 手动实现删除
-        table = doc.tables[ti]
-        row = table.rows[ri]
-        row._tr.getparent().remove(row._tr)
-
-        return True, f"表{ti}行{ri}: 已删除"
-    except Exception as e:
-        return False, f"删除行失败：{e}"
-
-
-# Operation registry
-OPERATIONS = {
-    "replace_text": replace_text_op,
-    "insert_after": insert_after_op,
-    "insert_before": insert_before_op,
-    "delete_paragraph": delete_paragraph_op,
-    "set_cell": set_cell_op,
-    "add_row": add_row_op,
-    "del_row": del_row_op,
-}
-
-
-# =============================================================================
-# Assessment & Dry Run
-# =============================================================================
-
-
-def assess_patch(patch: dict, doc: Document) -> tuple[bool, list[str]]:
-    """评估 Patch 可行性，不进行实际修改。"""
-    issues = []
-
-    for i, op in enumerate(patch.get("operations", [])):
-        op_name = op.get("op")
-        target = op.get("target", {})
-
-        # 静态检查
-        if op_name == "replace_text":
-            para_idx = target.get("paragraph")
-            if para_idx is not None and para_idx >= len(doc.paragraphs):
-                issues.append(f"operation[{i}]: 段落索引越界")
-
-        elif op_name in ("insert_after", "insert_before"):
-            anchor = target.get("anchor")
-            if anchor:
-                count = sum(1 for p in doc.paragraphs if anchor in p.text)
-                if count == 0:
-                    issues.append(f"operation[{i}]: 锚点不存在：{anchor}")
-
-        elif op_name == "set_cell":
-            ti, ri = target.get("table"), target.get("row")  # ci 预留参数
-            if ti is not None and ti >= len(doc.tables):
-                issues.append(f"operation[{i}]: 表格索引越界")
-            elif ti is not None:
-                if ri is not None and ri >= len(doc.tables[ti].rows):
-                    issues.append(f"operation[{i}]: 行索引越界")
-
-        elif op_name == "add_row":
-            ti, ar = target.get("table"), target.get("after_row")
-            if ti is not None and ti < len(doc.tables):
-                n_rows = len(doc.tables[ti].rows)
-                if ar is not None and ar >= n_rows:
-                    issues.append(f"operation[{i}]: after_row 越界：{ar}（表共 {n_rows} 行）")
-
-    return len(issues) == 0, issues
-
-
-def dry_run_patch(patch: dict, doc: Document) -> tuple[bool, str]:
-    """Dry run：模拟执行 Patch，预估影响。"""
-    import copy
-
-    # 深拷贝文档进行模拟
-    doc_copy = copy.deepcopy(doc)
-
-    failed_ops = []
-    successful_ops = []
-
-    for i, op in enumerate(patch.get("operations", [])):
-        op_name = op.get("op")
-
-        try:
-            if op_name in OPERATIONS:
-                success, message = OPERATIONS[op_name](doc_copy, op)
-                if success:
-                    successful_ops.append((i, op_name, message))
-                else:
-                    failed_ops.append((i, op_name, message))
-            else:
-                failed_ops.append((i, op_name, "未实现的 operation"))
-        except Exception as e:
-            failed_ops.append((i, op_name, "异常：%s" % e))
-
-    if failed_ops:
-        # 只回报结果，不在这里 sys.exit：本函数签名是 (bool, str)，调用方拿到
-        # False 才能自己决定退出码；内部抢先 exit 会让调用方的 else 分支成死代码。
-        detail = "\n".join("  [%d] %s: %s" % (i, op, msg) for i, op, msg in failed_ops)
-        return False, "Dry run 失败：%d 个操作不可执行\n%s" % (len(failed_ops), detail)
-    return (
-        True,
-        "Dry run 成功：%d 个操作将通过\n" % len(successful_ops)
-        + "\n".join("  [%d] %s: %s" % (i, op, msg) for i, op, msg in successful_ops),
-    )
-
-
-# =============================================================================
-# Apply & Validate
-# =============================================================================
-
-
-def apply_patch(patch: dict, doc: Document) -> tuple[bool, list[str]]:
-    """应用 Patch 到文档。"""
-    errors = []
-
-    for i, op in enumerate(patch.get("operations", [])):
-        op_name = op.get("op")
-
-        if op_name not in OPERATIONS:
-            errors.append(f"operation[{i}]: 未实现的 operation: {op_name}")
-            continue
-
-        success, message = OPERATIONS[op_name](doc, op)
-        if not success:
-            errors.append(f"operation[{i}] ({op_name}): {message}")
-
-    return len(errors) == 0, errors
-
-
-def validate_patch_result(doc: Document, patch: dict) -> tuple[bool, list[str]]:
-    """验证 Patch 应用后的结果。"""
-    issues = []
-
-    # 验证每个 operation 是否达到预期
-    for i, op in enumerate(patch.get("operations", [])):
-        op_name = op.get("op")
-
-        if op_name == "replace_text":
-            expected = op.get("new_text")
-            target = op["target"]
-            para_idx = target.get("paragraph")
-
-            if para_idx < len(doc.paragraphs):
-                if expected not in doc.paragraphs[para_idx].text:
-                    issues.append(f"operation[{i}]: 预期文本未找到：{expected}")
-
-        elif op_name == "set_cell":
-            target = op["target"]
-            expected = op["value"]
-            ti, ri, ci = target.get("table"), target.get("row"), target.get("column")
-
-            if ti is not None and ri is not None and ci is not None:
-                if expected not in doc.tables[ti].rows[ri].cells[ci].text:
-                    issues.append(f"operation[{i}]: 单元格值未更新")
-
-        elif op_name == "add_row":
-            # after_row 是新加的能力，验证也要跟上：新行必须落在声明的位置
-            target = op.get("target", {})
-            ti, ar = target.get("table"), target.get("after_row")
-            values = op.get("values") or []
-            if ti is not None and ti < len(doc.tables) and values:
-                rows = doc.tables[ti].rows
-                idx = (ar + 1) if (ar is not None and ar >= 0) else len(rows) - 1
-                if 0 <= idx < len(rows):
-                    row_text = "".join(c.text for c in rows[idx].cells)
-                    if values[0] not in row_text:
-                        issues.append(f"operation[{i}]: 第{idx}行未写入预期值：{values[0]}")
-
-    return len(issues) == 0, issues
+    res = _del_row_op(doc, op)
+    return res.ok, res.message
 
 
 # =============================================================================
@@ -598,9 +182,7 @@ def generate_patch_evidence(
     doc.save(snapshot_path)
 
     # 3. 生成签名
-    sha256 = hashlib.sha256()
-    with open(snapshot_path, "rb") as f:
-        sha256.update(f.read())
+    document_hash = compute_docx_hash(snapshot_path)
 
     sig_path = os.path.join(out_dir, "signature")
     with open(sig_path, "w", encoding="utf-8") as f:
@@ -609,7 +191,7 @@ def generate_patch_evidence(
         f.write("patch_id: %s\n" % patch.get("id", "unknown"))
         if before_sha256:
             f.write("before_sha256: %s\n" % before_sha256)
-        f.write("document_hash: %s\n" % sha256.hexdigest())
+        f.write("document_hash: %s\n" % document_hash)
         if verify_result:
             f.write("verify: %s\n" % verify_result)
 

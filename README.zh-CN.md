@@ -206,7 +206,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # 模板 �
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # 重建排版模板
 python scripts/snapshot.py 标书.pdf --update                     # 录版式基线（确认版式无误后）
 python scripts/snapshot.py 标书.pdf                              # 回归比对，漂移即 exit 1
-python -m pytest -q                                              # 315 项断言，约 6 分钟（实测 6 分 01 秒，需本机渲染器，默认 Word）
+python -m pytest -q                                              # 345 项断言，约 6 分钟（实测 6 分 01 秒，需本机渲染器，默认 Word）
 ```
 
 可运行示例——每个目录自带 Markdown + config，一条命令跑通（见 [examples/README.md](examples/README.md)）：
@@ -371,7 +371,7 @@ pip install ruff pre-commit && pre-commit install      # ruff 一个工具顶 fl
 pre-commit run --all-files                             # lint + 格式 + 不启 Word 的测试子集
 # Word 半边：CI 跳过、仅本机能验的部分（patch/validate e2e + Word/WPS 契约）
 python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # 全量：315 项断言，约 6 分钟（实测 6 分 01 秒；发版 / 改渲染链路前跑）
+python -m pytest -q                                    # 全量：345 项断言，约 6 分钟（实测 6 分 01 秒；发版 / 改渲染链路前跑）
 ```
 
 > **托管 CI 跑无渲染器的那一半**（[ci.yml](.github/workflows/ci.yml)）：ruff + 快速子集 +
@@ -402,6 +402,7 @@ python -m pytest -q                                    # 全量：315 项断言�
 | 路径 | 职责 |
 |---|---|
 | `scripts/render.py` | 入口：合并 md → pandoc → post.py →（可选）finalize / check |
+| `scripts/renderers.py` | 渲染器适配器（docx → PDF）：Word / WPS 走 COM，LibreOffice 走无头 soffice——同一契约，每次运行可选 |
 | `scripts/post.py` | 后处理：封面注入、目录域、分节页码、页眉页脚、表格规则、题注样式；手写 OOXML 按 ECMA-376 顺序插入 |
 | `scripts/filters/captions.lua` | pandoc Lua filter：在 **AST 层**把表题 / 图注标记成 `TableCaption` / `FigureCaption`，`post.py` 不必用正则猜 |
 | `scripts/finalize.py` | Word COM：打开验收（打不开 = 结构错）、刷目录域、导 PDF、存回 |
@@ -413,13 +414,24 @@ python -m pytest -q                                    # 全量：315 项断言�
 | `scripts/edit.py` | 编辑已有 docx：改文字 / 增删段落 / 改单元格 / 改页眉页脚 |
 | `scripts/distill.py` | 蒸馏模板 docx，输出建议 config（页面设置 / 字体 / 页眉页脚） |
 | `scripts/make_ref.py` | 重新生成 `assets/ref.docx`（改字体 / 字号 / 间距时用它） |
-| `profiles/*.json` | 设计契约：`formal-cn-v1`（通用正式）、`gongwen-v1`、`tender-v1`、`application-v1` |
+| `scripts/align_tables.py` | 对齐 Markdown 源文件的表格（纯文本重排，不改单元格内容） |
+| `scripts/policy.py` | 验收策略模型库（四级严重度 + renderer 矩阵）；**尚未接入 validate 退出码** |
+| `scripts/_shared.py` | 公共原语：语言词表（字体 / 题注 / 目录文案）、SHA256、显示宽度、UTF-8 控制台 |
+| `scripts/_ooxml.py` | OOXML 有序插入原语（ECMA-376 元素顺序表，唯一实现） |
+| `scripts/_docx_edit.py` | docx 编辑原语 + 结构化异常（`edit.py` 与 `patch.py` 共用） |
+| `scripts/_version.py` | 工具版本号单一事实源 |
+| `scripts/_verify.py` | verify 能力纯逻辑核（CheckResult + 状态常量、目录域计数、profile→断言 enforcement）；由 `validate.py` re-export |
+| `scripts/_visual_diff.py` | 视觉差异纯逻辑核（`diff_ratio`、抽样页号、`compute_visual_diff`）；`validate.py` 与 `snapshot.py` 共用（单一实现，无 sys.path hack） |
+| `scripts/_evidence.py` | Evidence/Manifest 纯逻辑核（报告骨架 `_new_report` + pandoc provenance、`_tally`、report.json/signature 写盘、显式 `build_manifest`）；由 `validate.py` re-export |
+| `scripts/_compile.py` | compile 能力纯逻辑助手（`_should_prompt`、`_outside_code_fences`、`_build_pandoc_cmd`——返回可断言的命令 list）；由 `render.py` re-export |
+| `scripts/_mutate.py` | mutate 能力纯逻辑核（声明式 Patch 引擎：schema 校验、前置条件、7 个 `op(doc, spec) -> MutationResult` 操作原语、assess/dry_run/apply/validate 编排 + 共享编辑助手）；`patch.py`/`edit.py` re-export 并把 `MutationResult` 降级回 `tuple[bool, str]` |
+| `profiles/*.json` | 设计契约：`formal-cn-v1`（通用正式）、`gongwen-v1`、`tender-v1`、`application-v1`、`neutral-en-v1`（英文排版基线） |
 | `assets/ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
 | `assets/sample.md` / `assets/sample_config.json` | 钉死的回归夹具，不是展示样例：`--sample`、四个测试文件与 `baselines/` 都只渲染这一份文档。展示请看 `examples/` |
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
-| `docs/` | `SCRIPT_HELP.md`（CLI）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——各有 `.zh-CN` 镜像 |
+| `docs/` | `SCRIPT_HELP.md`（CLI 参考，**仅中文单份**）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——后四者各有 `.zh-CN` 镜像 |
 | `baselines/` | 快照基线（按渲染器分目录，如 baselines/word/） |
-| `tests/` | 315 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
+| `tests/` | 345 项 pytest 断言：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、断言数 ↔ 实际收集数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 📜 许可

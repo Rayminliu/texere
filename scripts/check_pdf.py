@@ -16,13 +16,15 @@ import os
 import sys
 
 import pymupdf
-from _shared import force_utf8_stdio
+from _shared import BASELINE_DPI, force_utf8_stdio
 
 force_utf8_stdio()
 
 NEAR_EMPTY_CHARS = 60  # 正文少于这个字符数且无图 → 视为近空白页
 DEFAULT_PAGES = (1, 2, 3)
-SNAPSHOT_DPI = 100
+# DPI 单一来源：口径同 snapshot.py / validate.py，收敛到 _shared.BASELINE_DPI，
+# 避免同一文档在不同工具里因 DPI 不同得到相反的视觉漂移结论。
+SNAPSHOT_DPI = BASELINE_DPI
 
 
 def _build_parser():

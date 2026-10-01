@@ -19,16 +19,13 @@ import json
 import os
 import sys
 
+from _ooxml import style_fonts
 from _shared import force_utf8_stdio
 from docx import Document
-from docx.oxml.ns import qn
 
 force_utf8_stdio()
 
 EMU_PER_CM = 360000
-
-# 中文 Word 与英文 Word 的标题样式名不同，两边都认
-HEADING_NAMES = [("Heading %d", "标题 %d")]
 
 
 def cm(v):
@@ -39,15 +36,7 @@ def cm(v):
 
 def style_font(st):
     """取 (中文字体, 西文字体, 字号pt)。中文字体在 rFonts 的 eastAsia 上。"""
-    latin = st.font.name
-    size = st.font.size.pt if st.font.size else None
-    east = None
-    rPr = st.element.find(qn("w:rPr"))
-    if rPr is not None:
-        rf = rPr.find(qn("w:rFonts"))
-        if rf is not None:
-            east = rf.get(qn("w:eastAsia"))
-    return east, latin, size
+    return style_fonts(st)
 
 
 def pick_style(doc, names):

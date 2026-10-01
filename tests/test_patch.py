@@ -53,6 +53,7 @@ class TestSchemaValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should not exit on schema error
@@ -74,6 +75,7 @@ class TestSchemaValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "缺少必需字段" in result.stderr or "id" in result.stderr.lower()
@@ -94,6 +96,7 @@ class TestSchemaValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "operations" in result.stderr.lower()
@@ -114,6 +117,7 @@ class TestSchemaValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "未实现的 operation" in result.stderr or "invalid" in result.stderr.lower()
@@ -150,6 +154,7 @@ class TestReplaceTextOperation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Dry run should succeed (may report text not found but that's OK)
@@ -184,6 +189,7 @@ class TestReplaceTextOperation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should report that expected text not found
@@ -221,6 +227,7 @@ class TestInsertOperations:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should either succeed or skip if anchor not found
@@ -294,6 +301,7 @@ class TestDeleteParagraphOperation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -330,6 +338,7 @@ class TestSetCellOperation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # May fail if no tables, but shouldn't crash
@@ -363,6 +372,7 @@ class TestSetCellOperation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should fail gracefully
@@ -397,6 +407,7 @@ class TestAddRowOperation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # May fail if no tables, but shouldn't crash
@@ -429,6 +440,7 @@ class TestPreconditions:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should pass precondition check
@@ -457,6 +469,7 @@ class TestPreconditions:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should fail precondition check (message goes to stderr)
@@ -493,6 +506,7 @@ class TestPreconditions:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should pass hash check
@@ -521,6 +535,7 @@ class TestPreconditions:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should fail hash check (message goes to stderr)
@@ -559,6 +574,7 @@ class TestApplyAndValidate:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should create backup
@@ -594,6 +610,7 @@ class TestApplyAndValidate:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should complete successfully
@@ -645,6 +662,7 @@ class TestExitCodes:
             [sys.executable, os.path.join(KIT, "scripts", "patch.py"), "--help"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -666,6 +684,7 @@ class TestExitCodes:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode != 0
@@ -706,7 +725,8 @@ class TestPatchUnits:
 
     def test_edit_module_imports(self):
         p = self._module()
-        assert callable(p._edit_module()._set_cell_text)
+        # 编辑原语已下沉到 _docx_edit（公开名，不再是 edit.py 的私有函数）
+        assert callable(p._edit_module().set_cell_text)
 
     @staticmethod
     def _anchor_doc():
@@ -928,6 +948,7 @@ class TestAssessment:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should report issues during assessment

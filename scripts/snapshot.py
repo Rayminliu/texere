@@ -16,19 +16,18 @@
 
 import argparse
 import json
-import operator
 import os
 import sys
 
 import pymupdf
-from _shared import force_utf8_stdio
+from _shared import BASELINE_DPI as DEFAULT_DPI
+from _shared import DEFAULT_MAX_DIFF, force_utf8_stdio
+from _visual_diff import diff_ratio
 
 force_utf8_stdio()
 
-DEFAULT_DPI = 100
-# 0.1%。实测：同一文档重复导出 PDF 的差异为 0.00%，而改一个页眉文字会产生 0.16%，
-# 所以阈值必须压到 0.1% 才能抓住这种"小但真实"的漂移；0.5% 会直接漏报。
-DEFAULT_MAX_DIFF = 0.001
+# 阈值单一事实源在 _shared：0.1%。实测：同一文档重复导出 PDF 的差异为 0.00%，
+# 而改一个页眉文字会产生 0.16%，所以阈值必须压到 0.1% 才能抓住这种"小但真实"的漂移；0.5% 会直接漏报。
 RENDERERS = ("word", "libreoffice", "wps")
 
 
@@ -63,15 +62,6 @@ def parse_args(argv):
     """argparse 接手全部边界校验：缺参数值、非整数 --dpi、未知选项都由它报错。"""
     a = _build_parser().parse_args(argv)
     return a.pdf, a.dpi, a.max_diff, a.update, a.renderer
-
-
-def diff_ratio(a, b):
-    """逐字节差异比例；长度不同视为全变。"""
-    if len(a) != len(b):
-        return 1.0
-    if a == b:
-        return 0.0
-    return sum(map(operator.ne, a, b)) / len(a)
 
 
 def main(argv):

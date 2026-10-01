@@ -93,6 +93,30 @@ class TestFooterPageNumber:
         # 匹配到数字但超出页数范围（如正文恰好一行裸数字 2026）
         assert v.footer_page_number("2026", 4) is None
 
+    # --- 多语言容错（词表单一事实源 _shared.FOOTER_PAGE_RES） ---
+
+    def test_page_of_total_format(self):
+        # Word 英文页脚域「Page N of M」：取 N，不拿总页数 M 错位
+        assert v.footer_page_number("Page 3 of 20", 20) == 3
+
+    def test_fraction_format(self):
+        # 整行锁定的「N / M」总页码式页脚（半角/全角斜杠都认）
+        assert v.footer_page_number("3 / 20", 20) == 3
+        assert v.footer_page_number("3／20", 20) == 3
+
+    def test_roman_abbr_formats(self):
+        # 北欧/德语页码缩写：S. 5 / Nr. 5
+        assert v.footer_page_number("S. 5", 20) == 5
+        assert v.footer_page_number("Nr. 5", 20) == 5
+
+    def test_inline_fraction_in_prose_not_matched(self):
+        # 容错模式整行锚定：正文里的「9 / 10」比例不该被当页码
+        assert v.footer_page_number("比例 9 / 10 达标", 20) is None
+
+    def test_em_dash_still_wins_over_bare_number(self):
+        # 顺序守卫：「— N —」优先于裸数字（历史上顺序有意义）
+        assert v.footer_page_number("— 4 —", 20) == 4
+
 
 class FakePage:
     def __init__(self, text):
@@ -763,6 +787,20 @@ class TestBlankPagesSparseExemption:
         assert res.status == v.FAIL, "无关键字的真实短页仍应算空页"
         assert res.message.startswith("空白页：1/")
 
+    def test_cn_declared_blank_page_exempt(self, tmp_path):
+        # 中文声明变体：「此页有意留白」与「本页面故意留白」都豁免
+        for line in ("此页有意留白", "本页面故意留白"):
+            res = v.check_blank_pages(self._pdf(tmp_path, [line]), max_empty=0)
+            assert res.status == v.PASS, line
+
+    def test_en_intentionally_left_blank_variants(self):
+        # 英文全称/副词序变体只改词表不走向：全称 35 字 ≥ 10 字阈值，
+        # 根本进不了稀疏分支——这里钉 SPARSE_OK_RE 本身的容错（词表在 _shared）
+        assert v.SPARSE_OK_RE.search("This page intentionally left blank")
+        assert v.SPARSE_OK_RE.search("Page left blank intentionally")
+        assert v.SPARSE_OK_RE.search("intentionally left blank")
+        assert not v.SPARSE_OK_RE.search("a page with plenty of ordinary body text")
+
     def test_mixed_document_exempts_only_keyword_pages(self, tmp_path):
         import pymupdf
 
@@ -812,3 +850,38 @@ class TestSharedDocumentParse:
         assert v.check_section_count(f).status == v.PASS
         # 文件不存在 → 该检查报 ERROR（查不了不算合格），而不是静默 PASS
         assert v.check_section_count(str(tmp_path / "nope.docx")).status == v.ERROR
+
+
+class TestEvidenceInProcess:
+    """L2 零 Word：用 conftest 的 _NoopRenderer 进程内跑通整条 evidence 组装。
+
+    此前 report.json 的结构 / 落盘文件 / SKIP 传播只在 test_validate 的
+    subprocess + 真 Word 链里验过。这里把「报告骨架 + 计数 + 文件产出 + 反 fail-open」
+    下沉到进程内：renderer 不可用→ PDF 派生检查全 SKIP（绝不冒充 PASS），
+    纯 docx 结构检查仍真跑并 PASS，report.json / signature 照常落盘。不启动 Word。
+    """
+
+    def test_report_structure_and_files_without_word(self, tmp_path, make_docx, noop_renderer):
+        docx = make_docx("e.docx", ["正文一段"])
+        out = str(tmp_path / "ev")
+        report = v.generate_evidence_package(docx, out, renderer=noop_renderer)
+
+        # report.json 落盘 + 证据清单 signature，全程不靠 Word
+        assert os.path.exists(os.path.join(out, "report.json"))
+        assert os.path.exists(os.path.join(out, "signature"))
+
+        # 9 项检查全部入报告；summary 与逐项一致，failed 恒 0
+        assert len(report["checks"]) == 9
+        s = report["summary"]
+        assert s["total"] == 9 and s["failed"] == 0
+        assert s["passed"] + s["skipped"] + s["failed"] == s["total"]
+
+        # 反 fail-open：没有真渲染器时 PDF 派生检查必须 SKIP，不许 PASS/FAIL
+        for name in ("page_numbering", "blank_pages", "visual_drift", "renderer_acceptance"):
+            assert report["checks"][name]["status"] == v.SKIP, name
+        # 纯 docx 结构检查仍真跑并 PASS（不依赖导出 PDF）
+        assert report["checks"]["package_integrity"]["status"] == v.PASS
+        assert report["checks"]["section_count"]["status"] == v.PASS
+
+        # provenance 记录的是注入的 noop 渲染器身份，而不是假的 Word
+        assert report["metadata"]["renderer"]["name"] == "_NoopRenderer"

@@ -21,6 +21,26 @@ import copy
 import json
 import re
 
+from _ooxml import (
+    PPR_ORDER,
+    SETTINGS_ORDER,
+    TBLPR_ORDER,
+    TCPR_ORDER,
+    clear_repeat_header,
+    insert_ordered,
+    set_pgnum_start,
+    set_repeat_header,
+)
+from _shared import (
+    DEFAULT_CAPTION_WORDS,
+    DEFAULT_EAST_FONT,
+    DEFAULT_LATIN_FONT,
+    H1_STYLE_ALIASES,
+    PAGE_NUMBER_TEMPLATE,
+    TITLE_STYLE_ALIASES,
+    TOC_HEADING,
+    TOC_PLACEHOLDER,
+)
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -28,17 +48,17 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
-SONG, LATIN = "宋体", "Times New Roman"
 GRAY = (0x40, 0x40, 0x40)
-# 可被 config.json 的 "style" 段覆盖（见 apply_style_cfg）。默认即中文正式文档惯例。
+# 可被 config.json 的 "style" 段覆盖（见 apply_style_cfg）。默认即中文正式文档惯例；
+# 语言相关默认值（字体对/页码模板/目录文案/题注词表）单一事实源在 _shared.py。
 S = {
-    "east_font": SONG,  # 中文字体
-    "latin_font": LATIN,  # 西文字体
+    "east_font": DEFAULT_EAST_FONT,  # 中文字体
+    "latin_font": DEFAULT_LATIN_FONT,  # 西文字体
     "caption_gray": GRAY,  # 题注灰
     "caption_size": 10.5,  # 题注字号 pt
     "table_size": 10.5,  # 表格字号 pt
     "toc_depth": "1-2",  # 目录收录层级
-    "page_number": "— {n} —",  # 页码模板，{n} 处插入页码域
+    "page_number": PAGE_NUMBER_TEMPLATE,  # 页码模板，{n} 处插入页码域
     "header_rows": None,  # 表头行数；None = 自动（读 pandoc 打的 w:tblHeader）
     "table_border": "full",  # 表格边框：full 全框线 / three 三线表 / none 无框线
     # --- 页眉 / 页脚 ---
@@ -50,7 +70,7 @@ S = {
     # --- 目录 ---
     "toc_title_size": 16.0,
     "toc_title_color": (0, 0, 0),
-    "toc_placeholder": "【目录将在打开文档时自动生成；若未显示请全选后按 F9】",
+    "toc_placeholder": TOC_PLACEHOLDER,
     "toc_placeholder_size": 12.0,
     # --- 表格 ---
     "table_shade": "EDEDED",  # 表头底纹（配深色底时用 table_header_color 给白字）
@@ -68,17 +88,35 @@ S = {
     "caption_space_after": 4.0,
     "caption_keep_with_next": True,  # 表题与表格同页；关掉可能省页数但会分家
 }
-# 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
-H1_STYLES = {"Heading 1", "标题 1"}
-TITLE_STYLES = {"Title", "Subtitle", "Author", "Date", "标题", "副标题"}
+# 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）——别名表在 _shared
+H1_STYLES = H1_STYLE_ALIASES
+TITLE_STYLES = TITLE_STYLE_ALIASES
 # 题注识别（文本兜底用；正常路径由 filters/captions.lua 在 AST 层打样式）
-# 覆盖 表 1-1 / 表1.1 / 表１－１ / 图 2-3 / Table 1-1 / Figure 1-2
+# 覆盖 表 1-1 / 表1.1 / 表１－１ / 图 2-3 / Table 1-1 / Figure 1-2；
+# 关键字来自 _shared.DEFAULT_CAPTION_WORDS，与 captions.lua 默认词表逐词一致（守卫钉死）。
+# 编号部分：全角/半角数字 + 多种分隔符（. - － — ．）
 _D = r"[0-9０-９]"
 _SEP = r"[.\-－—．]"
-CAPTION_RE = re.compile(
-    r"^(?:表|圖|图|表格|图片|Table|Figure|Fig\.?)\s*%s+(?:\s*%s\s*%s+)?" % (_D, _SEP, _D),
-    re.IGNORECASE,
-)
+
+
+def _caption_re(words):
+    """由词表构建题注匹配正则；长词优先，避免「表」抢「表格」的前缀。"""
+    ws = sorted({w for lst in words.values() for w in lst if w}, key=len, reverse=True)
+    alt = "|".join(re.escape(w) for w in ws)
+    return re.compile(r"^(?:%s)\s*%s+(?:\s*%s\s*%s+)?" % (alt, _D, _SEP, _D), re.IGNORECASE)
+
+
+def _table_prefix_re(table_words):
+    r"""表题词「开头匹配」（不要求带编号）：keep_with_next 用，与历史硬编码
+    ^\s*(表|表格|Table) 语义一致——不带编号的「表 商务条款响应表」也要粘住表格。"""
+    ws = sorted({w for w in table_words if w}, key=len, reverse=True)
+    alt = "|".join(re.escape(w) for w in ws)
+    return re.compile(r"^\s*(?:%s)" % alt, re.IGNORECASE)
+
+
+CAPTION_RE = _caption_re(DEFAULT_CAPTION_WORDS)
+# 表题侧专用（keep_with_next 用）：默认/配置词表的 table 侧同源重建
+TABLE_CAPTION_RE = _table_prefix_re(DEFAULT_CAPTION_WORDS["table"])
 # 由 filters/captions.lua 在 AST 层打上的语义样式（按 styleId 匹配，见 style_id 注释）
 CAPTION_STYLE_IDS = {
     "TableCaption",
@@ -87,126 +125,6 @@ CAPTION_STYLE_IDS = {
     "Caption",
     "CaptionedFigure",
 }
-
-PPR_ORDER = [
-    "pStyle",
-    "keepNext",
-    "keepLines",
-    "pageBreakBefore",
-    "framePr",
-    "widowControl",
-    "numPr",
-    "suppressLineNumbers",
-    "pBdr",
-    "shd",
-    "tabs",
-    "suppressAutoHyphens",
-    "kinsoku",
-    "wordWrap",
-    "overflowPunct",
-    "topLinePunct",
-    "autoSpaceDE",
-    "autoSpaceDN",
-    "bidi",
-    "adjustRightInd",
-    "snapToGrid",
-    "spacing",
-    "ind",
-    "contextualSpacing",
-    "mirrorIndents",
-    "suppressOverlap",
-    "jc",
-    "textDirection",
-    "textAlignment",
-    "textboxTightWrap",
-    "outlineLvl",
-    "divId",
-    "cnfStyle",
-    "rPr",
-    "sectPr",
-    "pPrChange",
-]
-TCPR_ORDER = [
-    "cnfStyle",
-    "tcW",
-    "gridSpan",
-    "hMerge",
-    "vMerge",
-    "tcBorders",
-    "shd",
-    "noWrap",
-    "tcMar",
-    "textDirection",
-    "tcFitText",
-    "vAlign",
-    "hideMark",
-    "headers",
-    "cellIns",
-    "cellDel",
-    "cellMerge",
-    "tcPrChange",
-]
-TRPR_ORDER = [
-    "cnfStyle",
-    "divId",
-    "gridBefore",
-    "gridAfter",
-    "wBefore",
-    "wAfter",
-    "cantSplit",
-    "trHeight",
-    "tblHeader",
-    "tblCellSpacing",
-    "jc",
-    "hidden",
-]
-TBLPR_ORDER = [
-    "tblStyle",
-    "tblpPr",
-    "tblOverlap",
-    "bidiVisual",
-    "tblStyleRowBandSize",
-    "tblStyleColBandSize",
-    "tblW",
-    "jc",
-    "tblCellSpacing",
-    "tblInd",
-    "tblBorders",
-    "shd",
-    "tblLayout",
-    "tblCellMar",
-    "tblLook",
-    "tblCaption",
-    "tblDescription",
-]
-SETTINGS_ORDER = [
-    "updateFields",
-    "hdrShapeDefaults",
-    "footnotePr",
-    "endnotePr",
-    "compat",
-    "rsids",
-    "mathPr",
-    "themeFontLang",
-    "clrSchemeMapping",
-    "shapeDefaults",
-    "decimalSymbol",
-    "listSeparator",
-]
-
-
-def insert_ordered(parent, child, order):
-    tag = child.tag.split("}")[-1]
-    idx = order.index(tag) if tag in order else len(order)
-    for existing in parent:
-        etag = existing.tag.split("}")[-1]
-        if etag not in order:
-            continue
-        if order.index(etag) > idx:
-            existing.addprevious(child)
-            return child
-    parent.append(child)
-    return child
 
 
 def set_run_font(run, size=None, bold=None, color=None, italic=None):
@@ -313,44 +231,6 @@ def set_table_borders(tbl, mode, header_rows):
             set_cell_border(cell, "bottom")
 
 
-def set_pgnum_start(sectPr, start=1):
-    pg = sectPr.find(qn("w:pgNumType"))
-    if pg is None:
-        pg = OxmlElement("w:pgNumType")
-        anchor = sectPr.find(qn("w:cols")) or sectPr.find(qn("w:docGrid"))
-        if anchor is not None:
-            anchor.addprevious(pg)
-        else:
-            sectPr.append(pg)
-    pg.set(qn("w:start"), str(start))
-
-
-def set_repeat_header(row):
-    """确保表头行跨页重复（w:tblHeader）。
-
-    注意：pandoc 通常**已经**给表头行设了（grid table 里 `+===+` 以上的行都算表头），
-    本函数只是幂等加固——若上游没设，表格跨页后第 2 页起就没有表头。
-    """
-    trPr = row._tr.find(qn("w:trPr"))
-    if trPr is None:
-        trPr = OxmlElement("w:trPr")
-        row._tr.insert(0, trPr)
-    el = trPr.find(qn("w:tblHeader"))
-    if el is None:
-        el = insert_ordered(trPr, OxmlElement("w:tblHeader"), TRPR_ORDER)
-    el.set(qn("w:val"), "true")
-
-
-def clear_repeat_header(row):
-    """去掉表头行的「跨页重复」标记（header_rows 显式设为 0 时用）。"""
-    trPr = row._tr.find(qn("w:trPr"))
-    if trPr is None:
-        return
-    el = trPr.find(qn("w:tblHeader"))
-    if el is not None:
-        trPr.remove(el)
-
-
 def style_name(p):
     try:
         return p.style.name or ""
@@ -368,19 +248,20 @@ def style_id(p):
 
 
 def build_caption_matchers(words):
-    """按 config 的 caption_words 重建题注关键字（默认 表/图/Table/Figure）。
+    """按 config 的 caption_words 重建题注关键字（默认词表见 _shared）。
 
     words 形如 {"table": ["表", "表格"], "figure": ["图", "图片"]}。
     同时供 filters/captions.lua 使用（由 render.py 以 -M 传入），两边保持一致。
+    表题侧 TABLE_CAPTION_RE 单独重建：keep_with_next 只认表题词，不跟着 figure 词漂。
     """
-    global CAPTION_RE
+    global CAPTION_RE, TABLE_CAPTION_RE
     ws = (words.get("table") or []) + (words.get("figure") or [])
     ws = [w for w in ws if w]
     if not ws:
         return
-    ws.sort(key=len, reverse=True)  # 长词优先，避免「表」抢「表格」
-    alt = "|".join(re.escape(w) for w in ws)
-    CAPTION_RE = re.compile(r"^(?:%s)\s*%s+(?:\s*%s\s*%s+)?" % (alt, _D, _SEP, _D), re.IGNORECASE)
+    CAPTION_RE = _caption_re({"all": ws})
+    if words.get("table"):
+        TABLE_CAPTION_RE = _table_prefix_re(words["table"])
 
 
 def uses_caption_styles(doc):
@@ -558,7 +439,7 @@ def _inject_front_pages(doc, body, cfg, h1_idx):
     toc_enabled = cfg.get("toc", True) is not False
     if h1_idx is not None and toc_enabled:  # 没有一级标题就不插目录（无处可索引）
         toc_head = np(
-            cfg.get("toc_heading", "目　　录"),
+            cfg.get("toc_heading", TOC_HEADING),
             "TOC Heading",
             align=WD_ALIGN_PARAGRAPH.CENTER,
             page_break=True,
@@ -724,8 +605,7 @@ def _format_captions(doc):
             # 「与下一段同页」只对**位于表格之前**的表题、和**载有图片**的段落有意义。
             # 图注本身在图片之后，粘住它会把后面的内容整块推走：实测 47 图文档多出 4 页。
             keep = bool(S["caption_keep_with_next"]) and (
-                sid in ("TableCaption", "CaptionedFigure")
-                or bool(re.match(r"^\s*(表|表格|Table)", txt, re.IGNORECASE))
+                sid in ("TableCaption", "CaptionedFigure") or bool(TABLE_CAPTION_RE.match(txt))
             )
             pf.keep_with_next = keep
             for r in p.runs:

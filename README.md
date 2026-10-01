@@ -217,7 +217,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json           # template 
 python scripts/make_ref.py --body-font 楷体 --body-size 14       # rebuild the typesetting template
 python scripts/snapshot.py bid.pdf --update                      # record baseline (after confirming layout)
 python scripts/snapshot.py bid.pdf                               # regression compare; exit 1 on drift
-python -m pytest -q                                              # 315 assertions, ~6 min (measured 6m1s, needs a renderer — defaults to Word)
+python -m pytest -q                                              # 345 assertions, ~6 min (measured 6m1s, needs a renderer — defaults to Word)
 ```
 
 Runnable examples — each directory ships its Markdown + config and runs with one command
@@ -403,7 +403,7 @@ pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + 
 pre-commit run --all-files                             # lint + format + a Word-free test subset
 # Word half: skipped on CI, only verifiable locally (patch/validate e2e + Word/WPS contracts)
 python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # full suite: 315 assertions, ~6 min (measured 6m1s; before releases / renderer-chain changes)
+python -m pytest -q                                    # full suite: 345 assertions, ~6 min (measured 6m1s; before releases / renderer-chain changes)
 ```
 
 > **Hosted CI runs the renderer-free half** ([ci.yml](.github/workflows/ci.yml)): ruff + the fast subset +
@@ -436,6 +436,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | File | Role |
 |---|---|
 | `scripts/render.py` | Entry point: merge md → pandoc → post.py → (optional) finalize / check |
+| `scripts/renderers.py` | Renderer adapters (docx → PDF): Word / WPS via COM, LibreOffice via headless soffice — one contract, selectable per run |
 | `scripts/post.py` | Post-processing: cover injection, TOC field, per-section page numbers, headers/footers, table rules, caption styling; hand-written OOXML inserted in ECMA-376 order |
 | `scripts/filters/captions.lua` | pandoc Lua filter: marks table/figure captions as `TableCaption` / `FigureCaption` **at the AST level**, so `post.py` never has to guess with regexes |
 | `scripts/finalize.py` | Word COM: open for acceptance (failure to open = structural error), refresh TOC field, export PDF, save back |
@@ -447,13 +448,24 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `scripts/edit.py` | Edit an existing docx: replace / insert / delete / table cells / headers and footers |
 | `scripts/distill.py` | Distill a template docx into a suggested `config.json` (page setup, fonts, headers, footers) |
 | `scripts/make_ref.py` | Rebuild `assets/ref.docx` (use when changing fonts / sizes / spacing) |
-| `profiles/*.json` | Design contracts: `formal-cn-v1` (general formal), `gongwen-v1`, `tender-v1`, `application-v1` |
+| `scripts/align_tables.py` | Normalize Markdown source table alignment (pure text reflow, never changes cell content) |
+| `scripts/policy.py` | Acceptance-policy model library (four severity levels + renderer matrix); **not wired into the validate exit code yet** |
+| `scripts/_shared.py` | Shared primitives: language word lists (fonts / captions / TOC wording), SHA256, display width, UTF-8 stdio |
+| `scripts/_ooxml.py` | OOXML ordered-insertion primitives (ECMA-376 element order tables, single implementation) |
+| `scripts/_docx_edit.py` | docx editing primitives + structured errors (shared by `edit.py` and `patch.py`) |
+| `scripts/_version.py` | Single source of the tool version |
+| `scripts/_verify.py` | verify capability pure-logic core (CheckResult + status constants, TOC field count, profile→assertion enforcement); re-exported by `validate.py` |
+| `scripts/_visual_diff.py` | visual-diff pure-logic core (`diff_ratio`, page sampling, `compute_visual_diff`); shared by `validate.py` and `snapshot.py` (single implementation, no sys.path hack) |
+| `scripts/_evidence.py` | Evidence/Manifest pure-logic core (report skeleton `_new_report` + pandoc provenance, `_tally`, `report.json`/signature writers, explicit `build_manifest`); re-exported by `validate.py` |
+| `scripts/_compile.py` | compile capability pure-logic helpers (`_should_prompt`, `_outside_code_fences`, `_build_pandoc_cmd` — returns an assertable command list); re-exported by `render.py` |
+| `scripts/_mutate.py` | mutate capability pure-logic core (declarative Patch engine: schema check, preconditions, 7 `op(doc, spec) -> MutationResult` primitives, assess/dry_run/apply/validate orchestration + shared edit helpers); `patch.py`/`edit.py` re-export and degrade `MutationResult` back to `tuple[bool, str]` |
+| `profiles/*.json` | Design contracts: `formal-cn-v1` (general formal), `gongwen-v1`, `tender-v1`, `application-v1`, `neutral-en-v1` (English layout baseline) |
 | `assets/ref.docx` | The Chinese typesetting template: 宋体 body, 黑体 heading ladder, table borders, caption styles, cover styles (CoverTop/…), callout styles (Lead/SmallNote) |
 | `assets/sample.md` / `assets/sample_config.json` | Pinned regression fixture, not a showcase: `--sample`, four test files and `baselines/` all render this one document. Showcases live in `examples/` |
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
-| `docs/` | `SCRIPT_HELP.md` (CLI), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — each with a `.zh-CN` mirror |
+| `docs/` | `SCRIPT_HELP.md` (CLI reference, **Chinese-only**), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — the latter four each with a `.zh-CN` mirror |
 | `baselines/` | Snapshot baselines (per-renderer dirs, e.g. baselines/word/) |
-| `tests/` | 315 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
+| `tests/` | 345 pytest assertions: layout rules, caption recognition, table features, exit codes, snapshot logic, the layout-only contract, cross-run editing (`test_edit.py`), template reuse and distillation (`test_distill.py`), the 9-check validator (`test_validate.py`), the Patch API (`test_patch.py`), version consistency and page-number/baseline pure functions (`test_version.py` / `test_validate_units.py`), Renderer abstraction guard (`test_renderer.py`: adapter contract + PDF-derived checks are renderer-agnostic; `test_renderer_contract.py`: 抽象契约 + 超时/并发集成), Acceptance policy model (`test_policy.py`: 四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵), docs-vs-code sync guard (`test_docs_sync.py`: CLI options ↔ SCRIPT_HELP both ways, single-source key tables, EN/ZH mirror structure, internal anchors, SKILL.md front-matter YAML) |
 | `CHANGELOG.md` | Version history and the reasoning behind each fix |
 
 ## 📜 License

@@ -26,6 +26,7 @@ def test_render_cli_reports_current_version():
         [sys.executable, os.path.join(KIT, "scripts", "render.py"), "--version"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert r.returncode == 0
     assert __version__ in r.stdout, r.stdout

@@ -178,3 +178,25 @@ def test_renderer_identity_recorded_in_evidence(tmp_path):
     meta = report["metadata"]["renderer"]
     assert meta["name"] == "Fake"  # FakeRenderer 自报 "Fake"
     assert "version" in meta and "engine_path" in meta
+
+
+# ------------------------------------- available() memo（性能收敛的行为守卫）
+
+
+def test_available_is_memoized_per_prog_id():
+    """同一进程内重复 available() 只真正探测一次：doctor / validate / preflight
+    不再各自重复拉起 Office COM 进程。"""
+    calls = []
+
+    class _Stub(r._ComRenderer):
+        PROGID = "TexereStub.Application"
+        ENGINE = "Stub"
+
+        @classmethod
+        def _probe_available(cls):
+            calls.append(1)
+            return True, "stub-ok"
+
+    assert _Stub.available() == (True, "stub-ok")
+    assert _Stub.available() == (True, "stub-ok")
+    assert len(calls) == 1, "available() 未走缓存：探测重复执行"

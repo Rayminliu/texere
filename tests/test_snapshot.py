@@ -89,6 +89,9 @@ def test_diff_ratio_semantics():
     """完全相同=0；长度不同=1；逐字节算比例。"""
     import importlib.util
 
+    scripts = os.path.join(KIT, "scripts")
+    if scripts not in sys.path:  # snapshot.py 依赖兄弟模块 _shared（BASELINE_DPI）
+        sys.path.insert(0, scripts)
     spec = importlib.util.spec_from_file_location(
         "snapshot", os.path.join(KIT, "scripts", "snapshot.py")
     )
@@ -97,6 +100,11 @@ def test_diff_ratio_semantics():
     assert mod.diff_ratio(b"abc", b"abc") == 0.0
     assert mod.diff_ratio(b"abc", b"abd") == pytest.approx(1 / 3)
     assert mod.diff_ratio(b"abc", b"ab") == 1.0
+    # 跨块一致性：分块短路不能改语义——差异落在第二块内部也只数得到的那些字节
+    a = bytes(range(256)) * 600  # 153600 字节 > 64K 块
+    b = bytearray(a)
+    b[70000] ^= 0xFF
+    assert mod.diff_ratio(a, bytes(b)) == pytest.approx(1 / len(a))
 
 
 def test_snapshot_requires_baseline(tmp_path):

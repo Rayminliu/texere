@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "Neutral English Profile",
-  "description": "Layout baseline for English formal documents (reports, specs): Times New Roman body, Arial headings, block paragraphs without first-line indent. Layout baseline only - not a claim of English business-document convention coverage.",
+  "description": "Layout baseline for English formal documents (reports, specs): Times New Roman body, Arial headings, block paragraphs without first-line indent. Layout baseline only - not a claim of English business-document convention coverage. Note: font_eastAsia values (宋体/黑体) are CJK fallback fonts for documents that mix Chinese and English; --enforce-profile asserts them verbatim, so changing or removing them would flip the gate verdict for mixed content.",
   "page": {
     "width": 21,
     "height": 29.7,

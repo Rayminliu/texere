@@ -40,6 +40,7 @@
 | 目录 | `toc_depth` / `toc_title_size` / `toc_title_color` / `toc_placeholder` / `toc_placeholder_size` | `1-2` / `16` / `000000` / 见提示语 / `12` |
 | 题注 | `caption_gray` / `caption_size` / `caption_space_before` / `caption_space_after` | `404040` / `10.5` / `6` / `4` |
 | 题注 | `caption_keep_with_next` | `true`（表题不与表格分家；实测关掉可省 1 页，但表题可能落在页尾） |
+| 题注 | `caption_words` | 与顶层 `caption_words` 同义——写在 `style` 里也接受（兼容路径）；顶层键优先 |
 | 表格 | `header_rows` | 自动——**逐表**识别（读 pandoc 打的 `w:tblHeader`）；填数字则强制；`0` = 该表没有表头（表单 / 附件类首行是字段名），并一并去掉「跨页重复表头」。何时该动它见[视觉控制](TABLES.zh-CN.md#视觉控制) |
 | 表格 | `table_border` / `table_shade` / `table_size` | `full` / `EDEDED` / `10.5` |
 | 表格 | `table_header_color` / `table_zebra` / `table_zebra_fill` | 不指定 / `false` / `F7F7F7` |

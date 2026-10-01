@@ -75,6 +75,33 @@ Evidence package saved to: evidence/
 If any check fails, exit code is 1 and you get a detailed error message. Flags
 (`--profile`, `--max-empty`, `--quiet`, …): `docs/SCRIPT_HELP.md` §validate.py.
 
+### Profile contract boundary (profile = acceptance contract, config = rendering input)
+
+A profile and a render config are **two different objects**, deliberately not connected:
+
+- `profiles/*.json` is an **acceptance contract**: it describes what the finished document must satisfy.
+  It is consumed only by `validate.py` (`--profile` attaches it to the evidence report; `--enforce-profile`
+  compiles its declared fields into `profile.<field>` gate assertions).
+- `config.json`'s `style.*` is the **rendering input**: it is what `post.py` actually consumes to typeset the
+  document.
+- Injecting profile into rendering is a **non-goal**: two sources of truth for the same layout knobs
+  (contract vs input) would drift apart and make gate verdicts unexplainable.
+
+Which profile fields the gate actually enforces (details: `docs/SCRIPT_HELP.md` §Profile):
+
+| Category | Enforced when `--enforce-profile` | Declared-only (not asserted) |
+|---|---|---|
+| Page | `page.width/height` (±0.1cm), `page.margin_*` (±0.2cm) | — |
+| Body font | `styles.body.font_eastAsia` / `font_latin` / `size` (±0.5pt) | `line_spacing`, `first_line_indent`, `space_*` |
+| Headings | `styles.h1/h2/h3` eastAsia / latin / size / bold | `page_break_before`, `space_*` |
+| Tables | `table.border` ≠ none → at least one visible border | `border_size`, `border_color`, `header_shade`, `zebra`, … |
+| TOC | `toc` section declared → a TOC field exists | `toc.depth`, `toc.title`, `placeholder`, … |
+| Other | — | `caption.*`, `header.*`, `footer.*`, `*_specific.*` |
+
+Optional keys (valid in any profile; none of the five built-in profiles uses them): `baseline_dir`
+(visual-drift fallback when `--baseline` is not passed) and `acceptance.renderers`
+(multi-renderer acceptance matrix, e.g. `["word", "wps"]`; consumed by `policy.py`, which is not wired into the validate exit code).
+
 ### Manual gate
 
 The 9 checks cover structure; four things stay human, on the first pass over any new document:
@@ -84,4 +111,34 @@ The 9 checks cover structure; four things stay human, on the first pass over any
 3. `OK` — Word opened it and exported the PDF
 4. **Look at the rendered pages.** Machines count pages, images and blanks; they can't tell you the figure is
    wrong or the header row got clipped
+
+## Capability modules and test layers
+
+The pipeline's pure logic lives in importable sibling modules under `scripts/`, while the user-facing
+scripts stay thin CLI shells. The split exists so the logic can be exercised in-process without paying for
+a Word launch:
+
+| Capability module | Owns | Shell that re-exports it |
+|---|---|---|
+| `_verify.py` | check primitives + `CheckResult` / status constants | `validate.py` |
+| `_visual_diff.py` | `diff_ratio`, page sampling, `compute_visual_diff` | `validate.py`, `snapshot.py` |
+| `_evidence.py` | report skeleton, tally, `report.json` / signature writers | `validate.py` |
+| `_compile.py` | pandoc command builder + code-fence / prompt helpers | `render.py` |
+| `_mutate.py` | declarative Patch engine + `MutationResult` op primitives | `patch.py`, `edit.py` |
+
+Each shell imports the same names it used to define, so `stdout` wording, `argparse` flags and exit codes
+are unchanged — the re-export is itself the equivalence proof: the existing subprocess and in-process
+tests pass without a single edit. Dependency direction is a one-way DAG
+(`_version → _shared → {capability modules} → shells`); a capability module never imports its shell.
+
+Tests are layered so the slow boundary is crossed only where it must be:
+
+- **L1 / L2 — in-process unit + logic** (`test_validate_units.py`, `test_patch.py::TestPatchUnits`): call
+  the re-exported functions directly against in-memory docx / PyMuPDF fixtures. No Word, sub-second.
+- **L3 — CLI contract** (subprocess): assert the frozen `stdout` wording, `--help`, `report.json` shape and
+  exit codes; marked `@pytest.mark.word` when a real renderer must boot.
+- **L4 — end-to-end** acceptance against a golden document.
+
+CI runs the `word`-marked cases separately (`pytest -m "not word"` then `-m word`), so pure-logic
+regressions stay fast while layout-affecting changes still gate on the 0.00% pixel snapshot.
 

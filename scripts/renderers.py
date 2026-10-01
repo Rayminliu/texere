@@ -83,6 +83,11 @@ class _ComRenderer(RendererAdapter):
     ENGINE = ""  # available() 报错措辞里的产品名（Word / WPS）
     TMP_PREFIX = "texere_render_"
 
+    # available() 探测结果缓存（按 PROGID）：DispatchEx 拉起 Office 是百毫秒级，
+    # doctor / validate / preflight 在同一进程里反复探是纯浪费；失败结果也缓存，
+    # 单进程生命周期内环境不会中途装好 pywin32。
+    _AVAIL_CACHE = {}
+
     # ------------------------------------------------------------------ 钩子
     def probe_label(self, app) -> str:
         """available() 探测成功时回报的能力标签。"""
@@ -106,6 +111,14 @@ class _ComRenderer(RendererAdapter):
     # ------------------------------------------------------------------ 骨架
     @classmethod
     def available(cls):
+        if cls.PROGID in _ComRenderer._AVAIL_CACHE:
+            return _ComRenderer._AVAIL_CACHE[cls.PROGID]
+        result = cls._probe_available()
+        _ComRenderer._AVAIL_CACHE[cls.PROGID] = result
+        return result
+
+    @classmethod
+    def _probe_available(cls):
         try:
             import pythoncom  # noqa: F401
             import win32com.client as win32  # noqa: F401

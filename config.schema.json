@@ -73,7 +73,15 @@
         "border_color": {"type": "string"},
         "three_line_size": {"type": "number"},
         "east_font": {"type": "string"},
-        "latin_font": {"type": "string"}
+        "latin_font": {"type": "string"},
+        "caption_words": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "table": {"type": "array", "items": {"type": "string"}},
+            "figure": {"type": "array", "items": {"type": "string"}}
+          }
+        }
       }
     }
   }

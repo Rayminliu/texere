@@ -53,6 +53,7 @@ def _build_sample_docx(tmp_path):
 class TestPackageIntegrity:
     """Test package integrity checks."""
 
+    @pytest.mark.word
     def test_valid_package(self, tmp_path):
         """Valid DOCX should pass."""
         docx = _build_sample_docx(tmp_path)
@@ -65,6 +66,7 @@ class TestPackageIntegrity:
             ],  # Don't use --quiet for this test
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -84,12 +86,14 @@ class TestPackageIntegrity:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode != 0
         assert "FAIL" in result.stdout or "error" in result.stderr.lower()
 
 
+@pytest.mark.word
 class TestImageEmbedding:
     """Test image embedding checks."""
 
@@ -106,12 +110,14 @@ class TestImageEmbedding:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "image_embedding" in result.stdout
         assert "PASS" in result.stdout
 
 
+@pytest.mark.word
 class TestSectionCount:
     """Test section count validation."""
 
@@ -128,12 +134,14 @@ class TestSectionCount:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "section_count" in result.stdout
         assert "PASS" in result.stdout
 
 
+@pytest.mark.word
 class TestTOCField:
     """Test TOC field validation."""
 
@@ -150,12 +158,14 @@ class TestTOCField:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         # Should either pass (TOC exists) or skip (no TOC detected)
         assert "toc_field" in result.stdout
 
 
+@pytest.mark.word
 class TestPageNumbering:
     """Test page numbering validation."""
 
@@ -172,12 +182,14 @@ class TestPageNumbering:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "page_numbering" in result.stdout
         assert "PASS" in result.stdout
 
 
+@pytest.mark.word
 class TestBlankPages:
     """Test blank page detection."""
 
@@ -194,6 +206,7 @@ class TestBlankPages:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "blank_pages" in result.stdout
@@ -216,11 +229,13 @@ class TestBlankPages:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
 
 
+@pytest.mark.word
 class TestWordAcceptance:
     """Test Word acceptance validation."""
 
@@ -237,12 +252,14 @@ class TestWordAcceptance:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "renderer_acceptance" in result.stdout
         assert "PASS" in result.stdout
 
 
+@pytest.mark.word
 class TestVisualDrift:
     """Test visual drift detection."""
 
@@ -259,6 +276,7 @@ class TestVisualDrift:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert "visual_drift" in result.stdout
@@ -281,11 +299,13 @@ class TestVisualDrift:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
 
 
+@pytest.mark.word
 class TestEvidencePackage:
     """Test evidence package generation.
 
@@ -309,6 +329,7 @@ class TestEvidencePackage:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -354,6 +375,7 @@ class TestEvidencePackage:
 class TestExitCodes:
     """Test exit code behavior."""
 
+    @pytest.mark.word
     def test_success_exit_code(self, tmp_path):
         """Successful validation should exit 0."""
         docx = _build_sample_docx(tmp_path)
@@ -396,6 +418,7 @@ class TestHelpAndVersion:
             [sys.executable, os.path.join(KIT, "scripts", "validate.py"), "--help"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -408,11 +431,13 @@ class TestHelpAndVersion:
             [sys.executable, os.path.join(KIT, "scripts", "validate.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode != 0
 
 
+@pytest.mark.word
 class TestProfileValidation:
     """Test profile integration."""
 
@@ -432,6 +457,7 @@ class TestProfileValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -452,6 +478,7 @@ class TestProfileValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -472,6 +499,7 @@ class TestProfileValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
@@ -492,11 +520,13 @@ class TestProfileValidation:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
 
         assert result.returncode == 0
 
 
+@pytest.mark.word
 class TestReportStructure:
     """Test report JSON structure.
 
@@ -583,6 +613,7 @@ def _make_docx(tmp_path, name="in.docx"):
     return str(p)
 
 
+@pytest.mark.word
 class TestFinalizeIsReadOnly:
     """钉死 read-only 验收契约：默认不改输入，--save-updated-fields 才写回。
 
@@ -603,6 +634,7 @@ class TestFinalizeIsReadOnly:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         assert r.returncode == 0, r.stderr
         after = _sha256(src)
@@ -623,12 +655,14 @@ class TestFinalizeIsReadOnly:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         assert r.returncode == 0, r.stderr
         after = _sha256(src)
         assert before != after, "--save-updated-fields 应把刷新后的域写回原 docx"
 
 
+@pytest.mark.word
 def test_provenance_recorded(tmp_path):
     """证据必须回答「哪个契约 + 哪个转换器」：config/ref 的 sha256 与 pandoc 版本进 metadata 和 signature。"""
     docx = _build_sample_docx(tmp_path)
@@ -648,6 +682,7 @@ def test_provenance_recorded(tmp_path):
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert result.returncode == 0, result.stderr
     report = json.load(open(evidence_dir / "report.json", encoding="utf-8"))

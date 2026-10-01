@@ -14,8 +14,10 @@ local FIGURE_STYLE = "FigureCaption"
 -- 题注关键字默认值。可用 config 的 caption_words 覆盖：
 -- render.py 会以 -M dk-table-words=... -M dk-figure-words=... 传进来，
 -- post.py 那边同步重建正则，两边始终一致。
-local DEFAULT_TABLE_WORDS = { "表", "表格", "圖片", "Table" }
-local DEFAULT_FIGURE_WORDS = { "图", "圖", "图片", "圖片", "Figure", "Fig" }
+-- 默认值单一事实源在 scripts/_shared.py 的 DEFAULT_CAPTION_WORDS，
+-- 此处逐词对齐（tests/test_docs_sync.py 只解析不执行地钉死这条约束）。
+local DEFAULT_TABLE_WORDS = { "表", "表格", "Table" }
+local DEFAULT_FIGURE_WORDS = { "图", "圖", "图片", "圖片", "Figure", "Fig.", "Fig" }
 
 local function meta_words(meta, key, default)
   local v = meta[key]

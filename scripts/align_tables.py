@@ -23,20 +23,15 @@ import argparse
 import os
 import re
 import sys
-import unicodedata
+
+from _shared import display_width as dw
+from _shared import force_utf8_stdio
 
 # Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 GRID_SEP_RE = re.compile(r"^\++[-=+]+\+$")
 BLOCK_LINE_RE = re.compile(r"^\s*[+|]")
-
-
-def dw(s: str) -> int:
-    """显示宽度：East Asian W/F 记 2，其余记 1。"""
-    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
 
 
 def _is_fence(line: str) -> bool:

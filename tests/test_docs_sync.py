@@ -33,6 +33,7 @@ ARGPARSE_SCRIPTS = [
     "snapshot.py",
     "check_pdf.py",
     "finalize.py",
+    "align_tables.py",
 ]
 SKIP_OPTIONS = {"--help"}
 
@@ -280,6 +281,24 @@ def test_readme_mirrors_cover_same_scripts():
     )
 
 
+def test_readme_repo_map_covers_all_scripts():
+    """scripts/*.py 每一个都要出现在两份 README 的仓库地图里。
+
+    新增脚本却不出现在地图 = 用户与 agent 的入口清单失真。基础设施模块
+    （_shared / _ooxml 这类）也要列——它们不是秘密，写了反而降低上手成本；
+    确有不该公开的才进白名单（当前为空）。
+    """
+    infra_allowlist: set[str] = set()
+    actual = {
+        f for f in os.listdir(os.path.join(KIT, "scripts")) if f.endswith(".py")
+    } - infra_allowlist
+    for doc in ("README.md", "README.zh-CN.md"):
+        text = open(os.path.join(KIT, doc), encoding="utf-8").read()
+        listed = set(re.findall(r"`scripts/([A-Za-z0-9_]+\.py)`", text))
+        missing = actual - listed
+        assert not missing, "%s 仓库地图漏列脚本: %s" % (doc, sorted(missing))
+
+
 def _slug(title):
     """按 GitHub 的规则把标题转成锚点（去内联代码/加粗，只留字母数词与连字符）。"""
     title = re.sub(r"`([^`]*)`", r"\1", title)
@@ -349,6 +368,7 @@ def test_stated_test_count_is_current():
         cwd=KIT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     m = re.search(r"(\d+) tests? collected", result.stdout)
     assert m, "没能从 pytest 输出里拿到收集数:\n" + result.stdout[-500:]
@@ -422,3 +442,248 @@ def test_config_schema_matches_docs_and_render():
     )
     assert style == zh_style, "schema style 键与 zh 表漂移: %s" % (style ^ zh_style)
     assert style == en_style, "schema style 键与 en 表漂移: %s" % (style ^ en_style)
+
+
+# ---------------------------------------------------------------------------
+# style 键四方同步：post.py 的 S ↔ apply_style_cfg 处理清单 ↔ config.schema.json
+# ↔ CONFIG 双语键表。上面那条守卫只钉键名集合；这里补另外两个「写了不生效、
+# 静默默认」的漏点：S 的每个键必须真被 apply_style_cfg 消费，文档 Default 列
+# 必须等于 S 的实际值。
+# ---------------------------------------------------------------------------
+
+# apply_style_cfg 里在 _STYLE_* 四张清单之外显式特判的键
+_STYLE_SPECIAL_KEYS = {"header_rows", "caption_keep_with_next", "table_zebra"}
+
+# schema style 段里合法、但不进 S 的键：caption_words 是语义不是样式，
+# apply_style_cfg 走兼容路径（顶层 cfg["caption_words"] or style.caption_words）直接消费
+_STYLE_SCHEMA_EXTRA_KEYS = {"caption_words"}
+
+# 文档里用文字描述而非直接值的键 → (en 措辞, zh 措辞)
+_STYLE_DOC_EXEMPT = {
+    "header_rows": ("auto", "自动"),
+    "table_header_color": ("unset", "不指定"),
+    "toc_placeholder": ("see source", "见提示语"),
+}
+
+
+def _module_literals(path):
+    """解析模块顶层的 literal 赋值（含多目标元组拆 zip）→ {名字: 值}。"""
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    consts = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        try:
+            value = ast.literal_eval(node.value)
+        except (ValueError, SyntaxError):
+            continue
+        if not isinstance(value, (str, int, float, tuple)):
+            continue
+        for t in node.targets:
+            if isinstance(t, ast.Name):
+                consts[t.id] = value
+            elif isinstance(t, ast.Tuple) and isinstance(value, tuple):
+                consts.update((e.id, v) for e, v in zip(t.elts, value) if isinstance(e, ast.Name))
+    return consts
+
+
+def _post_style_surface():
+    """ast 解构 post.py（不 import，避免拖入 python-docx）：
+    返回 (S 键序列, S 默认值表, _STYLE_* 清单字典)。
+
+    默认值若引用 _shared 的语言词表常量（单一事实源），会顺着
+    `from _shared import ...` 把 _shared 的字面值解进 consts。"""
+    src = open(os.path.join(SCRIPTS_DIR, "post.py"), encoding="utf-8").read()
+    tree = ast.parse(src)
+    shared_consts = _module_literals(os.path.join(SCRIPTS_DIR, "_shared.py"))
+    consts = {}  # 模块级常量（GRAY 等），S 的字面值可能引用它们
+    s_node = None
+    style_lists = {}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "_shared":
+            for alias in node.names:
+                name = alias.asname or alias.name
+                if name in shared_consts:
+                    consts[name] = shared_consts[name]
+            continue
+        if not isinstance(node, ast.Assign):
+            continue
+        try:
+            value = ast.literal_eval(node.value)
+        except (ValueError, SyntaxError):
+            value = None
+        if value is not None and isinstance(value, (str, int, float, tuple)):
+            single = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if len(single) == 1 and single[0].startswith("_STYLE_"):
+                style_lists[single[0]] = list(value)
+                continue
+            # 单名常量赋值，或多目标（如旧版 SONG, LATIN = ...）拆 zip
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    consts[t.id] = value
+                elif isinstance(t, ast.Tuple) and isinstance(value, tuple):
+                    consts.update(
+                        (e.id, v) for e, v in zip(t.elts, value) if isinstance(e, ast.Name)
+                    )
+            continue
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if len(names) != 1:
+            continue
+        if names[0] == "S" and isinstance(node.value, ast.Dict):
+            s_node = node.value
+    assert s_node is not None, "post.py 里找不到模块级 S 字典"
+    s_keys, s_defaults = [], {}
+    for k, v in zip(s_node.keys, s_node.values):
+        s_keys.append(k.value)
+        try:
+            s_defaults[k.value] = ast.literal_eval(v)
+        except (ValueError, SyntaxError):
+            s_defaults[k.value] = consts.get(getattr(v, "id", None), ast.unparse(v))
+    return s_keys, s_defaults, style_lists
+
+
+def _style_default_repr(key, value):
+    """S 的值 → 文档单元格里应有的字面形式（None/长文案键不走这里，见豁免表）。"""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, tuple) and len(value) == 3 and all(isinstance(c, int) for c in value):
+        return "%02X%02X%02X" % value  # 颜色元组 → 6 位十六进制
+    if isinstance(value, float) and value == int(value):
+        return "%d" % value  # 9.0 在文档里写 9
+    return str(value)
+
+
+def test_style_keys_consumed_by_apply_style_cfg():
+    """S 的键集合 == _STYLE_* 四张清单并集 + 特判键 == schema style 键：三方互为镜像。
+
+    漏一个键的表现正是本项目最怕的「用户在 config 写了不生效、静默吃默认」。
+    """
+    import json as _json
+
+    s_keys, _, style_lists = _post_style_surface()
+    processed = set().union(*style_lists.values()) | _STYLE_SPECIAL_KEYS
+    assert set(style_lists) == {"_STYLE_STR", "_STYLE_FLOAT", "_STYLE_INT", "_STYLE_COLOR"}, (
+        "post.py 出现了新的 _STYLE_* 清单，本守卫未覆盖: %s" % sorted(style_lists)
+    )
+    assert set(s_keys) == processed, "S 键与 apply_style_cfg 处理清单漂移: %s" % (
+        set(s_keys) ^ processed
+    )
+    schema = _json.load(open(os.path.join(KIT, "config.schema.json"), encoding="utf-8"))
+    schema_style = set(schema["properties"]["style"]["properties"])
+    assert schema_style == processed | _STYLE_SCHEMA_EXTRA_KEYS, (
+        "schema style 键与 S/处理清单漂移: %s"
+        % (schema_style ^ processed ^ _STYLE_SCHEMA_EXTRA_KEYS)
+    )
+
+
+@pytest.mark.parametrize(
+    "doc, start, end",
+    [
+        ("docs/CONFIG.md", "### The `style` section", "\n## "),
+        ("docs/CONFIG.zh-CN.md", "### `style` 段", "\n## "),
+    ],
+)
+def test_docs_style_defaults_match_post_constants(doc, start, end):
+    """CONFIG 键表的 Default 列 == post.py S 的实际默认值（逐键 containment）。
+
+    逐行不拆列（一行多键时拆分列序易碎），改查「该键所在行的 Default 单元格里
+    出现格式化后的默认值」；豁免表里用文字描述的键检查对应措辞存在。
+    """
+    _, s_defaults, _ = _post_style_surface()
+    text = open(os.path.join(KIT, doc), encoding="utf-8").read()
+    i = text.index(start)
+    j = text.find(end, i)
+    j = j if j != -1 else len(text)
+    rows = {}
+    for line in text[i:j].splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 3:
+            continue
+        for k in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", cells[1]):
+            rows[k] = cells[2]
+    marker_idx = 0 if doc.endswith("CONFIG.md") else 1
+    bad = []
+    for key, value in s_defaults.items():
+        assert key in rows, "%s 的 style 表漏了键 %s" % (doc, key)
+        cell = rows[key]
+        if key in _STYLE_DOC_EXEMPT:
+            if _STYLE_DOC_EXEMPT[key][marker_idx] not in cell:
+                bad.append((key, cell[:40]))
+            continue
+        if _style_default_repr(key, value).lower() not in cell.lower():
+            bad.append((key, "%r 应在 %s" % (value, cell[:40])))
+    assert not bad, "%s 的 Default 列与 post.py S 实际值漂移: %s" % (doc, bad)
+
+
+def test_lua_default_caption_words_match_shared():
+    """captions.lua 默认题注词表与 _shared.DEFAULT_CAPTION_WORDS 逐词一致。
+
+    词表历史上三份互不一致（post.py 正则含 Fig.? 缺 圖片、lua TABLE 侧误收
+    圖片、FIGURE 侧缺 Fig）。词表合一后本守卫钉死唯一声明点与 lua 的同步，
+    只解析文本、不执行 lua。
+    """
+    shared_src = open(os.path.join(SCRIPTS_DIR, "_shared.py"), encoding="utf-8").read()
+    words = None
+    for node in ast.parse(shared_src).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "DEFAULT_CAPTION_WORDS" for t in node.targets
+        ):
+            words = ast.literal_eval(node.value)
+    assert isinstance(words, dict), "_shared.py 里找不到 DEFAULT_CAPTION_WORDS"
+
+    lua = open(os.path.join(SCRIPTS_DIR, "filters", "captions.lua"), encoding="utf-8").read()
+    for lua_name, key in (("DEFAULT_TABLE_WORDS", "table"), ("DEFAULT_FIGURE_WORDS", "figure")):
+        m = re.search(lua_name + r"\s*=\s*\{([^}]*)\}", lua)
+        assert m, f"captions.lua 找不到 {lua_name} 默认词表"
+        lua_words = re.findall(r'"([^"]+)"', m.group(1))
+        assert lua_words == words[key], (
+            f"{lua_name} 与 _shared.DEFAULT_CAPTION_WORDS[{key!r}] 漂移：lua={lua_words} py={words[key]}"
+        )
+
+
+# 视觉漂移口径常量（DPI / 差异阈值）的单一来源守卫——轨道 0 条目 5，
+# 亦是轨道 1 阈值收敛的回归对象。常量此前在 snapshot.py 与 validate.py
+# 各存一份，两套值会让同一产物得到相反的视觉漂移结论（曾踩）。
+DRIFT_CONSTANT_SRC = "_shared.py"
+DRIFT_CONSTANT_NAMES = ("BASELINE_DPI", "DEFAULT_MAX_DIFF")
+# 引用方脚本：不得再把 DPI/阈值赋成独立数字字面量，必须引用 _shared。
+DRIFT_CONSUMER_SCRIPTS = ("snapshot.py", "validate.py", "check_pdf.py")
+
+
+def test_snapshot_thresholds_have_single_source():
+    """DPI/差异阈值只在 _shared.py 定义，消费脚本必须引用而非重新硬编码。
+
+    两层断言：(1) 单一来源确实落在 _shared 且值逐字不变（100 / 0.001）；
+    (2) 扫描消费脚本模块顶层，凡名字含 DPI 或 MAX_DIFF 的赋值，右值不得是
+    数字字面量——必须是引用 _shared 的名字。只查模块顶层赋值，不碰函数
+    内逻辑与 argparse 默认值，避免误伤无关的 100。
+    """
+    # (1) 单一来源：定义在 _shared 且值逐字不变
+    shared_src = open(os.path.join(SCRIPTS_DIR, DRIFT_CONSTANT_SRC), encoding="utf-8").read()
+    defined = {}
+    for node in ast.parse(shared_src).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            t = node.targets[0]
+            if isinstance(t, ast.Name) and t.id in DRIFT_CONSTANT_NAMES:
+                defined[t.id] = node.value
+    for name in DRIFT_CONSTANT_NAMES:
+        assert name in defined, f"_shared.py 缺少阈值单一来源 {name}"
+        assert isinstance(defined[name], ast.Constant), f"_shared.{name} 应直接定义为字面量"
+    assert defined["BASELINE_DPI"].value == 100, "BASELINE_DPI 值漂移"
+    assert defined["DEFAULT_MAX_DIFF"].value == 0.001, "DEFAULT_MAX_DIFF 值漂移"
+
+    # (2) 消费脚本顶层不得把 DPI/阈值再赋成独立数字字面量
+    for script in DRIFT_CONSUMER_SCRIPTS:
+        src = open(os.path.join(SCRIPTS_DIR, script), encoding="utf-8").read()
+        for node in ast.parse(src).body:
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            t = node.targets[0]
+            if not (isinstance(t, ast.Name) and ("DPI" in t.id or "MAX_DIFF" in t.id)):
+                continue
+            assert not isinstance(node.value, ast.Constant), (
+                f"{script}:{t.lineno} 把 {t.id} 又硬编码成字面量 {node.value.value!r}；"
+                f"请引用 _shared.BASELINE_DPI / _shared.DEFAULT_MAX_DIFF"
+            )

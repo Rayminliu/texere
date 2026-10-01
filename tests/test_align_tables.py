@@ -35,7 +35,9 @@ ALIGNED = """\
 def _run(tmp_path, text, *flags):
     p = tmp_path / "t.md"
     p.write_text(text, encoding="utf-8")
-    r = subprocess.run([sys.executable, SCRIPT, *flags, str(p)], capture_output=True, text=True)
+    r = subprocess.run(
+        [sys.executable, SCRIPT, *flags, str(p)], capture_output=True, text=True, encoding="utf-8"
+    )
     return p, r
 
 
@@ -111,6 +113,7 @@ def test_pandoc_parse_equivalent_to_handwritten(tmp_path):
             ["pandoc", "-f", "markdown", "-t", "plain", str(src)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=True,
         )
         outs.append(r.stdout)

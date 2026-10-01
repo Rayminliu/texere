@@ -19,7 +19,109 @@
 - **依赖 / 安全：开启**（依赖库出现安全问题或不兼容）
 - **新功能：仅在确有未覆盖、且值得进入核心的真实需求时**
 
-目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
+目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。  
+
+## 未发布 — 能力模块化 + 测试分层（渐进内部重构，CLI 冻结）
+
+把巨型脚本里的纯逻辑外提为**可导入、可单测的平铺能力模块**，脚本收敛为 thin CLI 壳并 re-export 同名符号。
+不改任何 CLI 路径、argparse 选项与 stdout 措辞，**不升 minor 版本**（maintenance-mode 内部重构）。
+依赖单向 DAG：`_version → _shared → {_ooxml,_docx_edit,_verify,_visual_diff,_evidence,_compile,_mutate}`
+→ 脚本壳；能力模块绝不反向 import 壳。每步以「净搬 + re-export、计数不变」+ 全量 pytest 绿放行；
+唯一大规模碰版式的写侧收敛步以默认配置快照 **0.00%** 为硬门禁。
+
+- **verify 侧外提 → `scripts/_verify.py`**：`CheckResult` + 状态常量、profile→断言 enforcement 内核、文本归一 /
+  页码收集等零 I/O 纯函数逐字节搬出；`validate.py` 顶部 `from _verify import` 并 re-export 同名，
+  `test_validate_units.py`（77 项进程内直调）不改一行即绿——这就是等价性的机器证明。
+- **视觉差异外提 → `scripts/_visual_diff.py`**：`diff_ratio`、抽样页号、`compute_visual_diff` 收成单一实现；
+  消灭 `validate.py` 里 `_import_diff_ratio` 的 sys.path hack，`snapshot.py` 同步改裸名 `from _visual_diff import`。
+- **Evidence/Manifest 外提 → `scripts/_evidence.py`**：报告骨架 `_new_report`、`_tally`、report.json / signature
+  写盘、新增显式 `build_manifest`；签名与 manifest 字段文案逐字搬，evidence 产物字节口径不变。
+- **compile 侧外提 → `scripts/_compile.py`**：`_build_pandoc_cmd`（返回可断言的命令 list）、`_outside_code_fences`、
+  `_should_prompt` 搬出，`render.py` re-export。含 `sys.exit` 的 CLI 语义与 subprocess 调 post.py 的边界一律留壳。
+- **mutate 侧外提 → `scripts/_mutate.py`**：声明式 Patch 引擎——schema 校验、前置条件、7 个
+  `op(doc, spec) -> MutationResult` 原语、assess/dry_run/apply/validate 编排 + 共享编辑助手收拢；
+  `patch.py`（739→347 行）、`edit.py` re-export 并把 `MutationResult` 降级回原 `tuple[bool, str]`，stdout 措辞
+  （"越界"/"通过"等）逐字节不变；`test_patch.py::TestPatchUnits` 进程内哨兵不改一行即绿。
+- **docx kernel 写侧收敛 → `scripts/_ooxml.py`**（最高风险、排最后）：仅迁 S-independent 的写原语
+  `set_pgnum_start`/`set_repeat_header`/`clear_repeat_header`（与读侧 `style_fonts` 对称）；依赖 `global S` 的版式
+  写原语（`set_run_font`/`add_field`/`shade`/边框）与 `make_ref.set_font` 按设计保留原地不强行合并。迁移后
+  `render --sample` + `snapshot.py` 对 `baselines/word/` 实测 **0.00%**。
+- **测试安全网 + 分层兑现性能**：新建 `tests/conftest.py`——共享内存 docx 构造 fixture + `_NoopRenderer`（
+  `render()` 恒 `ok=False`、`available()` 恒 `(False, …)`），把 report 结构 / 文件产出 / 反 fail-open 的 evidence
+  组装下沉为进程内 L2（零 Word，见 `test_validate_units.py::TestEvidenceInProcess`）；`test_validate.py` 需启
+  Word 的 L3/L4 契约用例打 `@pytest.mark.word`（收集 20 项），CI 拆 `pytest -m "not word"`（快子集 + 全量逻辑，
+  不启 Word）与 `-m word`（L3/L4 契约）两步。marker 不改变收集数。
+- **文档同步**：`_verify`/`_visual_diff`/`_evidence`/`_compile`/`_mutate` 补进中英两份 README 仓库地图（与模块
+  首次落地同批）；`docs/VALIDATION.md` + `.zh-CN.md` 新增「能力模块与测试分层」一节；`test_docs_sync` 仓库地图
+  + 中英同构 + 计数守卫全程绿。
+
+内部重构，净搬 + re-export 未改行为；因下沉新增 1 项进程内 evidence 用例，断言数 344 → **345**（已同步
+README×2 / SKILL 写死计数，`test_stated_test_count_is_current` 对拍绿）。
+
+## 未发布 — 流水线优化与文档完善（依赖 / 重复 / 多语言 / 知识同步四轨道）
+
+不改任何 CLI 路径、argparse 选项与 stdout 措辞（tests 以 subprocess + 字符串为契约）；
+唯一碰版式的步骤（keep_with_next）以默认配置快照 **0.00%** 为硬门禁验收。
+
+### 重构：单一事实源收敛
+
+- **编辑原语下沉**：新建 `scripts/_docx_edit.py`（异常类 AnchorNotFound/StyleNotFound/
+  CellOutOfRange + t_nodes/find_anchors/replace_in_paragraph/set_cell_text 等 14 个纯函数）。
+  `edit.py` 只留 CLI wrapper（异常转 `sys.exit(str(e))`，措辞逐字不变）；`patch.py` 不再
+  借 `sys.path` hack 反向伸手拿 `edit._xxx` 私有名，`except (Exception, SystemExit)` 收窄为
+  `except Exception`。
+- **OOXML 有序插入**：新建 `scripts/_ooxml.py`（ECMA-376 顺序表唯一实现），post/make_ref/
+  edit/patch 不再各自维护副本。
+- **`_shared.py` 扩展**：sha256_file / force_utf8_stdio / UTF8_ENV / display_width / 常量
+  （BASELINE_DPI、DEFAULT_MAX_DIFF）/ 语言词表（字体对、页码模板、目录文案、样式别名、
+  题注默认词、页脚识别式、稀疏页豁免词）。题注词表曾计划单独建 `_locale.py`，但
+  `_locale` 是 CPython 内置模块名、永远遮蔽脚本目录同名文件，故并入 `_shared`。
+- **render.py 去 import 副作用**：`force_utf8_stdio()` / `cleanup_old_temp()` 从顶层移进
+  `main()`——被 import（测试守卫 / 工具链）不再默默改控制台编码、扫删临时目录；
+  新增 `tests/test_render_import.py` 钉住（AST + 真实子进程静默双验）。
+- **视觉漂移口径彻底单一来源**：`check_pdf.py` 的 `SNAPSHOT_DPI` 此前独立硬编码 100，
+  现引用 `_shared.BASELINE_DPI`（值不变）；新增 `test_snapshot_thresholds_have_single_source`
+  守卫——DPI/阈值只允许在 `_shared` 定义，消费脚本（snapshot/validate/check_pdf）顶层
+  凡名字含 DPI 或 MAX_DIFF 的赋值不得是数字字面量。
+- **读/写原语分家（有意保留）**：`_ooxml.style_fonts` 只做信息提取（读侧），
+  `make_ref.set_font` 是写入器（找到/新建 rFonts 再 setattr），语义不同故意不强行合并，
+  已在其 docstring 注明避免未来误合。
+- **性能快赢**：COM 渲染器 `available()` 按 PROGID memo（DispatchEx 拉起 Office 是百毫秒级）；
+  `--doctor` 复用循环里已有的 Word 探测；`_pandoc_version()` memo + 显式 UTF-8 解码；
+  `snapshot.diff_ratio` 64K 分块短路（全等页不再整页解码比对；逐字节结果与旧
+  实现等价，`test_snapshot.py` 钉住）。
+
+### 新增：多语言容错（只改 PASS/SKIP，不改产物）
+
+- 页脚识别追加整行锚定的 `N / M`（半/全角斜杠）、`Page N of M`、`S. N`/`Nr. N`；
+  顺序不变（「— N —」仍优先于裸数字）。负例保留：正文日期「2026年9月」、「工期 90 日历天」
+  仍不得被当页码。
+- 稀疏页豁免追加英文全称变体（`This page intentionally left blank` / `Page left blank
+  intentionally`）。
+- 题注词表三份互不一致的漂移修正：lua 默认词表 TABLE 侧误收「圖片」、FIGURE 侧缺
+  `Fig.` → 与 `_shared.DEFAULT_CAPTION_WORDS` 逐词对齐，新增只解析不执行的守卫钉死。
+- **keep_with_next 贯通 caption_words**（唯一碰版式项）：表题粘表格的判定此前硬编码
+  `^(表|表格|Table)`，config 配了自定义表题词也分家；现改用同源重建的表题前缀 matcher。
+  默认词表行为逐字不变（快照 0.00% + 新旧两用例各钉一边）。
+
+### 文档与知识同步
+
+- profile 契约边界写进 `docs/VALIDATION.md`+`.zh-CN.md`：profile=验收契约 / config=渲染输入，
+  打通是明确 non-goal；给出五类 enforced vs declared-only 清单与可选键（`baseline_dir` /
+  `acceptance.renderers`）示例。
+- profile 漂移修正：中文侧 `toc.title` 半角「目  录」统一为渲染默认全角「目　　录」（断言侧
+  不消费 title 文案，不翻转任何门禁）；`neutral-en-v1` 的 `font_eastAsia` 在 description 与
+  SCRIPT_HELP 注明为 CJK 回退字体语义。
+- README「each with a `.zh-CN` mirror」为已证实的错误——`SCRIPT_HELP.md` 是中文单份，改为
+  如实标注；仓库地图补漏列条目（`policy.py` 注明未接入退出码、`align_tables.py`、
+  `renderers.py`、`_shared.py`、`_ooxml.py`、`_docx_edit.py`、`_version.py`）与
+  `neutral-en-v1`；新增守卫：`scripts/*.py` 全部出现在两份地图里。
+- `style.caption_words` 补进 `config.schema.json`（post.py 运行时兼容读取早已存在，schema
+  预校验却会误报），双语 CONFIG 同步补行。
+- 依赖约束守卫（pyproject ↔ requirements 对拍）、ARGPARSE_SCRIPTS 补 `align_tables.py`、
+  style 键四方同步守卫升级（解析 `from _shared import` 的词表字面值）。
+
+断言从 315 增至 344，新增用例锁定被改动的每一条契约。
 
 ## 未发布 — 全面审查修复（scripts/ 全部 12 个脚本，三视角交叉审查）
 

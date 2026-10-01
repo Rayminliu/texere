@@ -14,6 +14,8 @@ import subprocess
 import sys
 import warnings
 
+from _ooxml import TBLPR_ORDER, insert_ordered
+from _shared import force_utf8_stdio
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -22,9 +24,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 # Windows 控制台编码：强制 UTF-8 输出（GBK 终端下中文/emoji 不再乱码或报错）
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+force_utf8_stdio()
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -239,38 +239,7 @@ for name in ("Blockquote", "Block Text", "Quote"):
     )
 
 # 表格文字（pandoc 表格用 Table 样式，单元格继承 Normal）
-TBLPR_ORDER = [
-    "tblStyle",
-    "tblpPr",
-    "tblOverlap",
-    "bidiVisual",
-    "tblStyleRowBandSize",
-    "tblStyleColBandSize",
-    "tblW",
-    "jc",
-    "tblCellSpacing",
-    "tblInd",
-    "tblBorders",
-    "shd",
-    "tblLayout",
-    "tblCellMar",
-    "tblLook",
-    "tblCaption",
-    "tblDescription",
-]
-
-
-def insert_ordered(parent, child, order):
-    tag = child.tag.split("}")[-1]
-    idx = order.index(tag) if tag in order else len(order)
-    for existing in parent:
-        etag = existing.tag.split("}")[-1]
-        eidx = order.index(etag) if etag in order else len(order)
-        if eidx > idx:
-            existing.addprevious(child)
-            return child
-    parent.append(child)
-    return child
+# TBLPR_ORDER / insert_ordered 来自 _ooxml（与 post.py 共用唯一实现）
 
 
 try:

@@ -972,6 +972,7 @@ def test_render_warns_on_unknown_config_key(tmp_path):
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert r.returncode == 0
     assert "[warn]" in r.stdout and "toplevel_typo" in r.stdout
@@ -1005,6 +1006,78 @@ def test_render_creates_out_parent_dir(tmp_path):
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert out.exists(), "嵌套 --out 目录应被自动创建"
+
+
+def _load_post():
+    import importlib.util
+
+    scripts = os.path.join(KIT, "scripts")
+    if scripts not in sys.path:  # post.py 依赖兄弟模块 _shared / _ooxml
+        sys.path.insert(0, scripts)
+    spec = importlib.util.spec_from_file_location("post", os.path.join(KIT, "scripts", "post.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_keep_with_next_uses_configured_table_words(tmp_path):
+    """keep_with_next 走 caption_words 的表侧 matcher，不再硬编码 (表|表格|Table)。
+
+    历史 bug：config 配 caption_words={"table":["附表"]} 后「附表 1-1」能被
+    重建的 CAPTION_RE 识别成表题，keep 判定却仍用硬编码词表——表题和表格分家。
+    """
+    from docx import Document
+
+    post = _load_post()
+    saved = (post.CAPTION_RE, post.TABLE_CAPTION_RE)
+    try:
+        post.build_caption_matchers({"table": ["附表"]})
+        doc = Document()
+        cap = doc.add_paragraph("附表 1-1 商务条款清单")
+        doc.add_paragraph("表格后续内容")
+        assert post._format_captions(doc) >= 1, "重建词表后表题未被识别"
+        assert cap.paragraph_format.keep_with_next is True, "自定义表题词未贯通到 keep_with_next"
+    finally:
+        post.CAPTION_RE, post.TABLE_CAPTION_RE = saved
+
+
+def test_keep_with_next_default_words_unchanged(tmp_path):
+    """默认词表下行为与历史硬编码一致：带编号题注走正则兜底也能 keep，
+    图注不 keep（历史实测 47 图文档多出 4 页的教训）。"""
+    from docx import Document
+
+    post = _load_post()
+    doc = Document()
+    # 无任何题注样式 → 非 strict，文本正则兜底生效；keep 由表题前缀正则判定
+    t1 = doc.add_paragraph("表 1-1 capacity")
+    t2 = doc.add_paragraph("Table 2-3 Items")
+    f1 = doc.add_paragraph("图 1-1 架构图")
+    doc.add_paragraph("结束")
+    post._format_captions(doc)
+    assert t1.paragraph_format.keep_with_next is True
+    assert t2.paragraph_format.keep_with_next is True
+    assert f1.paragraph_format.keep_with_next is False, "图注不该 keep（会把后文整块推走）"
+
+
+def test_keep_with_next_styled_captions(tmp_path):
+    """样式路径：styleId=TableCaption 的段落即使不带编号也 keep（历史硬编码
+    前缀正则「表 商务条款响应表」的受众）；FigureCaption 样式不 keep。"""
+    from docx import Document
+
+    post = _load_post()
+    doc = Document()
+    # 模拟 lua 在 AST 层打的样式：styleId 才是判据，名字随意
+    cap_style = doc.styles.add_style("LuaTableCaption", 1)
+    cap_style.style_id = "TableCaption"
+    fig_style = doc.styles.add_style("LuaFigureCaption", 1)
+    fig_style.style_id = "FigureCaption"
+    t3 = doc.add_paragraph("表 商务条款响应表", style=cap_style)
+    f2 = doc.add_paragraph("图片", style=fig_style)
+    doc.add_paragraph("结束")
+    post._format_captions(doc)
+    assert t3.paragraph_format.keep_with_next is True, "不带编号的样式表题应粘住表格"
+    assert f2.paragraph_format.keep_with_next is False, "图注样式不该 keep"

@@ -43,6 +43,7 @@ restating them. Everything is optional; the defaults are the Chinese formal-docu
 | TOC | `toc_depth` / `toc_title_size` / `toc_title_color` / `toc_placeholder` / `toc_placeholder_size` | `1-2` / `16` / `000000` / see source / `12` |
 | Captions | `caption_gray` / `caption_size` / `caption_space_before` / `caption_space_after` | `404040` / `10.5` / `6` / `4` |
 | Captions | `caption_keep_with_next` | `true` (keeps a table caption with its table; turning it off saves a page in testing, but the caption may strand at a page foot) |
+| Captions | `caption_words` | same as the top-level `caption_words` — accepted inside `style` too (compat path); the top-level key wins |
 | Tables | `header_rows` | auto — **per table**, by reading the `w:tblHeader` pandoc emits; a number forces it; `0` = this table has no header (forms / appendix tables whose first row is a field name), which also drops the repeating-header flag. See [Visual control](TABLES.md#visual-control) |
 | Tables | `table_border` / `table_shade` / `table_size` | `full` / `EDEDED` / `10.5` |
 | Tables | `table_header_color` / `table_zebra` / `table_zebra_fill` | unset / `false` / `F7F7F7` |

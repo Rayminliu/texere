@@ -22,11 +22,12 @@ import sys
 import tempfile
 from datetime import datetime
 
+from _compile import _build_pandoc_cmd, _outside_code_fences, _should_prompt
 from _shared import UTF8_ENV, __version__, force_utf8_stdio
+from _shared import display_width as dw
 from renderers import SUPPORTED_RENDERERS, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-force_utf8_stdio()
 
 
 def cleanup_old_temp(prefix="texere_"):
@@ -49,19 +50,6 @@ def cleanup_old_temp(prefix="texere_"):
 
     if cleaned > 0:
         print(f"[cleanup] 删除 {cleaned} 个旧临时目录")
-
-
-# 启动时清理旧临时目录
-cleanup_old_temp()
-
-
-def _should_prompt(can_read, can_write):
-    """该不该当场问验收？只有「人在终端前」才问。
-
-    两个流都得是 TTY：脚本 / CI / pytest 里 capture_output=True 时 stdout 是管道，
-    那时子进程的 stdin 可能仍然继承了终端——只查 stdin 会挂在那里等输入。
-    """
-    return bool(can_read and can_write)
 
 
 class _Workdir:
@@ -273,14 +261,15 @@ def doctor():
         except Exception:
             rows.append((label, "缺失" + ("（核心）" if core else "（可选）"), not core))
 
+    word_ok, word_why = False, "未探测"
     for _name in SUPPORTED_RENDERERS:
         _r = get_renderer(_name)
         _ok, _why = type(_r).available()
         rows.append(("渲染器:%s" % _name, _why, _ok))
-    word_ok, word_why = type(get_renderer("word")).available()
-
-    def dw(s):  # 中文按 2 列宽计算
-        return len(s) + sum(1 for c in s if ord(c) > 127)
+        if _name == "word":
+            # 复用循环里已探的结果：另起一次 type(...).available() 会重复拉起
+            # 一次 Office COM 进程（doctor 慢的主因）
+            word_ok, word_why = _ok, _why
 
     width = max(dw(r[0]) for r in rows)
     for name, state, _ in rows:
@@ -457,36 +446,6 @@ def _resource_paths(src_root, cfg):
     return uniq
 
 
-def _build_pandoc_cmd(all_md, body, ref, uniq, cfg):
-    """拼 pandoc 命令行；captions.lua 存在时把题注关键字一并喂给它。"""
-    lua_filter = os.path.join(KIT, "scripts", "filters", "captions.lua")
-    cmd = [
-        "pandoc",
-        all_md,
-        "-o",
-        body,
-        "--reference-doc=" + ref,
-        "--resource-path=" + os.pathsep.join(uniq),
-        "-f",
-        "markdown+pipe_tables+raw_html",
-        "--wrap=none",
-    ]
-    if os.path.exists(lua_filter):
-        # AST 层标记表题/图注，post.py 就不用再靠正则猜
-        cmd.append("--lua-filter=" + lua_filter)
-        # 题注关键字可配：同一份配置同时喂给 lua filter 与 post.py
-        cw = cfg.get("caption_words") or {}
-        for key, meta_name in (
-            ("table", "dk-table-words"),
-            ("figure", "dk-figure-words"),
-        ):
-            if cw.get(key):
-                cmd += ["-M", "%s=%s" % (meta_name, ",".join(cw[key]))]
-    else:
-        print("[warn] 缺少 filters/captions.lua，题注退回文本正则判定")
-    return cmd
-
-
 def _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp):
     """导 PDF（刷域写回），并按需跑 check_pdf.py 目视验收。"""
     pdf = os.path.splitext(out_docx)[0] + ".pdf"
@@ -573,22 +532,6 @@ def render(
         sys.exit(1)
 
 
-def _outside_code_fences(md_text: str) -> str:
-    """去掉 ``` / ~~~ 围栏代码块，只留围栏外的正文。"""
-    out, fence = [], None
-    for line in md_text.splitlines():
-        s = line.strip()
-        if fence is None and (s.startswith("```") or s.startswith("~~~")):
-            fence = s[:3]
-            continue
-        if fence is not None:
-            if s.startswith(fence):
-                fence = None
-            continue
-        out.append(line)
-    return "\n".join(out)
-
-
 def check_images(md_text, docx_path):
     """源 md 里写了图、文档里却没嵌进去时，必须大声报错。
 
@@ -628,6 +571,10 @@ def _work_mode(a):
 
 
 def main():
+    # 副作用只在入口执行：被 import（工具复用/测试）时不碰 stdio、不扫临时目录
+    force_utf8_stdio()
+    cleanup_old_temp()
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--src")
     ap.add_argument("--out")

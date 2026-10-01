@@ -185,9 +185,28 @@ python scripts/validate.py bid.docx --quiet
 | `styles.h1/h2/h3.page_break_before` / `space_*` | ⚠️ declared-only | profile 可声明，目前**未**编译成断言 |
 | `caption.*` / `header.*` / `footer.*` | ⚠️ declared-only | 渲染指令，未编译成断言 |
 | `table` 其余键（border_size / border_color / header_shade / zebra / ...） | ⚠️ declared-only | 渲染指令，未编译成断言 |
-| `toc.depth` / `toc.title` / ... | ⚠️ declared-only | 只检查 TOC 域存在，不校验深度 / 标题 |
+| `toc.depth` / `toc.title` / ... | ⚠️ declared-only | 只检查 TOC 域存在，不校验深度 / 标题（中文 profile 的 `toc.title` 已与渲染默认 `目　　录`（全角空格）统一，但断言侧不消费它） |
 | `tender_specific.*`（signature_page / sealing_requirement / price_table_style / ...） | ⚠️ declared-only | 客户语义信息，目前无对应 validator |
    无基线目录 → SKIP
+
+**关于 `profiles/neutral-en-v1.json` 里的 `font_eastAsia`（宋体/黑体）**：这是 **CJK 回退字体语义**——英文基线文档内混排中文时的回退字体声明，不是「这是中文 profile」的误写。`--enforce-profile` 会逐字断言它，改值会翻转门禁结论，故只补文档不删字段。
+
+#### Profile 可选键（5 个内置 profile 均未使用，合法）
+
+- `baseline_dir`：视觉基线目录。`validate.py` 在未传 `--baseline` 时回退读它，供视觉漂移检查定位 `p*.png` 基线。
+- `acceptance.renderers`：多渲染器验收矩阵（如 `["word", "wps"]`，两个环境都要通过）；由 `policy.py` 的 `required_renderers` 消费（策略模型库，未接入 validate 退出码）。
+
+示例：
+
+```json
+{
+  "version": "1.0",
+  "name": "My Profile",
+  "baseline_dir": "baselines/word",
+  "acceptance": { "renderers": ["word", "wps"] },
+  "page": { "width": 21, "height": 29.7, "unit": "cm" }
+}
+```
 
 ---
 

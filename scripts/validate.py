@@ -30,7 +30,6 @@
 
 import argparse
 import concurrent.futures
-import glob
 import hashlib
 import json
 import os
@@ -38,17 +37,45 @@ import re
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass, field
-from datetime import datetime
 
 try:
     import pymupdf  # PyMuPDF：包结构/分节等基础检查不需要它，页码/空白页/视觉比对才需要
 except ImportError:
     pymupdf = None
-from _shared import __version__, force_utf8_stdio
+from _evidence import _new_report, _tally, _write_report, _write_signature
+from _shared import (
+    DEFAULT_MAX_DIFF,
+    SPARSE_OK_RE,
+    force_utf8_stdio,
+)
 from _shared import sha256_file as _sha256_file
+from _verify import (
+    ERROR,
+    FAIL,
+    PASS,
+    SKIP,
+    CheckResult,
+    _check_table_borders,  # noqa: F401  re-export：test_validate_units 哨兵直访 v._check_table_borders
+    _docx_text,
+    _is_subsequence,
+    _md_image_paths,
+    _md_image_raw_refs,
+    _normalize,
+    _open_doc,
+    _source_md_segments,
+    collect_page_numbers,
+    compile_profile_checks,
+    count_toc_fields,
+    footer_page_number,  # noqa: F401  re-export：test_validate_units 哨兵直访 v.footer_page_number
+)
+from _visual_diff import (
+    baseline_page_diff,  # noqa: F401  re-export：test_validate_units 哨兵直访 v.baseline_page_diff
+    sample_page_indices,  # noqa: F401  re-export：test_validate_units 哨兵直访 v.sample_page_indices
+)
+from _visual_diff import (
+    compute_visual_diff as check_visual_drift,
+)
 from docx import Document
-from docx.oxml.ns import qn
 from renderers import SUPPORTED_RENDERERS, RenderResult, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -56,30 +83,9 @@ force_utf8_stdio()
 
 
 # =============================================================================
-# 检查项实现 —— 统一返回 (status, message)，status ∈ PASS / FAIL / SKIP / ERROR
+# 检查项实现 —— CheckResult / 状态常量 / _open_doc / count_toc_fields 见 _verify.py
+# （已在文件顶部 re-export，保持 `python scripts/validate.py` 行为逐字不变）
 # =============================================================================
-
-PASS, FAIL, SKIP, ERROR = "PASS", "FAIL", "SKIP", "ERROR"
-
-
-@dataclass
-class CheckResult:
-    """统一的检查结论对象（Layer 0 integrity 地基）。
-
-    取代各处散落的 `(status, message)` / `(False, ...)` 元组，让 profile enforcement、
-    provenance、CLI report 都依赖同一个类型，而不是各自拼字符串。
-    evidence 装机器可读的判定依据（如命中/缺失段数、图片 sha 列表），report.json
-    一并落盘，便于将来做可解释审计；现在先预留，不强制每个 check 都填。
-    """
-
-    name: str
-    status: str
-    message: str
-    evidence: dict = field(default_factory=dict)
-    # evidence 是「只观测、不裁决」的机器可读判定依据：profile.page / profile.body_font /
-    # profile.heading / profile.table / profile.toc / image_embedding 等检查会填实它，
-    # 其余检查留空 {}。它绝不参与 status 判定，缺失 evidence 也绝不改变 verdict——
-    # 仅用于可解释审计与将来的 Build Manifest 直接消费。
 
 
 def check_package_integrity(docx_path: str) -> CheckResult:
@@ -112,92 +118,6 @@ def check_package_integrity(docx_path: str) -> CheckResult:
         return CheckResult("package_integrity", FAIL, f"文件不存在：{e}")
     except Exception as e:
         return CheckResult("package_integrity", ERROR, f"未知错误：{type(e).__name__} - {e}")
-
-
-# ---------------------------------------------------------------- 源内容比对
-
-
-def _normalize(text: str) -> str:
-    """归一化：去掉 Markdown 记号与全部空白，用于「正文是否同源」比对。
-
-    去掉空白是因为 Word 会在中英文交界、断行处插入不可见字符，逐字符等价
-    在这里不成立；比对的是「去掉排版噪声后的可见文字序列」。
-    """
-    # pandoc/Word 会把直引号排成弯引号，-- 变 en/em-dash，... 变 ellipsis，正文比对前先统一回 ASCII
-    t = text.translate(
-        str.maketrans(
-            {
-                "\u201c": '"',
-                "\u201d": '"',
-                "\u2018": "'",
-                "\u2019": "'",
-                "\u2013": "-",
-                "\u2014": "-",
-                "\u2026": "...",
-            }
-        )
-    )
-    # pandoc 的 smart 排版会把源里的 -- 收成 en-dash、--- 收成 em-dash，
-    # 于是同一句话两侧分别是「2020--2024」和「2020–2024」。破折号长度不是正文
-    # 契约（实测源文件里写 -- 还是—纯属作者习惯），统一压成单个 - 再比。
-    t = re.sub(r"-{2,}", "-", t)
-    t = re.sub(
-        r"!\[[^\]]*\]\([^)]*\)\s*(?:\{[^}]*\})?", "", t
-    )  # 图片：连 alt 和尾随的 pandoc 属性 {width=...} 一起丢
-    t = re.sub(r"\[([^\]]*)\]\([^)]*\)(?:\s*\{[^}]*\})?", r"\1", t)  # 链接：只留文字，属性同样丢掉
-    t = re.sub(r"[*_`>#|~]+", "", t)  # 强调 / 标题 / 引用 / 表格竖线
-    return re.sub(r"\s+", "", t)
-
-
-def _source_md_segments(md_text: str, min_len: int = 8) -> list[str]:
-    """抽出值得比对正文的 Markdown 片段。
-
-    跳过的都不是正文，留着只会误报（真实样例上这几条曾贡献 7 处假 FAIL）：
-      - ``` 代码块整体
-      - ::: / :::: pandoc fenced div 的栅栏行
-      - |:---|---| 表格分隔行
-      - 列表符号 `- ` / `* ` / `1. `（Word 里没有这个字符）
-      - 行尾硬换行的 `\\`
-      - 归一化后过短的片段（< 8 字符）
-    """
-    segs, in_fence = [], False
-    for line in md_text.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        stripped = line.strip()
-        if not stripped or re.fullmatch(r"[-=:|\s]+", stripped):
-            continue
-        if stripped.startswith(":::"):  # pandoc fenced div
-            continue
-        stripped = re.sub(r"^([-*+]|\d+[.)])\s+", "", stripped)  # 列表符号
-        stripped = stripped.rstrip("\\").strip()  # Markdown 硬换行
-        norm = _normalize(stripped)
-        if len(norm) >= min_len:
-            segs.append(norm)
-    return segs
-
-
-def _docx_text(doc) -> str:
-    """docx 的可见文字：正文段落 + 表格单元格（页眉页脚不算正文）。"""
-    parts = [p.text for p in doc.paragraphs]
-    for tbl in doc.tables:
-        for row in tbl.rows:
-            for cell in row.cells:
-                parts.append(cell.text)
-    return "\n".join(parts)
-
-
-def _open_doc(docx_path: str, doc=None):
-    """共用已解析的 Document，没传才自己解。
-
-    调用方（generate_evidence_package）顶层解析一次注入；预解析失败时传 None，
-    这里回落自己解 → 调用方自己的 FileNotFoundError / PermissionError 分支
-    能照原样报错，不会把「文档打不开」误报成内容不符。
-    """
-    return Document(docx_path) if doc is None else doc
 
 
 def _sha256_files_dedup(paths) -> list:
@@ -250,12 +170,9 @@ def check_source_content_integrity(
         return CheckResult("source_content", SKIP, "跳过 (未提供 --source-md 或 --expected-hash)")
 
     try:
-        sha256 = hashlib.sha256()
-        with open(docx_path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                sha256.update(chunk)
-
-        actual = sha256.hexdigest()
+        actual = _sha256_file(docx_path)
+        if actual is None:
+            return CheckResult("source_content", FAIL, f"文件不存在：{docx_path}")
         if actual == expected_hash:
             return CheckResult(
                 "source_content", PASS, "产件 hash 一致 (仅证明字节未变，非正文等价性)"
@@ -271,47 +188,6 @@ def check_source_content_integrity(
         return CheckResult("source_content", FAIL, f"文件不存在：{e}")
     except Exception as e:
         return CheckResult("source_content", ERROR, f"未知错误：{type(e).__name__} - {e}")
-
-
-# `![alt](path)` —— path 后面可能带 pandoc 属性段 `![](a.png){width=3cm}`
-MD_IMAGE_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
-
-
-def _md_image_raw_refs(md_text: str) -> list[str]:
-    """按文档顺序取回 `![](path)` 里的原始引用文本（已去掉 title / <>/ 尾随属性）。
-
-    与 _md_image_paths 共用同一套解析规则；路径解析失败（None）的位置对应的
-    原始引用从这里按序取回，供 evidence 记录「哪几张图定位不到」。
-    """
-    refs = []
-    for m in MD_IMAGE_REF.finditer(md_text):
-        raw = m.group(1).strip()
-        raw = re.split(r"\s+[{]", raw)[0].strip().strip("<>").strip()
-        raw = raw.split(" ")[0]  # `path "title"` 形式
-        refs.append(raw)
-    return refs
-
-
-def _md_image_paths(md_text: str, md_dir: str = None) -> list[str | None]:
-    """按文档顺序解析 `![](path)` 指向的真实文件；解析不到的位置留 None。
-
-    解析顺序：md 所在目录 → 当前目录 → 原样（绝对路径）。
-    解析不到不判失败，只在消息里说明「N 张无法定位」——路径规则属于
-    render.py 的 resource_paths，这里不该重复实现一套。
-    """
-    found = []
-    for raw in _md_image_raw_refs(md_text):
-        cand = raw
-        if not os.path.isabs(cand):
-            for base in (md_dir, os.getcwd()):
-                if not base:
-                    continue
-                p = os.path.join(base, cand)
-                if os.path.exists(p):
-                    cand = p
-                    break
-        found.append(cand if os.path.exists(cand) else None)
-    return found
 
 
 def _docx_image_shas(doc) -> list[str]:
@@ -335,12 +211,6 @@ def _docx_image_shas(doc) -> list[str]:
         except Exception:
             continue
     return shas
-
-
-def _is_subsequence(needle: list[str], hay: list[str]) -> bool:
-    """needle 是否按顺序出现在 hay 中（允许 hay 里夹着额外图片，如模板 logo）。"""
-    it = iter(hay)
-    return all(any(x == y for y in it) for x in needle)
 
 
 def check_image_embedding(
@@ -474,26 +344,6 @@ def check_section_count(docx_path: str, doc=None) -> CheckResult:
         return CheckResult("section_count", ERROR, f"未知错误：{type(e).__name__} - {e}")
 
 
-def count_toc_fields(doc) -> int:
-    """数正文里真实的 TOC 域：w:instrText 文本或 w:fldSimple 的 w:instr。
-
-    python-docx 没有 tables_of_contents 属性（1.2.0 实测 hasattr 为 False），
-    旧实现靠 hasattr 短路，于是这一项恒定「跳过」——9 项里有 1 项是死的。
-    这里下到 OOXML，与 post.py 注入 TOC 的写法（add_field → w:instrText）对齐。
-    """
-    from docx.oxml.ns import qn
-
-    body = doc.element.body
-    n = 0
-    for el in body.iter(qn("w:instrText")):
-        if re.search(r"(?i)\bTOC\b", el.text or ""):
-            n += 1
-    for el in body.iter(qn("w:fldSimple")):
-        if re.search(r"(?i)\bTOC\b", el.get(qn("w:instr")) or ""):
-            n += 1
-    return n
-
-
 def check_toc_field(docx_path: str, doc=None) -> CheckResult:
     """检查目录域是否存在。
 
@@ -582,42 +432,7 @@ def check_renderer_acceptance(
     return CheckResult("renderer_acceptance", FAIL, f"{renderer_name} 验收失败：{export_err}")
 
 
-# 页脚行识别：整行匹配才认，避免把正文里的数字（如「2026 年 9 月」）当页码。
-# 顺序有意义：装饰性的「— N —」优先于裸数字，否则裸数字会抢先匹到无意义行尾。
-FOOTER_PAGE_RES = (
-    re.compile(r"^\s*[\u2014\u2013\-\s]*(\d+)[\s\u2014\u2013\-]*\s*$"),  # — 1 —
-    re.compile(r"^\s*第\s*(\d+)\s*页.*$"),  # 第 1 页 / 第 1 页 共 3 页
-    re.compile(r"^\s*Page\s*(\d+)\s*$", re.IGNORECASE),  # Page 1
-    re.compile(r"^\s*(\d+)\s*$"),  # 裸数字
-)
-
-
-def footer_page_number(line: str, n_pages: int):
-    """单行页脚文本 → 页码；非页码行或超出页数范围返回 None。"""
-    for rx in FOOTER_PAGE_RES:
-        m = rx.match(line.strip())
-        if m:
-            v = int(m.group(1))
-            return v if 1 <= v <= n_pages else None
-    return None
-
-
-def collect_page_numbers(pdf_doc) -> list:
-    """逐页提取页脚页码（只看页尾三行；无页码的页如封面/目录直接跳过）。
-
-    必须用 sort=True 按版面位置排序：默认块序里页脚可能在文本流任意位置，
-    「取尾行」会漏检（实测 sample 文档页码明明存在却检测不到）。
-    """
-    n_pages = len(pdf_doc)
-    numbers = []
-    for i in range(n_pages):
-        lines = [ln for ln in pdf_doc[i].get_text("text", sort=True).splitlines() if ln.strip()]
-        for ln in lines[-3:]:
-            hit = footer_page_number(ln, n_pages)
-            if hit is not None:
-                numbers.append(hit)
-                break
-    return numbers
+# 页脚行/稀疏页识别式单一事实源在 _shared（见顶部 import；多语言容错模式在那里）。
 
 
 def check_page_numbering(pdf_path, max_pages: int = 1000) -> CheckResult:
@@ -670,13 +485,6 @@ def check_page_numbering(pdf_path, max_pages: int = 1000) -> CheckResult:
         return CheckResult("page_numbering", ERROR, f"检查失败：{type(e).__name__} - {e}")
 
 
-# 近空白页的**有意稀疏**豁免：签字 / 盖章 / 无正文声明出现在页面上，说明该页
-# 本来就该只有这几行——不计入空页（README「已知边界」的表单尾页误报）。
-SPARSE_OK_RE = re.compile(
-    r"签字|签章|盖章|签署|公章|以下无正文|intentionally left blank", re.IGNORECASE
-)
-
-
 def check_blank_pages(pdf_path, max_empty: int = 0) -> CheckResult:
     """检查空白页数量 (基于共享导出的 PDF)。"""
     if pdf_path is None:
@@ -714,389 +522,23 @@ def check_blank_pages(pdf_path, max_empty: int = 0) -> CheckResult:
         return CheckResult("blank_pages", ERROR, f"检查失败：{type(e).__name__} - {e}")
 
 
-# 基线图的录制口径与 snapshot.py 一致：dpi=100、逐字节比对。
-# 之前 validate 用 2x 矩阵渲染再抽样比对，与 baselines/ 的尺寸根本对不上，
-# 会把「没漂移」判成漂移——dpi 口径必须统一。
+# 口径单一事实源在 _shared：BASELINE_DPI / DEFAULT_MAX_DIFF 与 snapshot.py 共用。
 #
 # 覆盖面同样要统一：snapshot.py 是逐页全量，validate 曾经只比首/中/尾 3 页。
 # 272 页的标书第 137 页表格溢出时，抽样的 3 页可能全都干净，于是「视觉漂移」
 # 通过了——同一份文档在两套工具里给出两个结论。默认改为全量，
 # --sample-visual 才退回抽样（长文档快速预检用）。
-BASELINE_DPI = 100
-DEFAULT_MAX_DIFF = 0.001  # 0.1%，实测依据见 snapshot.py 注释
 
 
-def _import_diff_ratio():
-    """复用 snapshot.py 的 diff_ratio，避免两处实现漂移。"""
-    here = os.path.dirname(os.path.abspath(__file__))
-    if here not in sys.path:
-        sys.path.insert(0, here)
-    from snapshot import diff_ratio
-
-    return diff_ratio
-
-
-def baseline_page_diff(png_a: str, png_b: str) -> float:
-    """解码两张 PNG 并逐像素比较，返回差异比例 0..1；尺寸不同视为 1.0。"""
-    if pymupdf is None:
-        raise RuntimeError("需要 PyMuPDF：pip install PyMuPDF")
-    diff_ratio = _import_diff_ratio()
-    a = pymupdf.Pixmap(png_a)
-    b = pymupdf.Pixmap(png_b)
-    if (a.width, a.height) != (b.width, b.height):
-        return 1.0
-    return diff_ratio(a.samples, b.samples)
-
-
-def sample_page_indices(n: int) -> list[int]:
-    """抽样页号 (0 基)：首 / 中 / 尾。只在 --sample-visual 下使用。"""
-    idxs = [0]
-    if n > 10:
-        idxs.append(n // 2)
-    if n > 1:
-        idxs.append(n - 1)
-    return sorted({i for i in idxs if 0 <= i < n})
-
-
-def check_visual_drift(
-    pdf_path,
-    baseline_dir: str = None,
-    max_diff: float = DEFAULT_MAX_DIFF,
-    sample: bool = False,
-) -> CheckResult:
-    """与基线比对视觉漂移 (基于共享导出的 PDF，口径同 snapshot.py: 逐页全量)。"""
-    if not baseline_dir or not os.path.exists(baseline_dir):
-        return CheckResult(
-            "visual_drift",
-            SKIP,
-            "跳过 (未提供基线目录；如需版面漂移防护：先 python scripts/snapshot.py <pdf> --update 录基线，"
-            "再用 --baseline <目录> 或 profile 的 baseline_dir 指定)",
-        )
-    if pdf_path is None:
-        return CheckResult("visual_drift", SKIP, "跳过 (Word 导出 PDF 失败，无 PDF 可比)")
-    if pymupdf is None:
-        return CheckResult(
-            "visual_drift", FAIL, "视觉基线：无法比对 (未安装 PyMuPDF：pip install PyMuPDF)"
-        )
-
-    baseline_files = sorted(glob.glob(os.path.join(baseline_dir, "p*.png")))
-    if not baseline_files:
-        return CheckResult("visual_drift", FAIL, f"基线目录无图片：{baseline_dir}")
-
-    try:
-        diff_ratio = _import_diff_ratio()
-        doc = pymupdf.open(pdf_path)
-        drifts = []
-        try:
-            n = len(doc)
-            n_base = len(baseline_files)
-            # 双向都要卡：变少是大改，变多同样是版式变了（旧实现只对变少报错）
-            if n != n_base:
-                return CheckResult(
-                    "visual_drift",
-                    FAIL,
-                    f"页数 {n} != 基线 {n_base} 页，版式可能大改或基线需重录",
-                )
-            idxs = sample_page_indices(n) if sample else range(n)
-            for i in idxs:
-                cur = doc[i].get_pixmap(dpi=BASELINE_DPI).samples
-                base = pymupdf.Pixmap(baseline_files[i]).samples
-                r = diff_ratio(cur, base)
-                if r > max_diff:
-                    drifts.append((i + 1, r))
-        finally:
-            doc.close()
-
-        if drifts:
-            parts = [f"第{i}页漂移{r * 100:.2f}%" for i, r in drifts[:5]]
-            more = "" if len(drifts) <= 5 else f" …共 {len(drifts)} 页"
-            return CheckResult("visual_drift", FAIL, "视觉漂移：" + ", ".join(parts) + more)
-        scope = "抽样 %d 页" % len(sample_page_indices(n)) if sample else "全量 %d 页" % n
-        return CheckResult("visual_drift", PASS, f"视觉基线：一致 ({scope})")
-    except ImportError as e:
-        return CheckResult("visual_drift", ERROR, f"依赖缺失：{e} (需要 PyMuPDF)")
-    except Exception as e:
-        return CheckResult("visual_drift", ERROR, f"视觉比对异常：{type(e).__name__} - {e}")
+# diff_ratio / baseline_page_diff / sample_page_indices / check_visual_drift 已外提至
+# _visual_diff.py（compute_visual_diff 为内核）；validate.py 于顶部 re-export，
+# 原 _import_diff_ratio 的 sys.path hack 一并消灭，行为逐字不变。
 
 
 # =============================================================================
-# Profile enforcement —— profile 的声明字段编译成可执行断言（Level 1: Structural）
+# Profile enforcement —— 已外提至 _verify.py（compile_profile_checks 及全部
+# _check_* 断言内核）；validate.py 于顶部 re-export，行为逐字不变。
 # =============================================================================
-#
-# 这是「Profile = executable document contract」的第一步：profile 不再是只选 baseline
-# 的 metadata，而是机器可执行的文档规范。每条断言以 profile.<field> 命名，独立可追溯。
-# 目前只覆盖 Structural 级（页面/边距/字体/标题层级/表格边框/目录域），这些都能用
-# python-docx 直接读 OOXML 判定，不依赖 Word；Semantic / Rendered 级后续接入。
-# 只在显式 --enforce-profile 时才计入门禁；profile 是按需 opt-in 的 contract。
-
-EMU_PER_CM = 360000.0
-
-
-def _emu_cm(v):
-    return (v or 0) / EMU_PER_CM
-
-
-def _get_style(doc, name):
-    """python-docx 的 Styles 没有 .get，这里做缺失安全的取值。"""
-    try:
-        return doc.styles[name]
-    except KeyError:
-        return None
-
-
-def _east_asia_of_style(style):
-    """取 style 的 w:rFonts/@w:eastAsia（中文主字体）。"""
-    rpr = style.element.find(qn("w:rPr"))
-    if rpr is None:
-        return None
-    fonts = rpr.find(qn("w:rFonts"))
-    if fonts is None:
-        return None
-    return fonts.get(qn("w:eastAsia"))
-
-
-def _check_page(page, doc) -> CheckResult:
-    sec = doc.sections[0]
-    w_cm, h_cm = _emu_cm(sec.page_width), _emu_cm(sec.page_height)
-    pw = float(page.get("width", 0) or 0)
-    ph = float(page.get("height", 0) or 0)
-    # evidence：把「实际观测值」与 profile 期望值并排，便于审计 / Manifest 直接消费。
-    # 注意：evidence 只是观测记录，下方 issues / status 的判定逻辑一字未改。
-    evidence = {
-        "width": {
-            "expected_cm": round(pw, 2) if pw else None,
-            "actual_cm": round(w_cm, 2),
-        },
-        "height": {
-            "expected_cm": round(ph, 2) if ph else None,
-            "actual_cm": round(h_cm, 2),
-        },
-    }
-    issues = []
-    if pw and abs(w_cm - pw) > 0.1:
-        issues.append(f"宽 {w_cm:.2f}≠{pw}")
-    if ph and abs(h_cm - ph) > 0.1:
-        issues.append(f"高 {h_cm:.2f}≠{ph}")
-    for pk, sk in (
-        ("margin_top", "top_margin"),
-        ("margin_bottom", "bottom_margin"),
-        ("margin_left", "left_margin"),
-        ("margin_right", "right_margin"),
-    ):
-        exp = page.get(pk)
-        actual = _emu_cm(getattr(sec, sk))
-        evidence[pk] = {
-            "expected_cm": round(float(exp), 2) if exp is not None else None,
-            "actual_cm": round(actual, 2),
-        }
-        if exp is not None and abs(actual - float(exp)) > 0.2:
-            issues.append(f"{pk} {actual:.2f}≠{exp}")
-    if issues:
-        return CheckResult(
-            "profile.page", FAIL, "页面/边距不符：" + "，".join(issues), evidence=evidence
-        )
-    return CheckResult(
-        "profile.page",
-        PASS,
-        f"页面 {w_cm:.2f}×{h_cm:.2f}cm、边距符合规范",
-        evidence=evidence,
-    )
-
-
-def _check_body_font(body, doc) -> CheckResult:
-    st = _get_style(doc, "Normal")
-    if st is None:
-        return CheckResult("profile.body_font", SKIP, "跳过（无 Normal 样式）")
-    font = st.font
-    issues = []
-    # contract semantics：profile 要求某字段时，「实际缺失」与「值不符」都应判 FAIL。
-    # evidence 用 fields 数组把每个声明字段的 expected/actual 并排：actual=None 天然
-    # 表达「缺失 ≠ 不符」，审计方无需从中文 message 里反解。
-    fields = []
-    if body.get("font_latin"):
-        actual = font.name
-        fields.append(
-            {
-                "field": "styles.body.font_latin",
-                "expected": body["font_latin"],
-                "actual": actual,
-            }
-        )
-        if actual is None:
-            issues.append(f"西文缺失（要求 {body['font_latin']}）")
-        elif actual != body["font_latin"]:
-            issues.append(f"西文 {actual}≠{body['font_latin']}")
-    ea = _east_asia_of_style(st)
-    if body.get("font_eastAsia"):
-        fields.append(
-            {
-                "field": "styles.body.font_eastAsia",
-                "expected": body["font_eastAsia"],
-                "actual": ea,
-            }
-        )
-        if ea is None:
-            issues.append(f"中文缺失（要求 {body['font_eastAsia']}）")
-        elif ea != body["font_eastAsia"]:
-            issues.append(f"中文 {ea}≠{body['font_eastAsia']}")
-    if body.get("size"):
-        actual = round(font.size.pt, 2) if font.size is not None else None
-        fields.append({"field": "styles.body.size", "expected": body["size"], "actual": actual})
-        if font.size is None:
-            issues.append(f"字号缺失（要求 {body['size']}）")
-        elif abs(font.size.pt - float(body["size"])) > 0.5:
-            issues.append(f"字号 {font.size.pt}≠{body['size']}")
-    evidence = {"fields": fields, "source": "profile"}
-    if issues:
-        return CheckResult(
-            "profile.body_font", FAIL, "正文样式：" + "，".join(issues), evidence=evidence
-        )
-    return CheckResult(
-        "profile.body_font", PASS, "正文样式（字体/字号）符合规范", evidence=evidence
-    )
-
-
-def _check_heading_styles(styles, doc) -> CheckResult:
-    issues = []
-    fields = []
-    for lvl, wname in (("h1", "Heading 1"), ("h2", "Heading 2"), ("h3", "Heading 3")):
-        spec = styles.get(lvl)
-        if not spec:
-            continue
-        st = _get_style(doc, wname)
-        if st is None:
-            issues.append(f"{wname} 样式缺失")
-            continue
-        font = st.font
-        if spec.get("font_eastAsia"):
-            ea = _east_asia_of_style(st)
-            fields.append(
-                {
-                    "field": f"styles.{lvl}.font_eastAsia",
-                    "expected": spec["font_eastAsia"],
-                    "actual": ea,
-                }
-            )
-            if ea is None:
-                issues.append(f"{wname} 中文缺失（要求 {spec['font_eastAsia']}）")
-            elif ea != spec["font_eastAsia"]:
-                issues.append(f"{wname} 中文 {ea}≠{spec['font_eastAsia']}")
-        if spec.get("font_latin"):
-            actual = font.name
-            fields.append(
-                {
-                    "field": f"styles.{lvl}.font_latin",
-                    "expected": spec["font_latin"],
-                    "actual": actual,
-                }
-            )
-            if actual is None:
-                issues.append(f"{wname} 西文缺失（要求 {spec['font_latin']}）")
-            elif actual != spec["font_latin"]:
-                issues.append(f"{wname} 西文 {actual}≠{spec['font_latin']}")
-        if spec.get("size"):
-            actual = round(font.size.pt, 2) if font.size is not None else None
-            fields.append(
-                {"field": f"styles.{lvl}.size", "expected": spec["size"], "actual": actual}
-            )
-            if font.size is None:
-                issues.append(f"{wname} 字号缺失（要求 {spec['size']}）")
-            elif abs(font.size.pt - float(spec["size"])) > 0.5:
-                issues.append(f"{wname} 字号 {font.size.pt}≠{spec['size']}")
-        if spec.get("bold") is not None:
-            actual = bool(font.bold) if font.bold is not None else None
-            fields.append(
-                {
-                    "field": f"styles.{lvl}.bold",
-                    "expected": bool(spec["bold"]),
-                    "actual": actual,
-                }
-            )
-            if font.bold is None:
-                issues.append(f"{wname} 加粗缺失（要求 {spec['bold']}）")
-            elif bool(font.bold) != bool(spec["bold"]):
-                issues.append(f"{wname} 加粗 {font.bold}≠{spec['bold']}")
-    evidence = {"fields": fields, "source": "profile"}
-    if issues:
-        return CheckResult(
-            "profile.heading", FAIL, "标题样式：" + "，".join(issues), evidence=evidence
-        )
-    return CheckResult("profile.heading", PASS, "标题层级样式符合规范", evidence=evidence)
-
-
-def _check_table_borders(doc) -> CheckResult:
-    if not doc.tables:
-        return CheckResult("profile.table", SKIP, "跳过（文档无表格，border 断言不适用）")
-    bordered = 0
-    for tbl in doc.tables:
-        borders = tbl._tbl.tblPr.find(qn("w:tblBorders"))
-        if borders is None:
-            continue
-        # OOXML 里 w:tblBorders 的子元素是 w:top / w:left / w:bottom / w:right /
-        # w:insideH / w:insideV（没有名为 w:border 的元素）。早期实现误用
-        # findall(qn("w:border"))，恒返回空 → 所有表都被误判为「无边框」，
-        # 于是 render 默认加的全框线被错杀成 FAIL。这里直接遍历 tblBorders 的子元素。
-        if any((b.get(qn("w:sz")) and int(b.get(qn("w:sz")) or 0) > 0) for b in borders):
-            bordered += 1
-    # evidence 记录粗粒度语义：「至少一个表存在可见边框」，不逐边校验颜色/粗细——
-    # 用 rule 字段把这条边界写死，防止后人误读成「所有表全部符合边框规范」。
-    evidence = {
-        "bordered": bordered,
-        "total": len(doc.tables),
-        "rule": "at_least_one_visible_border",
-    }
-    if bordered:
-        return CheckResult(
-            "profile.table",
-            PASS,
-            f"表格边框：{bordered}/{len(doc.tables)} 个表含可见边框",
-            evidence=evidence,
-        )
-    return CheckResult(
-        "profile.table",
-        FAIL,
-        f"表格边框：{len(doc.tables)} 个表均无可见边框",
-        evidence=evidence,
-    )
-
-
-def _check_profile_toc(doc) -> CheckResult:
-    n = count_toc_fields(doc)
-    evidence = {"has_field": bool(n), "count": n}
-    if n:
-        return CheckResult("profile.toc", PASS, f"目录域：{n} 个", evidence=evidence)
-    return CheckResult(
-        "profile.toc", FAIL, "profile 要求目录，但文档中未发现 TOC 域", evidence=evidence
-    )
-
-
-def compile_profile_checks(profile, docx_path, doc=None) -> list:
-    """把 profile 的声明字段编译成可执行断言（profile.<field>）。
-
-    只覆盖 profile 真正声明了的字段；未声明的字段不凭空编造断言。
-    返回 [] 当且仅当 profile 为空（未传 --profile）。
-    """
-    out = []
-    if not profile:
-        return out
-    try:
-        doc = _open_doc(docx_path, doc)
-    except Exception as e:
-        return [CheckResult("profile.load", ERROR, f"无法打开文档以执行 profile 断言：{e}")]
-    page = profile.get("page") or {}
-    if page:
-        out.append(_check_page(page, doc))
-    styles = profile.get("styles") or {}
-    if styles.get("body"):
-        out.append(_check_body_font(styles["body"], doc))
-    if any(styles.get(k) for k in ("h1", "h2", "h3")):
-        out.append(_check_heading_styles(styles, doc))
-    table = profile.get("table") or {}
-    if table.get("border") and table["border"] != "none":
-        out.append(_check_table_borders(doc))
-    if profile.get("toc"):
-        out.append(_check_profile_toc(doc))
-    return out
 
 
 # =============================================================================
@@ -1104,55 +546,9 @@ def compile_profile_checks(profile, docx_path, doc=None) -> list:
 # =============================================================================
 
 
-def _pandoc_version() -> str:
-    """pandoc 版本进证据：provenance 缺「转换器是谁」就少一环（外部审计 R2）。"""
-    try:
-        import subprocess
-
-        out = subprocess.run(["pandoc", "--version"], capture_output=True, text=True).stdout
-        return (out.splitlines() or ["unknown"])[0].strip()
-    except Exception:
-        return "unknown"
-
-
-def _new_report(docx_path: str, profile: dict, config_path: str, reference_doc: str) -> dict:
-    """报告骨架：metadata + 空 checks + 归零的 summary。"""
-    return {
-        "metadata": {
-            "timestamp": datetime.now().isoformat(),
-            "document": os.path.basename(docx_path),
-            "tool_version": __version__,
-            "profile": profile or {},
-            # provenance：证据要能回答「哪个产物 + 哪份契约 + 哪个转换器」（外部审计 R2）
-            "cli": " ".join(sys.argv),
-            "pandoc_version": _pandoc_version(),
-            "config_sha256": _sha256_file(config_path),
-            "reference_sha256": _sha256_file(reference_doc),
-        },
-        "checks": {},
-        # skipped 独立于 passed：「没检查」不许冒充实测通过。
-        "summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
-    }
-
-
-def _tally(report: dict, res, name: str = None):
-    """把一条 CheckResult 记进 report 并累计 summary。
-
-    FAIL 与 ERROR 都算不合格（检查崩了不等于文档合格）；SKIP 单独计数。
-    """
-    key = name or res.name
-    report["checks"][key] = {
-        "status": res.status,
-        "message": res.message,
-        "evidence": res.evidence,
-    }
-    report["summary"]["total"] += 1
-    if res.status == PASS:
-        report["summary"]["passed"] += 1
-    elif res.status == SKIP:
-        report["summary"]["skipped"] += 1
-    else:
-        report["summary"]["failed"] += 1
+# _new_report / _tally / _write_report / _write_signature / build_manifest 已外提至
+# _evidence.py（含 pandoc provenance memo _pandoc_version）；validate.py 顶部 re-export，
+# report.json / signature 输出逐字节不变。
 
 
 def _run_checks(report: dict, checks: list):
@@ -1198,53 +594,6 @@ def _write_screenshots(shared_pdf: str, out_dir: str):
             pix.save(os.path.join(out_dir, f"page-{page_idx + 1:03d}.png"))
     finally:
         pdf_doc.close()
-
-
-def _write_report(report: dict, out_dir: str) -> str:
-    """先落盘 report.json —— 它的 hash 要进证据清单，顺序不能反。"""
-    report_path = os.path.join(out_dir, "report.json")
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    return report_path
-
-
-def _write_signature(report: dict, out_dir: str, docx_path: str, report_path: str):
-    """证据清单（文件名沿用 signature，但它是 checksum manifest，不是密码学签名：
-    没有密钥，任何人都能重算这些 hash。它证明的是「这份证据记录了哪个产物」，
-    不是「这份证据没被改过」。真签名需要非对称密钥 + 验签方持公钥。）
-    """
-    sig_path = os.path.join(out_dir, "signature")
-    # 全量文件清单：report.json + 全部截图的 sha256——证据目录里任何一个文件
-    # 被事后改动都可检出（此前只盖 docx 与 report，截图是漏项）。
-    # signature 自身排除（自引用不可行）；排序保证清单确定性。
-    evidence_files = {}
-    for name in sorted(os.listdir(out_dir)):
-        p = os.path.join(out_dir, name)
-        if name == "signature" or not os.path.isfile(p):
-            continue
-        evidence_files[name] = _sha256_file(p)
-
-    with open(sig_path, "w", encoding="utf-8") as f:
-        f.write("# texere validation manifest (checksums, not a cryptographic signature)\n")
-        f.write("# Generated: %s\n" % report["metadata"]["timestamp"])
-        f.write("document_hash: %s\n" % _sha256_file(docx_path))
-        f.write("report_hash: %s\n" % _sha256_file(report_path))
-        f.write(
-            "checks_passed: %d/%d\n" % (report["summary"]["passed"], report["summary"]["total"])
-        )
-        # 单独记 skipped：证据里也要能看出「9 项里有几项其实没查」
-        f.write("checks_skipped: %d\n" % report["summary"]["skipped"])
-        f.write("generated_at: %s\n" % report["metadata"]["timestamp"])
-        f.write("tool_version: %s\n" % __version__)
-        f.write("pandoc_version: %s\n" % report["metadata"].get("pandoc_version", "unknown"))
-        # 契约指纹：config 与 ref.docx 决定版式——证据缺了它们就缺「哪个契约」这一环
-        if report["metadata"].get("config_sha256"):
-            f.write("config_sha256: %s\n" % report["metadata"]["config_sha256"])
-        if report["metadata"].get("reference_sha256"):
-            f.write("reference_sha256: %s\n" % report["metadata"]["reference_sha256"])
-        for name, digest in evidence_files.items():
-            f.write("file[%s]: %s\n" % (name, digest))
 
 
 def generate_evidence_package(
