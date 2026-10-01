@@ -51,12 +51,16 @@
   组装下沉为进程内 L2（零 Word，见 `test_validate_units.py::TestEvidenceInProcess`）；`test_validate.py` 需启
   Word 的 L3/L4 契约用例打 `@pytest.mark.word`（收集 20 项），CI 拆 `pytest -m "not word"`（快子集 + 全量逻辑，
   不启 Word）与 `-m word`（L3/L4 契约）两步。marker 不改变收集数。
+- **依赖方向守卫 → `tests/test_module_boundaries.py`**（防回归，不属重构本体）：静态扫 `scripts/_*.py`，
+  禁止 core 能力模块 import 任一 CLI 壳（validate/render/patch/edit/post/snapshot…），把刚收敛的
+  `CLI 壳 → capability → primitive` 单向依赖钉死；防止将来“就 import 一个函数”把耦合拉回来。
+  只锁禁止方向，不做通用架构检查框架；同级（core import core/_shared）与 peer（renderers）均放行。
 - **文档同步**：`_verify`/`_visual_diff`/`_evidence`/`_compile`/`_mutate` 补进中英两份 README 仓库地图（与模块
   首次落地同批）；`docs/VALIDATION.md` + `.zh-CN.md` 新增「能力模块与测试分层」一节；`test_docs_sync` 仓库地图
   + 中英同构 + 计数守卫全程绿。
 
-内部重构，净搬 + re-export 未改行为；因下沉新增 1 项进程内 evidence 用例，断言数 344 → **345**（已同步
-README×2 / SKILL 写死计数，`test_stated_test_count_is_current` 对拍绿）。
+内部重构，净搬 + re-export 未改行为；因下沉新增 1 项进程内 evidence 用例 + 1 项依赖方向守卫，
+断言数 344 → **346**（已同步 README×2 / SKILL 写死计数，`test_stated_test_count_is_current` 对拍绿）。
 
 ## 未发布 — 流水线优化与文档完善（依赖 / 重复 / 多语言 / 知识同步四轨道）
 
