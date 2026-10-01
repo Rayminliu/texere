@@ -239,3 +239,121 @@ def test_com_renderers_share_one_skeleton():
     assert r.WPSRenderer.collect_stats is base.collect_stats
     assert r.WordRenderer.configure_app is not base.configure_app
     assert r.WPSRenderer.configure_app is base.configure_app
+
+
+# ---------------------------------------------------------- finally 不能赢过结果
+
+
+def test_quit_failure_does_not_invert_success(monkeypatch, tmp_path):
+    """T1.2 回归：app.Quit() 招 RPC 异常时，已成功导出的 PDF 不能被报成失败。
+
+    Python 语义下 finally 里的异常会丢弃即将 return 的结果，被外层 except 吞成
+    ok=False。本机实测过 Word COM 的 Windows fatal exception 0x800706be 正好走
+    这条路径——验收器不能把「不确定成功」当成「确定失败」。
+    """
+    import types
+
+    class FakeDoc:
+        def Close(self, *args):  # noqa: N802  COM 接口名，逐字对齐 Word API
+            pass
+
+        def ExportAsFixedFormat(self, path, fmt):  # noqa: N802  同上
+            with open(path, "wb") as f:
+                f.write(b"%PDF-1.4 fake export")
+
+    class FakeDocuments:
+        def Open(self, *args):  # noqa: N802  同上
+            return FakeDoc()
+
+    class FakeApp:
+        Version = "0.0-fake"
+        Path = str(tmp_path)
+        Documents = FakeDocuments()
+
+        def Quit(self):  # noqa: N802  COM 接口名
+            raise RuntimeError("(-2147023170, '远程过程调用失败')")
+
+    app = FakeApp()
+    pythoncom = types.ModuleType("pythoncom")
+    pythoncom.CoInitialize = lambda: None
+    pythoncom.CoUninitialize = lambda: None
+    client = types.ModuleType("win32com.client")
+    client.DispatchEx = lambda progid: app
+    win32com = types.ModuleType("win32com")
+    win32com.client = client
+    monkeypatch.setitem(sys.modules, "pythoncom", pythoncom)
+    monkeypatch.setitem(sys.modules, "win32com", win32com)
+    monkeypatch.setitem(sys.modules, "win32com.client", client)
+
+    class ProbeRenderer(r._ComRenderer):
+        PROGID = "Probe.Application"
+        LABEL = "probe"
+        ENGINE = "Probe"
+        TMP_PREFIX = "probe-test-"
+
+        def configure_app(self, app):
+            pass
+
+        def prepare_document(self, doc):
+            pass
+
+        def collect_stats(self, app, doc):
+            return {"pages": 1}
+
+    docx = tmp_path / "in.docx"
+    docx.write_bytes(b"docx-bytes")
+    pdf = tmp_path / "out.pdf"
+
+    res = ProbeRenderer().render(str(docx), str(pdf))
+
+    assert res.ok is True, "导出成功不得因 Quit 失败而被误判：%s" % res.errors
+    assert res.pdf == str(pdf)
+    assert os.path.exists(pdf)
+    # Quit 异常不能默默吞掉——要留在 warnings 里
+    assert any("Quit" in w for w in res.warnings), res.warnings
+
+
+def test_quit_failure_does_not_mask_a_real_error(monkeypatch, tmp_path):
+    """真失败时仍得是 ok=False，且 errors 里是原始原因，不是 Quit 的噪声。"""
+    import types
+
+    class FakeDocuments:
+        def Open(self, *args):  # noqa: N802  COM 接口名
+            raise ValueError("文档打开失败")
+
+    class FakeApp:
+        Version = "0.0-fake"
+        Path = str(tmp_path)
+        Documents = FakeDocuments()
+
+        def Quit(self):  # noqa: N802  COM 接口名
+            raise RuntimeError("(-2147023170, '远程过程调用失败')")
+
+    app = FakeApp()
+    pythoncom = types.ModuleType("pythoncom")
+    pythoncom.CoInitialize = lambda: None
+    pythoncom.CoUninitialize = lambda: None
+    client = types.ModuleType("win32com.client")
+    client.DispatchEx = lambda progid: app
+    win32com = types.ModuleType("win32com")
+    win32com.client = client
+    monkeypatch.setitem(sys.modules, "pythoncom", pythoncom)
+    monkeypatch.setitem(sys.modules, "win32com", win32com)
+    monkeypatch.setitem(sys.modules, "win32com.client", client)
+
+    class ProbeRenderer(r._ComRenderer):
+        PROGID = "Probe.Application"
+        LABEL = "probe"
+        ENGINE = "Probe"
+        TMP_PREFIX = "probe-test-"
+
+        def configure_app(self, app):
+            pass
+
+    docx = tmp_path / "in.docx"
+    docx.write_bytes(b"docx-bytes")
+    res = ProbeRenderer().render(str(docx), str(tmp_path / "out.pdf"))
+
+    assert res.ok is False
+    assert any("文档打开失败" in e for e in res.errors), res.errors
+    assert not any("Quit" in e for e in res.errors), "不该拿 Quit 异常掩盖真因"

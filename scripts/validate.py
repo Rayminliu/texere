@@ -42,6 +42,7 @@ try:
     import pymupdf  # PyMuPDF：包结构/分节等基础检查不需要它，页码/空白页/视觉比对才需要
 except ImportError:
     pymupdf = None
+from _compile import _outside_code_fences
 from _evidence import _new_report, _tally, _write_report, _write_signature
 from _shared import (
     DEFAULT_MAX_DIFF,
@@ -646,7 +647,9 @@ def generate_evidence_package(
         md_ref_text = None
         if source_md and os.path.exists(source_md):
             with open(source_md, encoding="utf-8-sig") as f:
-                md_ref_text = f.read()
+                # 围栏内的 `![...]` 是示例代码不是引图（与 render.py:546 同一条规则）：
+                # 不排掉会把示例算进引用数，凭空判 image_embedding FAIL。
+                md_ref_text = _outside_code_fences(f.read())
 
         # ---- docx 只解一次：共用 Document 实例注入给下游 docx 级检查 ----
         # 272 页文档上 python-docx 的冷启动解压 + 构 lxml 树是大头，
@@ -738,7 +741,9 @@ def print_report(report: dict, quiet: bool = False):
 
     if report["summary"]["failed"] > 0:
         print(f"\n❌ Validation FAILED ({report['summary']['failed']} checks failed)")
-        sys.exit(1)
+        # 这里不 sys.exit：退出码统一由 main() 末尾决定。在此之前退出会让
+        # 「Evidence package saved to ...」永远打不出来 —— 而失败时恰是用户最
+        # 需要知道证据包位置的时刻。
     else:
         if not quiet:
             if skipped:

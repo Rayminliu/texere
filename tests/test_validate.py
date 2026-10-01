@@ -92,6 +92,30 @@ class TestPackageIntegrity:
         assert result.returncode != 0
         assert "FAIL" in result.stdout or "error" in result.stderr.lower()
 
+    def test_failure_still_reports_evidence_location(self, tmp_path):
+        """T1.3 回归：验证失败时更要告诉用户证据包在哪。"""
+        # 修前 print_report 在 failed>0 时自己 sys.exit(1)，main() 里排在它后面的
+        # 「Evidence package saved to ...」永远执行不到——恰是最需要它的时刻。
+        bad_docx = tmp_path / "bad.docx"
+        bad_docx.write_bytes(b"PK\x03\x04invalid")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(KIT, "scripts", "validate.py"),
+                str(bad_docx),
+                "--out",
+                str(tmp_path / "ev"),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        assert result.returncode != 0, "exit 语义不变：失败仍退出 1"
+        assert "Validation FAILED" in result.stdout
+        assert "Evidence package saved to" in result.stdout
+
 
 @pytest.mark.word
 class TestImageEmbedding:

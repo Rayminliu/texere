@@ -22,6 +22,23 @@ from docx.oxml.ns import qn
 
 PASS, FAIL, SKIP, ERROR = "PASS", "FAIL", "SKIP", "ERROR"
 
+# 九项检查的名字与顺序 —— 名单的单一来源。
+# validate.py 的 checks 注册表、scripts/make_hero.py 的 CHECKS、README 双语版与
+# docs/showcase.md 里的 report 摘录，全部由
+# tests/test_docs_sync.py::test_check_names_have_single_source 对拍到这个名字表。
+# 为什么要有这条：Hero 图与 Showcase 是对「不摆拍」的承诺，改名没同步过去就是谎报。
+CHECK_NAMES = (
+    "package_integrity",
+    "source_content",
+    "image_embedding",
+    "section_count",
+    "toc_field",
+    "page_numbering",
+    "blank_pages",
+    "renderer_acceptance",
+    "visual_drift",
+)
+
 
 @dataclass
 class CheckResult:
@@ -114,19 +131,23 @@ def _source_md_segments(md_text: str, min_len: int = 8) -> list[str]:
     """抽出值得比对正文的 Markdown 片段。
 
     跳过的都不是正文，留着只会误报（真实样例上这几条曾贡献 7 处假 FAIL）：
-      - ``` 代码块整体
+      - ``` / ~~~ 代码块整体（围栏判定与 _compile._outside_code_fences 同一条规则：
+        记录开栏字符，只有同样的字符才关闭 —— ``` 包 inside 里的 ~~~ 不会误闭）
       - ::: / :::: pandoc fenced div 的栅栏行
       - |:---|---| 表格分隔行
       - 列表符号 `- ` / `* ` / `1. `（Word 里没有这个字符）
       - 行尾硬换行的 `\\`
       - 归一化后过短的片段（< 8 字符）
     """
-    segs, in_fence = [], False
+    segs, fence = [], None
     for line in md_text.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
+        s = line.lstrip()
+        if fence is None and (s.startswith("```") or s.startswith("~~~")):
+            fence = s[:3]
             continue
-        if in_fence:
+        if fence is not None:
+            if s.startswith(fence):
+                fence = None
             continue
         stripped = line.strip()
         if not stripped or re.fullmatch(r"[-=:\s]+", stripped):

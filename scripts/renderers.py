@@ -166,6 +166,7 @@ class _ComRenderer(RendererAdapter):
             app = win32.DispatchEx(self.PROGID)
             app.Visible = False
             self.configure_app(app)
+            result = None
             try:
                 doc = app.Documents.Open(os.path.abspath(tmp_src), False, False, False)
                 ok = False
@@ -184,7 +185,7 @@ class _ComRenderer(RendererAdapter):
                         doc.Close(0)
                     except Exception:
                         pass
-                return RenderResult(
+                result = RenderResult(
                     ok=ok,
                     pdf=pdf_path if ok else None,
                     renderer_name=self.display_name(app),
@@ -195,7 +196,18 @@ class _ComRenderer(RendererAdapter):
                     stats=stats,
                 )
             finally:
-                app.Quit()
+                # app.Quit() 偶发 RPC 错误（本机实测 Windows fatal exception
+                # 0x800706be）。Python 语义下 finally 里的异常会丢掉已经算好的
+                # return，被外层 except 吞成 ok=False —— PDF 明明导出成功却报
+                # 失败。验收器不能并「不确定成功」与「确定失败」，故这里只记
+                # warning，不改结论（与上面 doc.Close 同法）。
+                try:
+                    app.Quit()
+                except Exception as e:
+                    if result is not None:
+                        result.warnings.append(f"app.Quit(): {type(e).__name__}: {e}")
+                    # result is None 时已有异常在传播，不拿 Quit 异常掩盖真因
+            return result
         except Exception as e:  # 捕获一切 Office 异常，转成结构化 Result（不抛栈）
             return RenderResult(
                 ok=False,

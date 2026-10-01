@@ -323,6 +323,17 @@ class TestMarkdownNormalization:
     def test_code_fence_content_is_skipped(self):
         assert v._source_md_segments("```python\n这段代码不该参与比对\n```\n") == []
 
+    def test_tilde_fence_content_is_skipped(self):
+        """~~~ 与 ``` 都是围栏。只认 ``` 会把代码当正文比对 → 假 FAIL。"""
+        assert v._source_md_segments("~~~\n这段代码不该参与比对\n~~~\n") == []
+
+    def test_closing_marker_must_match_the_opening_one(self):
+        """``` 块里的 ~~~ 不是结束符 —— 判定规则必须与 _compile 同源。"""
+        md = "```\n~~~\n这段代码不该参与比对\n```\n收尾正文足够长了呀\n"
+        segs = v._source_md_segments(md)
+        assert [s for s in segs if "代码" in s] == []
+        assert any("收尾正文" in s for s in segs), segs
+
 
 class TestSourceContentIntegrity:
     def test_md_equivalence_passes(self, tmp_path):
@@ -350,6 +361,16 @@ class TestSourceContentIntegrity:
         res = v.check_source_content_integrity(f, source_md=str(md))
         assert res.status == v.PASS, res.message
 
+    def test_tilde_fence_is_not_checked_as_body(self, tmp_path):
+        """T1.4 回归：围栏换成 ~~~ 时结论必须一致，不能凭空判源内容缺失。"""
+        f = _docx_with_text(tmp_path, "正文段落内容足够长度")
+        md = tmp_path / "a.md"
+        md.write_text(
+            "正文段落内容足够长度\n\n~~~\n这段代码不该出现在docx里\n~~~\n", encoding="utf-8"
+        )
+        res = v.check_source_content_integrity(f, source_md=str(md))
+        assert res.status == v.PASS, res.message
+
     def test_expected_hash_matches(self, tmp_path):
         f = _save_docx(tmp_path, "h.docx")
         h = hashlib.sha256(open(f, "rb").read()).hexdigest()
@@ -370,6 +391,19 @@ class TestImageEmbedding:
     def test_missing_image_fails(self, tmp_path):
         res = v.check_image_embedding(_save_docx(tmp_path, "img.docx"), "![a](a.png)")
         assert res.status == v.FAIL, res.message
+
+    def test_fence_example_is_not_an_image_reference(self, tmp_path):
+        """T1.1 回归：围栏里的 `![...]` 是文档示例不是引图。
+
+        修前 validate 拿原始 md 计数、render 拿 _outside_code_fences(md) 计数，
+        同一份文档两个工具结论相反（validate 凭空 FAIL「图片缺失」）。
+        """
+        md = "正文。\n\n```markdown\n![示例图](assets/none.png)\n```\n"
+        assert "![" in md  # bug 的形状：不过围栏就会被数成一次引用
+        ref = v._outside_code_fences(md)
+        assert "![" not in ref
+        res = v.check_image_embedding(_save_docx(tmp_path, "fence.docx"), ref)
+        assert res.status != v.FAIL, res.message
 
     def test_count_is_a_lower_bound_only(self, tmp_path):
         """n_img >= n_ref 只证明数量够，不证明对应关系——这里把这条边界写死。"""
