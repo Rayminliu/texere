@@ -93,7 +93,7 @@ flowchart LR
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.7.4",
+    "document": "bid.docx", "tool_version": "0.8.0",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },
@@ -161,6 +161,9 @@ python scripts/render.py --src examples/tender --out 标书.docx `
 
 第三条命令渲染一份真实投标文件、在所选渲染器（默认 Word）里验收、导出 PDF 并检查产物——**不用先配任何东西**。
 只有 `--doctor` 报错时才需要往下看。
+
+写短报告、短通知有开箱开关：config 里一行 `"mode": "simple-report"` 就不插目录、章节不另起一页，
+H1 前的标题/作者行自动居中保留；中文里的 ASCII 直引号也会自动配对成全角 `“”`。
 
 没装任何渲染器？先 `python scripts/render.py --sample`（不带 `--pdf`）拿一份 docx 看效果；渲染与验收等装了 Word / WPS / LibreOffice 再做。
 

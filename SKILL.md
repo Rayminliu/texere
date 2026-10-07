@@ -86,15 +86,20 @@ Do **not** use it for:
    checking whether that config key is populated.
 2. **Cover lines carry no leading/trailing blanks** — `post.py` appends one blank `CoverInfo`
    paragraph itself; extra blanks overflow the cover onto a second page.
-3. **Do not put content before the first `#`** — it lands after the TOC (or at the top when
-   `toc:false`); `post.py` warns but never deletes it (contract #1).
-4. **Body/heading fonts live in the template** — change with
-   `python scripts/make_ref.py --body-font 楷体 --body-size 14`; config `style` fonts cover tables
-   and captions only.
+3. **Do not put content before the first `#`** — with the TOC on it lands after the TOC and `post.py`
+   warns; with `toc:false` it stays at the top (an `[info]`, not a warning). `post.py` never deletes
+   it (contract #1). A YAML `title`/`author` block is kept and centered when there is no cover, and
+   the TOC (if any) is inserted after it.
+4. **Body/heading fonts and sizes live in the template** — rebuild the global template with
+   `python scripts/make_ref.py --body-font 楷体 --body-size 14`, or override per document via
+   config `style` (`body_size`, `h1_size`–`h3_size`, `margin_*` in cm) without touching the
+   template; `east_font`/`latin_font` still cover tables and captions only.
 5. **Grid tables align by display width** — a CJK character counts as two columns. "Looks aligned in
    a monospace editor" can still parse into a single-column broken table; verify by rendering.
 6. **`--check` flags legitimately sparse pages** (signature block, heading alone before a table) —
-   false positives; relax with `--max-empty N`.
+   false positives; a short final page with content is only a WARN (natural ending), other sparse
+   pages fail; relax with `--max-empty N`, retune the threshold with `--near-empty-chars N`, or
+   fail short last pages too with `--strict-last`.
 7. **Snapshot baselines are machine-specific** (Word version + fonts) — re-record with
    `snapshot.py --update` after switching machines.
 8. **Client-mandated template wins** — point `reference_doc` at their docx; cover sheets, sealing,
@@ -114,9 +119,15 @@ Do **not** use it for:
 }
 ```
 
-Short documents (notices/announcements) that need headings but no table of contents: `"toc": false` —
-heading styles stay intact, no TOC page. Form-style documents (no `#` headings) need
+Short documents (notices/announcements, homework-style short reports): `"mode": "simple-report"` is
+the out-of-the-box switch — no TOC, no page break before any H1, and the title/author lines before
+the first H1 are kept and centered. Just `"toc": false` still works when only the TOC page is
+unwanted. Form-style documents (no `#` headings) need
 `"style": {"header_rows": 0}` so the field-name first row isn't shaded as a header.
+
+CJK documents: ASCII double quotes are paired into full-width `“”` at merge time and pandoc's
+`smart` extension is switched off (its open/close heuristic assumes space-separated Western text
+and mispairs every quote in Chinese text). Type full-width quotes directly and nothing changes.
 
 Every field and `style` key: `docs/CONFIG.md`. Table syntax (pipe vs grid, multi-level headers,
 merged cells, column widths): `docs/TABLES.md`.

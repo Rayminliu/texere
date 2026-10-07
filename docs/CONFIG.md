@@ -14,6 +14,8 @@
 | `reference_doc` | Use a specific template docx (for a client-mandated format) |
 | `toc_heading` | TOC title, default 「目　　录」 |
 | `toc` | `false` → no TOC page (short notices / announcements); headings keep their styles, and with no cover the document stays a single section |
+| `mode` | `simple-report` → out-of-the-box mode for short reports (homework, notices): no TOC by default, no page break before any H1, and the title/author lines before the first H1 are kept and centered when there is no cover; default `formal`. Explicit `toc` / `page_break_h1` win over the mode-derived values |
+| `page_break_h1` | `false` → drop the page break before every H1 (implied by `simple-report`); default/`formal` = chapter-per-page except the first, which follows the cover/TOC |
 | `style` | Fine-grained layout, see below |
 | `caption_words` | Custom caption keywords (default 表/图/Table/Figure), see below |
 | `resource_paths` | Extra directories to search for images |
@@ -50,6 +52,11 @@ restating them. Everything is optional; the defaults are the Chinese formal-docu
 | Tables | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
 | Tables | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |
 | Fonts | `east_font` / `latin_font` | `宋体` / `Times New Roman` (**tables and captions only**) |
+| Font sizes | `body_size` / `h1_size` / `h2_size` / `h3_size` | `12` / `16` / `14` / `12.5` (pt; the four body styles and Heading 1–3) |
+| Margins | `margin_top` / `margin_bottom` / `margin_left` / `margin_right` | `2.54` / `2.54` / `3` / `2.6` (cm) |
 
-> Colours are 6-digit hex (`404040`); border weights are in 1/8 pt; spacing is in pt; cell margins are in twips.
+> Colours are 6-digit hex (`404040`); border weights are in 1/8 pt; spacing is in pt; cell margins are in twips; page margins are in cm.
+> Font sizes and margins are a **per-document exit on top of the template baseline**: only keys you set explicitly are
+> rewritten — anything left out keeps the template's own values (including a client `reference_doc`); changing
+> `body_size` rescales the first-line indent to keep its 2-character width.
 

@@ -117,7 +117,9 @@ If a fork is intentional, document it in this section and drop the segment from 
 The 9 checks cover structure; four things stay human, on the first pass over any new document:
 
 1. `images: n/m ok` in the render log with **n == m** (m = count of `![` in the source)
-2. `near-empty pages: 0`
+2. `near-empty pages: 0` — a short final page with content is downgraded to `WARN` (a natural ending is
+   normal; check_pdf no longer fails it by default; `--strict-last` restores the strict reading), but eyeball
+   that it is what you intended
 3. `OK` — Word opened it and exported the PDF
 4. **Look at the rendered pages.** Machines count pages, images and blanks; they can't tell you the figure is
    wrong or the header row got clipped

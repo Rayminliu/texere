@@ -520,9 +520,15 @@ python scripts/check_pdf.py <document.pdf> [OPTIONS]
 - 渲染页面为 PNG 截图
 - 返回非零退出码如果有问题
 
+### 选项
+- `--max-empty N`：允许的近空白页数（默认 0）
+- `--near-empty-chars N`：近空白页的正文阈值（默认 60 字，无图时生效）
+- `--strict-last`：末页近空白也判失败。默认只告警——正文自然收尾的短末页是
+  真实文档的常态；0 字的真空末页（失控分页/空段）始终判失败
+
 ### 退出码
 - `0` 通过
-- `1` PDF 无页，或近空白页数超过 `--max-empty`
+- `1` PDF 无页，或近空白页数超过 `--max-empty`（`--strict-last` 时含短末页）
 - `2` 参数不合法（argparse：缺 PDF 路径、页码非整数、未知选项）
 
 ---

@@ -8,8 +8,13 @@ config.json 字段（均可省）:
   title / author / subject / comments : 文档属性
   toc_heading : 目录标题，默认 "目　　录"
   toc   : false → 不插目录页（通知/公示类短文档）；标题样式照常保留，无封面时不分节
+  mode  : "simple-report" → 短报告开箱模式（学生作业/短通知）：默认不插目录、
+          所有 H1 不另起一页；缺省 "formal"。显式写的 toc / page_break_h1 优先于模式派生值
+  page_break_h1 : false → 所有 H1 段前分页关闭（simple-report 自动派生）；
+          缺省/formal = 第一章豁免（紧跟封面/目录），其余每章另起一页
   style   : 版式微调（字体/颜色/间距/表格边框等，见 README 的完整键表）
-行为: 去掉前置书名页与空段 -> 注入封面 -> 注入目录域 -> 分节(封面目录/正文各自页码)
+行为: 前置区处理（有封面时删 Title/Author 段，无封面时居中保留；目录插在标题块
+      之后）-> 注入封面 -> 注入目录域 -> 分节(封面目录/正文各自页码)
       -> 正文节页眉页脚(居中页码) -> 表格 100% 宽/表头加粗灰底居中/单元格 10.5pt
       -> 表题与图注居中灰色去斜体 -> settings 加 updateFields。
 契约: **只改版式，不改内容**——不触碰正文与题注的文字（图表编号由源文件手写）。
@@ -20,6 +25,7 @@ import argparse
 import copy
 import json
 import re
+import sys
 
 from _ooxml import (
     PPR_ORDER,
@@ -36,6 +42,8 @@ from _shared import (
     DEFAULT_EAST_FONT,
     DEFAULT_LATIN_FONT,
     H1_STYLE_ALIASES,
+    H2_STYLE_ALIASES,
+    H3_STYLE_ALIASES,
     PAGE_NUMBER_TEMPLATE,
     TITLE_STYLE_ALIASES,
     TOC_HEADING,
@@ -46,7 +54,7 @@ from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
+from docx.shared import Cm, Pt, RGBColor
 
 GRAY = (0x40, 0x40, 0x40)
 # 可被 config.json 的 "style" 段覆盖（见 apply_style_cfg）。默认即中文正式文档惯例；
@@ -87,6 +95,16 @@ S = {
     "caption_space_before": 6.0,
     "caption_space_after": 4.0,
     "caption_keep_with_next": True,  # 表题与表格同页；关掉可能省页数但会分家
+    # --- 字号 / 页边距：模板基线的逐文档出口（make_ref 是全局模板，这里是单文档）
+    # 只在 config.style 显式给出时才改写模板，未写的键原样保留甲方模板的自带版式
+    "body_size": 12.0,  # 正文 pt（Normal / Body Text / First Paragraph / Compact）
+    "h1_size": 16.0,  # 一级标题 pt（Heading 1 / 标题 1）
+    "h2_size": 14.0,
+    "h3_size": 12.5,
+    "margin_top": 2.54,  # cm（与 make_ref 模板基线一致）
+    "margin_bottom": 2.54,
+    "margin_left": 3.0,
+    "margin_right": 2.6,
 }
 # 兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）——别名表在 _shared
 H1_STYLES = H1_STYLE_ALIASES
@@ -327,6 +345,14 @@ _STYLE_FLOAT = (
     "table_para_space",
     "caption_space_before",
     "caption_space_after",
+    "body_size",
+    "h1_size",
+    "h2_size",
+    "h3_size",
+    "margin_top",
+    "margin_bottom",
+    "margin_left",
+    "margin_right",
 )
 _STYLE_INT = (
     "cell_margin_v",
@@ -367,6 +393,67 @@ def apply_style_cfg(cfg):
     return S
 
 
+def _normalize_mode(cfg):
+    """mode 归一：simple-report 派生 toc / page_break_h1 的默认值；非法值立刻报错。
+
+    显式写的键优先于模式派生值——用户在 simple-report 里写 "toc": true 就该有目录。
+    """
+    mode = cfg.get("mode", "formal")
+    if mode not in ("formal", "simple-report"):
+        sys.exit('mode 只支持 "formal" / "simple-report"，收到：%r' % mode)
+    if "toc" not in cfg:
+        cfg["toc"] = mode != "simple-report"
+    if "page_break_h1" not in cfg:
+        cfg["page_break_h1"] = mode != "simple-report"
+    return mode
+
+
+_BODY_STYLE_NAMES = ("Normal", "Body Text", "First Paragraph", "Compact")
+_HEAD_SIZE_KEYS = {
+    "h1_size": H1_STYLE_ALIASES,
+    "h2_size": H2_STYLE_ALIASES,
+    "h3_size": H3_STYLE_ALIASES,
+}
+_MARGIN_KEYS = ("margin_top", "margin_bottom", "margin_left", "margin_right")
+
+
+def _apply_style_overrides(doc, style_cfg):
+    """字号/页边距落到 styles.xml 与 sectPr：模板给基线，这里给逐文档出口。
+
+    用户不该为了改个字号去重建 ref.docx（R4 #5）。只动显式给出的键：没写的键
+    保留模板原值——甲方模板（reference_doc）自带的页边距/字号不被无意识冲掉。
+    """
+    if not style_cfg:
+        return
+    if "body_size" in style_cfg:
+        size = float(style_cfg["body_size"])
+        for name in _BODY_STYLE_NAMES:
+            try:
+                doc.styles[name].font.size = Pt(size)
+            except KeyError:
+                continue
+        # 首行缩进跟着字号走：模板按 12pt × 2 字符算死在样式里，字号变了要重算
+        for name in ("Body Text", "First Paragraph"):
+            try:
+                doc.styles[name].paragraph_format.first_line_indent = Pt(size * 2)
+            except KeyError:
+                continue
+    for key, names in _HEAD_SIZE_KEYS.items():
+        if key not in style_cfg:
+            continue
+        for name in names:
+            try:
+                doc.styles[name].font.size = Pt(float(style_cfg[key]))
+            except KeyError:
+                continue
+    for key in _MARGIN_KEYS:
+        if key not in style_cfg:
+            continue
+        side = key.split("_")[1]  # margin_left -> left
+        for sec in doc.sections:
+            setattr(sec, side + "_margin", Cm(float(style_cfg[key])))
+
+
 def find_h1(paras):
     """定位第一章标题；兼容中文模板的「标题 1」。找不到返回 None。"""
     for k, p in enumerate(paras):
@@ -375,11 +462,14 @@ def find_h1(paras):
     return None
 
 
-def _strip_front_matter(doc):
-    """删前置书名页与空段，返回第一个一级标题的下标（没有则 None）。
+def _strip_front_matter(doc, cfg):
+    """前置区处理：有封面时删 Title/Author 段，无封面时居中保留；返回 H1 下标。
 
-    表单/附件类文档没有一级标题也要能处理：跳过目录（没有标题可索引），
-    封面照样插到最前面，表格与题注排版照做。
+    - 有 cover：pandoc 从 YAML 生成的 Title/Author/Date 段与封面行重复，删掉。
+    - 无 cover：标题块就是文档门面，居中保留，目录/封面会插在它之后——此前
+      一律删除，短文档用户只能靠 custom-style 绕行（R4 #2 实测）。
+    - 表单/附件类文档没有一级标题也要能处理：跳过目录（没有标题可索引），
+      封面照样插到最前面，表格与题注排版照做。
     """
     h1_idx = find_h1(doc.paragraphs)
     if h1_idx is None:
@@ -388,7 +478,10 @@ def _strip_front_matter(doc):
     else:
         for p in list(doc.paragraphs[:h1_idx]):
             if style_name(p) in TITLE_STYLES:
-                p._element.getparent().remove(p._element)
+                if cfg.get("cover"):
+                    p._element.getparent().remove(p._element)
+                else:
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         while True:
             paras = doc.paragraphs
             h1_idx = find_h1(paras)
@@ -400,16 +493,35 @@ def _strip_front_matter(doc):
             else:
                 break
         h1_idx = find_h1(doc.paragraphs)
-        doc.paragraphs[h1_idx].paragraph_format.page_break_before = False
 
-        # 源文件在第一个 # 之前还写了东西时，那些段落会落在目录之后。
-        # 只提示、不删除——本工具的契约是不改内容。
-        leftover = [p.text.strip() for p in doc.paragraphs[:h1_idx] if p.text.strip()]
+        # H1 段前分页（R4 #3）：False = 全部关闭（simple-report 模式派生 / 显式配置）；
+        # 否则保持模板的「每章另起一页」，但第一章仍豁免——它紧跟封面/目录，
+        # 另起一页只会剩下大半页空白。
+        if cfg.get("page_break_h1") is False:
+            for p in doc.paragraphs:
+                if style_name(p) in H1_STYLES:
+                    p.paragraph_format.page_break_before = False
+        else:
+            doc.paragraphs[h1_idx].paragraph_format.page_break_before = False
+
+        # 源文件在第一个 # 之前还写了正文段落时（标题块不算）：toc 开着它们会
+        # 排在目录之后。只提示、不删除——本工具的契约是不改内容。
+        leftover = [
+            p.text.strip()
+            for p in doc.paragraphs[:h1_idx]
+            if p.text.strip() and style_name(p) not in TITLE_STYLES
+        ]
         if leftover:
-            print("[warn] 第一个一级标题之前还有 %d 段内容，会排在目录之后：" % len(leftover))
-            for t in leftover[:3]:
-                print("       " + t[:60])
-            print("       建议：从源文件删掉，或写进 config 的 cover 由封面承载")
+            if cfg.get("toc", True) is False:
+                print(
+                    "[info] toc 已关闭：第一个一级标题之前的 %d 段内容保留在文档开头"
+                    % len(leftover)
+                )
+            else:
+                print("[warn] 第一个一级标题之前还有 %d 段内容，会排在目录之后：" % len(leftover))
+                for t in leftover[:3]:
+                    print("       " + t[:60])
+                print("       建议：从源文件删掉，或写进 config 的 cover 由封面承载")
 
     return h1_idx
 
@@ -464,7 +576,22 @@ def _inject_front_pages(doc, body, cfg, h1_idx):
 
     # 封面必须是文档第一页：插到 body 最前面，而不是「第一个标题之前」。
     # 否则源文件在第一个 # 之前写的内容会排到封面之前，单独占一页（实测踩过）。
+    # 无封面且标题块被保留时（_strip_front_matter 只居中不删），插入点退到标题块
+    # 之后——标题是文档门面，必须排在目录前面。
     anchor = next((c for c in body.iterchildren() if c.tag in (qn("w:p"), qn("w:tbl"))), None)
+    if not cfg.get("cover"):
+        last_title_el = None
+        for p in doc.paragraphs:
+            if style_name(p) in TITLE_STYLES:
+                last_title_el = p._p
+            else:
+                break
+        if last_title_el is not None:
+            nxt = last_title_el.getnext()
+            while nxt is not None and nxt.tag not in (qn("w:p"), qn("w:tbl")):
+                nxt = nxt.getnext()
+            if nxt is not None:
+                anchor = nxt
     if anchor is None:
         # 空正文（无段无表）：回落到 sectPr 前插入
         sect_el = body.find(qn("w:sectPr"))
@@ -644,10 +771,12 @@ def main(body_path, out_path, cfg_path):
         with open(cfg_path, encoding="utf-8-sig") as f:
             cfg = json.load(f)
     apply_style_cfg(cfg)
+    _normalize_mode(cfg)
     doc = Document(body_path)
     body = doc.element.body
+    _apply_style_overrides(doc, cfg.get("style") or {})
 
-    h1_idx = _strip_front_matter(doc)
+    h1_idx = _strip_front_matter(doc, cfg)
     sect_para, create_sec1 = _inject_front_pages(doc, body, cfg, h1_idx)
     _setup_sections(doc, body, cfg, sect_para, create_sec1)
     _format_tables(doc)

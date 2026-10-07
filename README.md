@@ -98,7 +98,7 @@ report — same fields and check names as any real run:
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.7.4",
+    "document": "bid.docx", "tool_version": "0.8.0",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },
@@ -172,6 +172,10 @@ python scripts/render.py --src examples/tender --out bid.docx `
 
 That third command renders a real tender document, accepts it in the chosen renderer (Word by default), exports the PDF and checks the
 result — nothing to configure first. Read on only if `--doctor` complains.
+
+Short reports and notices get an out-of-the-box switch: one line `"mode": "simple-report"` in the config turns off the TOC and the
+chapter page breaks, and keeps the title/author lines centered ahead of the body. ASCII quotes in Chinese text are paired into
+full-width `“”` automatically.
 
 No renderer installed? Run `python scripts/render.py --sample` (without `--pdf`) to get a docx you can open anywhere; do the rendering and acceptance once Word / WPS / LibreOffice is available.
 

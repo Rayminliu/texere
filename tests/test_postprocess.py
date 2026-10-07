@@ -1081,3 +1081,152 @@ def test_keep_with_next_styled_captions(tmp_path):
     post._format_captions(doc)
     assert t3.paragraph_format.keep_with_next is True, "不带编号的样式表题应粘住表格"
     assert f2.paragraph_format.keep_with_next is False, "图注样式不该 keep"
+
+
+# ---------------------------------------------------------------------------
+# R4 修复：短报告模式 / H1 段前分页 / 标题块保留 / 警告门控 / 样式出口
+# ---------------------------------------------------------------------------
+
+_R4_MD = (
+    "---\ntitle: 校园快递调研\nauthor: 李四\n---\n\n"
+    "引言段落在第一个标题之前。\n\n"
+    "# 第一节\n\n正文。\n\n# 第二节\n\n正文。\n"
+)
+
+
+def _h1s(doc):
+    return [p for p in doc.paragraphs if p.style.name == "Heading 1"]
+
+
+def test_simple_report_mode(tmp_path):
+    """mode=simple-report：标题/作者居中保留、无目录、所有 H1 不另起一页。"""
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    out = _build_md(tmp_path, _R4_MD, {"mode": "simple-report"})
+    doc = Document(out)
+    styles = [p.style.name for p in doc.paragraphs]
+    assert "Title" in styles and "Author" in styles, "标题块必须保留"
+    for p in doc.paragraphs:
+        if p.style.name in ("Title", "Author"):
+            assert p.alignment == WD_ALIGN_PARAGRAPH.CENTER, "保留的标题/作者要居中"
+    assert "TOC Heading" not in styles, "simple-report 默认不插目录"
+    h1 = _h1s(doc)
+    assert len(h1) == 2
+    for p in h1:
+        assert p.paragraph_format.page_break_before is False, "短文档不该每章一页"
+
+
+def test_formal_default_first_h1_exempt_rest_inherit(tmp_path):
+    """formal + toc:false：标题块保留（此前一律删除）、第一章豁免分页、其余继承模板。"""
+    from docx import Document
+
+    out = _build_md(tmp_path, _R4_MD, {"toc": False})
+    doc = Document(out)
+    styles = [p.style.name for p in doc.paragraphs]
+    assert "Title" in styles, "无封面时标题块应保留（此前被无条件删除）"
+    assert "TOC Heading" not in styles
+    h1 = _h1s(doc)
+    assert h1[0].paragraph_format.page_break_before is False
+    assert h1[1].paragraph_format.page_break_before is None, "后续 H1 继承样式的每章一页"
+
+
+def test_page_break_h1_false_disables_all(tmp_path):
+    from docx import Document
+
+    out = _build_md(tmp_path, _R4_MD, {"page_break_h1": False})
+    for p in _h1s(Document(out)):
+        assert p.paragraph_format.page_break_before is False
+
+
+def test_cover_still_deletes_title_block(tmp_path):
+    """有封面时 pandoc 的 Title/Author 段与封面行重复，维持删除行为。"""
+    from docx import Document
+
+    out = _build_md(tmp_path, _R4_MD, {"cover": [["CoverTitle", "封面标题"]]})
+    doc = Document(out)
+    assert not any(p.style.name in ("Title", "Author") for p in doc.paragraphs)
+    assert doc.paragraphs[0].text == "封面标题", "封面必须是文档第一页"
+
+
+def test_toc_lands_after_kept_title_block(tmp_path):
+    """无封面 + toc：目录插在标题块之后，标题仍居文档最前。"""
+    from docx import Document
+
+    out = _build_md(tmp_path, _R4_MD, {"toc": True})
+    styles = [p.style.name for p in Document(out).paragraphs]
+    assert "TOC Heading" in styles
+    assert styles.index("Title") < styles.index("TOC Heading")
+
+
+def test_leftover_warning_gated_by_toc(tmp_path, capsys):
+    """R4 #6：toc:false 时「排在目录之后」的警告必须消失（目录根本不存在）。"""
+    post = _load_post()
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "01.md").write_text("引言段落。\n\n# 第一节\n\n正文。\n", encoding="utf-8")
+    body = str(tmp_path / "body.docx")
+    subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)), check=True, capture_output=True)
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text('{"toc": false}', encoding="utf-8")
+    post.main(body, str(tmp_path / "out.docx"), str(cfg_path))
+    captured = capsys.readouterr()
+    assert "保留在文档开头" in captured.out
+    assert "会排在目录之后" not in captured.out
+
+    cfg_path.write_text('{"toc": true}', encoding="utf-8")
+    post.main(body, str(tmp_path / "out2.docx"), str(cfg_path))
+    captured = capsys.readouterr()
+    assert "会排在目录之后" in captured.out, "toc 开着时假警告照旧（此时它是真的）"
+
+
+def test_invalid_mode_exits(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "01.md").write_text("# 标题\n\n正文。\n", encoding="utf-8")
+    body = str(tmp_path / "body.docx")
+    subprocess.run(_pandoc_cmd(str(src / "01.md"), body, str(src)), check=True, capture_output=True)
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text('{"mode": "typo"}', encoding="utf-8")
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "post.py"),
+            body,
+            str(tmp_path / "out.docx"),
+            str(cfg_path),
+        ],
+        capture_output=True,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    assert r.returncode != 0, "非法 mode 必须立刻报错，不能静默按 formal 处理"
+    # sys.exit(文案) 走 stderr
+    assert "simple-report" in r.stderr.decode("utf-8", "replace")
+
+
+def test_style_overrides_sizes_and_margins(tmp_path):
+    """R4 #5：config.style 直接改字号/页边距，不必重建 ref.docx。"""
+    from docx import Document
+    from docx.shared import Pt
+
+    cfg = {"style": {"body_size": 14, "h1_size": 18, "margin_left": 2.0}}
+    out = _build_md(tmp_path, "# 标题\n\n正文段落，首行要缩进两字符。\n", cfg)
+    doc = Document(out)
+    assert doc.styles["Body Text"].font.size == Pt(14)
+    assert doc.styles["Body Text"].paragraph_format.first_line_indent == Pt(28), (
+        "首行缩进要跟字号重算（2 字符）"
+    )
+    assert doc.styles["Heading 1"].font.size == Pt(18)
+    for sec in doc.sections:
+        # sectPr 以 twips 存储转 EMU 有取整，用 cm 容差比较
+        assert abs(sec.left_margin.cm - 2.0) < 0.01
+        assert abs(sec.top_margin.cm - 2.54) < 0.01, "没写的键保留模板基线"
+
+
+def test_margins_untouched_without_explicit_keys(tmp_path):
+    """没写 margin_* 时不动 sectPr——甲方模板（reference_doc）自带页边距不被冲掉。"""
+    from docx import Document
+
+    out = _build_md(tmp_path, "# 标题\n\n正文。\n", {})
+    for sec in Document(out).sections:
+        assert abs(sec.left_margin.cm - 3.0) < 0.01, "应与模板基线一致"

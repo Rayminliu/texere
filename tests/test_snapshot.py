@@ -161,3 +161,45 @@ def test_help_is_available_for_all_three_scripts():
         r = run_script(name, "--help")
         assert r.returncode == 0, (name, r.returncode)
         assert b"usage" in r.stdout.lower(), name
+
+
+# ---------------------------------------------------------------------------
+# R4 #4：末页豁免——有字的短末页只告警，真空末页照旧判失败
+# ---------------------------------------------------------------------------
+
+
+def make_two_page_pdf(path, page1_lines, page2_lines):
+    doc = pymupdf.open()
+    for lines in (page1_lines, page2_lines):
+        page = doc.new_page()
+        for i, t in enumerate(lines):
+            page.insert_text((72, 100 + i * 18), t, fontsize=11)
+    doc.save(str(path))
+    return str(path)
+
+
+def test_short_last_page_warns_not_fails(tmp_path):
+    pdf = make_two_page_pdf(tmp_path / "tail.pdf", [LOREM], ["Conclusion."])
+    r = run_script("check_pdf.py", pdf)
+    out = r.stdout.decode("utf-8", "replace")
+    assert r.returncode == 0, "有字的短末页是正文自然收尾，不该判失败"
+    assert "WARN" in out and "末页" in out
+
+
+def test_strict_last_fails_short_last_page(tmp_path):
+    pdf = make_two_page_pdf(tmp_path / "tail.pdf", [LOREM], ["Conclusion."])
+    r = run_script("check_pdf.py", pdf, "--strict-last")
+    assert r.returncode == 1, "--strict-last 下短末页必须失败"
+
+
+def test_blank_last_page_still_fails(tmp_path):
+    pdf = make_two_page_pdf(tmp_path / "blank.pdf", [LOREM], [])
+    r = run_script("check_pdf.py", pdf)
+    assert r.returncode == 1, "0 字的真空末页是失控分页，豁免不适用于它"
+
+
+def test_near_empty_chars_threshold_configurable(tmp_path):
+    pdf = make_two_page_pdf(tmp_path / "tail.pdf", [LOREM], ["Conclusion."])
+    r = run_script("check_pdf.py", pdf, "--near-empty-chars", "5")
+    out = r.stdout.decode("utf-8", "replace")
+    assert r.returncode == 0 and "WARN" not in out, "阈值放低后 10 字末页不再算近空白"

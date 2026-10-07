@@ -92,8 +92,10 @@ PAGE_NUMBER_TEMPLATE = "— {n} —"
 TOC_HEADING = "目　　录"
 TOC_PLACEHOLDER = "【目录将在打开文档时自动生成；若未显示请全选后按 F9】"
 
-# 样式别名：兼容中文模板（reference_doc 来自中文 Word 时一级标题样式名为「标题 1」）
+# 样式别名：兼容中文模板（reference_doc 来自中文 Word 时标题样式名为「标题 1/2/3」）
 H1_STYLE_ALIASES = {"Heading 1", "标题 1"}
+H2_STYLE_ALIASES = {"Heading 2", "标题 2"}
+H3_STYLE_ALIASES = {"Heading 3", "标题 3"}
 TITLE_STYLE_ALIASES = {"Title", "Subtitle", "Author", "Date", "标题", "副标题"}
 
 # 题注词表：覆盖 表 1-1 / 表1.1 / 表１－１ / 图 2-3 / Table 1-1 / Figure 1-2 / Fig. 3

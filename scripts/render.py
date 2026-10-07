@@ -22,12 +22,21 @@ import sys
 import tempfile
 from datetime import datetime
 
-from _compile import _build_pandoc_cmd, _outside_code_fences, _should_prompt
+from _compile import (
+    _build_pandoc_cmd,
+    _outside_code_fences,
+    _should_prompt,
+    is_cjk_dominant,
+    pair_cjk_quotes,
+)
 from _shared import UTF8_ENV, __version__, force_utf8_stdio
 from _shared import display_width as dw
 from renderers import SUPPORTED_RENDERERS, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# --resource-path 的字符预算（Windows 命令行上限 32767，这里取保守值留余量）
+RESOURCE_PATH_BUDGET = 6000
 
 
 def cleanup_old_temp(prefix="texere_"):
@@ -348,6 +357,8 @@ KNOWN_CONFIG_KEYS = frozenset(
         "cover",
         "toc",
         "toc_heading",
+        "mode",
+        "page_break_h1",
         "style",
         "caption_words",
         "content_fixes",
@@ -386,7 +397,10 @@ def _load_config(config_path):
 def _merge_sources(src_dir, config_path, cfg, tmp):
     """合并 src 下全部 .md、套用 content_fixes 替换、写出 all.md。
 
-    返回 (合并正文, 图片搜索锚点目录 src_root, all.md 路径)。
+    中文主导的文档在此做直引号配对（smart 已关，见 _compile）：all.md 落盘的
+    就是 pandoc 实际吃进去的文本，证据链不打折。
+
+    返回 (合并正文, 图片搜索锚点目录 src_root, all.md 路径, 是否中文主导)。
     """
     all_md = os.path.join(tmp, "all.md")
     # --src 既可以是目录也可以是单个 .md 文件（一页的通知不必先建目录）。
@@ -416,37 +430,72 @@ def _merge_sources(src_dir, config_path, cfg, tmp):
         if c:
             n_fix += c
             merged = merged.replace(old, new)
+    cjk = is_cjk_dominant(merged)
+    if cjk:
+        fixed, n_pair, n_odd = pair_cjk_quotes(merged)
+        merged = fixed.rstrip("\n") + "\n"
     with open(all_md, "w", encoding="utf-8") as fh:
         fh.write(merged)
     print("[1/3] merged %d md files (%d chars)" % (len(parts), len(merged)))
     if fixes:
         print("      content fixes: %d 处（%d 条规则）" % (n_fix, len(fixes)))
-    return merged, src_root, all_md
+    if cjk and n_pair:
+        print("      CJK 直引号配对: %d 对（smart 已关闭，全角引号不经 pandoc smart）" % n_pair)
+    if cjk and n_odd:
+        print(
+            "[warn] %d 个段落的直引号不成对（奇数个），已整段放弃配对——请检查是否漏写引号" % n_odd
+        )
+    return merged, src_root, all_md, cjk
 
 
 def _resource_paths(src_root, cfg):
-    """算出 pandoc 的 --resource-path 去重列表。"""
-    # 图片常放在 src 的子目录或**兄弟**目录里（真实项目里 md 在 src/、图在 media/），
-    # pandoc 只按给出的路径查找，故把 src、其全部子目录、src 的父目录及其子目录
-    # 都加进 resource-path；还可用 config 的 resource_paths 补充。
-    res_paths = [src_root]
+    """算出 pandoc 的 --resource-path 去重列表。
+
+    图片常放在 src 的子目录或**兄弟**目录里（真实项目里 md 在 src/、图在 media/），
+    pandoc 只按给出的路径查找，故把 src、其全部子目录、src 的父目录及其一级子目录
+    都加进 resource-path；还可用 config 的 resource_paths 补充。
+
+    Windows 整条命令行上限 32767 字符：src 放在 /tmp 这类位置时，父目录的一级
+    子目录能膨胀到上千个，直接把 pandoc 挤炸（WinError 206，实测踩过）。故设字符
+    预算，超支时从尾部裁剪——父目录扩展本来就是兜底（排在最后），src 自身/子目录/
+    显式 resource_paths 永不裁；真有图被裁到，pandoc 的 WARNING 会兜住。
+    """
+    core = [src_root]
     for root, dirs, _files in os.walk(src_root):
-        res_paths.extend(os.path.join(root, d) for d in dirs)
+        core.extend(os.path.join(root, d) for d in dirs)
+    core.extend(cfg.get("resource_paths") or [])
     parent = os.path.dirname(os.path.abspath(src_root))
+    ext = []
     if os.path.isdir(parent):
-        res_paths.append(parent)
-        for d in sorted(os.listdir(parent)):
-            p = os.path.join(parent, d)
-            if os.path.isdir(p):
-                res_paths.append(p)
-    res_paths.extend(cfg.get("resource_paths") or [])
+        ext.append(parent)
+        ext.extend(
+            sorted(
+                os.path.join(parent, d)
+                for d in os.listdir(parent)
+                if os.path.isdir(os.path.join(parent, d))
+            )
+        )
+
     seen, uniq = set(), []
-    for p in res_paths:
+    for p, droppable in [(x, False) for x in core] + [(x, True) for x in ext]:
         p = os.path.abspath(p)
         if p not in seen:
             seen.add(p)
-            uniq.append(p)
-    return uniq
+            uniq.append((p, droppable))
+
+    kept, used, dropped = [], 0, 0
+    for p, droppable in uniq:
+        if droppable and used + len(p) + 1 > RESOURCE_PATH_BUDGET:
+            dropped += 1
+            continue
+        kept.append(p)
+        used += len(p) + 1
+    if dropped:
+        print(
+            "[warn] --resource-path 超出预算（%d 字符），已裁掉 %d 个父目录扩展；"
+            "图片搜不到时用 config 的 resource_paths 显式指定" % (RESOURCE_PATH_BUDGET, dropped)
+        )
+    return kept
 
 
 def _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp):
@@ -499,10 +548,10 @@ def render(
     wd = _Workdir(tempfile.mkdtemp(prefix="texere_"))
     tmp = wd.path
 
-    merged, src_root, all_md = _merge_sources(src_dir, config_path, cfg, tmp)
+    merged, src_root, all_md, cjk = _merge_sources(src_dir, config_path, cfg, tmp)
     body = os.path.join(tmp, "body.docx")
     uniq = _resource_paths(src_root, cfg)
-    run(_build_pandoc_cmd(all_md, body, ref, uniq, cfg))
+    run(_build_pandoc_cmd(all_md, body, ref, uniq, cfg, cjk=cjk))
     print("[2/3] pandoc -> body.docx")
 
     run(
