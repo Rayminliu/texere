@@ -62,15 +62,17 @@ def cleanup_old_temp(prefix="texere_"):
 
 
 class _Workdir:
-    """中间产物的生命周期：失败一定回收，成功后由人工验收决定删还是留。
+    """中间产物的生命周期：失败一定回收，成功后按「人是否在场」分流。
 
-    为什么要有这一环节：以前跑完立刻 rmtree，用户验收发现要返修时，
+    为什么成功后不删：以前跑完立刻 rmtree，用户看过 PDF 说"这页要改"时，
     pandoc 的 body.docx、合并后的 all.md、页面截图都没了——只能整链重跑
     （272 页文档上 pandoc + 真机导 PDF 是分钟级），而 patch.py / edit.py 本来
     能直接改那份 body.docx 或对照截图定位问题。
 
-    失败 / 缺图不走这里：那时目录里没有可交付的东西，留着只会涨磁盘
-    （实测一天攒 12 个临时目录才立的规矩）。
+    为什么不再向用户提问（UX 反馈：渲染成功后突然被问「验收确认」很突兀）：
+    人在终端 → 静默保留 + 一行提示，24 小时自动回收兜底磁盘；非交互（脚本 /
+    CI）→ 跑完即回收，不涨临时目录。失败 / 缺图不走这里：那时目录里没有可
+    交付的东西，留着只会涨磁盘（实测一天攒 12 个临时目录才立的规矩）。
     """
 
     KEEP = "keep"
@@ -104,34 +106,25 @@ class _Workdir:
             shutil.rmtree(self.path, ignore_errors=True)
             print("[work] 中间产物已按要求回收（--discard-work）")
             return "discarded"
-        if mode == self.AUTO and _should_prompt(sys.stdin.isatty(), sys.stdout.isatty()):
-            if self._ask():
-                shutil.rmtree(self.path, ignore_errors=True)
-                print("[work] 验收通过，中间产物已回收")
-                return "discarded"
-            return self._hold()
         if mode == self.AUTO:
-            # 非交互（脚本 / CI / 管道）：不猜意图，维持旧的「跑完即回收」，
-            # 但把话说明白——要人工验收留现场就显式用 --keep-work。
+            if _should_prompt(sys.stdin.isatty(), sys.stdout.isatty()):
+                # 人在终端：不猜「验没验收」，默认先留着——24h 自动回收兜底，
+                # 返修不必重跑；确认不要了用 --discard-work（不再打断用户提问）。
+                return self._hold(brief=True)
+            # 非交互（脚本 / CI / 管道）：维持「跑完即回收」，常驻服务器的批量
+            # 渲染不能依赖「下次启动才回收」；要留现场显式 --keep-work。
             shutil.rmtree(self.path, ignore_errors=True)
             print("[work] 非交互运行：中间产物已回收；需人工验收返修请加 --keep-work")
             return "discarded"
         return self._hold()
 
-    def _ask(self):
-        listing = ", ".join(self.contents()) or "（空）"
-        print("\n[work] 中间产物： %s" % listing)
-        print("[work] 位置： %s" % self.path)
-        print(
-            "[work] 验收确认无需返修吗？y=删除这些中间产物 / 直接回车=先留着"
-            "（留着的话 24 小时后也会自动回收，不担心长期占地）"
-        )
-        try:
-            return input("> ").strip().lower() in ("y", "yes")
-        except (EOFError, OSError):
-            return False
-
-    def _hold(self):
+    def _hold(self, brief=False):
+        if brief:
+            print(
+                "[work] 中间产物（%s）已保留 24 小时供返修：%s（--discard-work 立即删）"
+                % (", ".join(self.contents()), self.path)
+            )
+            return "kept"
         print("[work] 已保留中间产物： %s（%s）" % (self.path, ", ".join(self.contents()) or "空"))
         print(
             "[work] 返修不必重跑：拿 body.docx 直接用 patch.py / edit.py 改，"
@@ -499,7 +492,7 @@ def _resource_paths(src_root, cfg):
 
 
 def _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp):
-    """导 PDF（刷域写回），并按需跑 check_pdf.py 目视验收。"""
+    """导 PDF（刷域写回），并按需跑 check_pdf.py 目视验收；返回 pdf 路径。"""
     pdf = os.path.splitext(out_docx)[0] + ".pdf"
     rndr = get_renderer(renderer_name)
     res = rndr.render(out_docx, pdf, save_updated_fields=True)
@@ -513,17 +506,42 @@ def _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp):
     if want_check:
         run([sys.executable, os.path.join(KIT, "scripts", "check_pdf.py"), pdf])
         # check_pages/ 默认随临时目录清理（外部反馈：29 张 PNG 散落工作目录）；
-        # 要肉眼检查时用 --keep-pages 留在原地
+        # 位置在最后的 ✓ 完成行里说明（--keep-pages 留在 PDF 同目录）
         pages_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "check_pages")
-        if os.path.isdir(pages_dir):
-            if keep_pages:
-                print("[check] 页面截图保留在 %s" % pages_dir)
-            else:
-                shutil.move(pages_dir, os.path.join(tmp, "check_pages"))
-                print(
-                    "[check] 页面截图移到中间产物目录（验收确认那一步会决定留不留；"
-                    "要留在原地用 --keep-pages）"
-                )
+        if os.path.isdir(pages_dir) and not keep_pages:
+            shutil.move(pages_dir, os.path.join(tmp, "check_pages"))
+    return pdf
+
+
+def _page_count(pdf):
+    """PDF 页数，读不到（缺 PyMuPDF 等）返回 None——摘要行就不报页数。"""
+    try:
+        import pymupdf
+
+        with pymupdf.open(pdf) as d:
+            return d.page_count
+    except Exception:
+        return None
+
+
+def _print_summary(out_docx, pdf, want_check, keep_pages):
+    """最后一行以用户视角回答「成功了吗、在哪、几页」；管线细节在上面各步。
+
+    docx-only 报文件大小（python-docx 数不了页数，不假装知道）；
+    --pdf 报页数并指路预览；--check --keep-pages 顺带说明截图在哪。
+    """
+    if pdf:
+        head = "%s + %s" % (out_docx, pdf)
+        n = _page_count(pdf)
+        head += "（%d 页，可打开 PDF 预览）" % n if n else "（可打开 PDF 预览）"
+        if want_check and keep_pages:
+            pages_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "check_pages")
+            if os.path.isdir(pages_dir):
+                head += "；页面截图在 %s" % pages_dir
+    else:
+        size_kb = max(1, os.path.getsize(out_docx) // 1024)
+        head = "%s（%d KB）；需要 PDF/真机验收时追加 --pdf --check" % (out_docx, size_kb)
+    print("✓ 完成：" + head)
 
 
 def render(
@@ -565,23 +583,24 @@ def render(
     )
     print("[3/3] postprocess ->", out_docx)
     images_ok = check_images(merged, out_docx)
-    if not want_pdf:
-        print("[hint] 仅产出 docx（无渲染器依赖，秒级）；需要 PDF/真机验收时追加 --pdf --check")
 
+    pdf = None
     if want_pdf:
-        _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp)
+        pdf = _export_and_check(out_docx, renderer_name, want_check, keep_pages, tmp)
     # 缺图时不在 check_images 里立即退出：先走完 PDF 导出与 --check（用户恰恰需要
     # 这些产物肉眼确认丢了哪几张图），再让退出码诚实反映「这份交付物没图」。
     # 与 validate 的 image_embedding FAIL→exit(1) 契约对齐（外部实测：只跑 render
     # 不接 validate 的 CI 场景，此前缺图仍拿到退出码 0）。
     if images_ok:
-        # 交付物齐备：中间产物去留交给「人工验收确认」这一环节（见 _Workdir）
+        # 交付物齐备：中间产物去留按「人是否在场」分流（见 _Workdir）
         wd.settle(work_mode)
     else:
         # 这份件本来就不合格，不留现场（诊断靠上面的 [ERROR] 与补救建议）
         wd.settle(_Workdir.DISCARD)
     if not images_ok:
         sys.exit(1)
+    # 最后一行永远回答用户真正想问的：成功了吗、文件在哪、几页
+    _print_summary(out_docx, pdf, want_check, keep_pages)
 
 
 def check_images(md_text, docx_path):
@@ -627,12 +646,33 @@ def main():
     force_utf8_stdio()
     cleanup_old_temp()
 
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--src")
-    ap.add_argument("--out")
-    ap.add_argument("--config")
-    ap.add_argument("--pdf", action="store_true")
-    ap.add_argument("--check", action="store_true")
+    ap = argparse.ArgumentParser(
+        prog="render.py",
+        description="一键渲染：Markdown -> 正式中文 docx（可选 PDF 导出与目视验收）。",
+        epilog=(
+            "最短可跑：\n"
+            "  python scripts/render.py --src report.md --out report.docx"
+            "          # 秒级出 docx，零配置\n"
+            "  python scripts/render.py --src report.md --out report.docx --pdf --check\n"
+            "  python scripts/render.py --sample           # 自带样例冒烟测试\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("--src", help="Markdown 源：单个 .md 文件或目录（目录按文件名序合并全部 .md）")
+    ap.add_argument("--out", help="输出 docx 路径（父目录不存在会自动创建）")
+    ap.add_argument(
+        "--config", help="config.json 路径（可省：全部键都有默认值，键表见 docs/CONFIG.md）"
+    )
+    ap.add_argument(
+        "--pdf",
+        action="store_true",
+        help="同时导出 PDF（需本机渲染器：默认 Word，可 --renderer 换 LibreOffice/WPS）",
+    )
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="导出后做 PDF 目视验收：报空白页并渲染截图（需 PyMuPDF；自动启用 --pdf）",
+    )
     ap.add_argument(
         "--keep-pages",
         action="store_true",
@@ -646,7 +686,7 @@ def main():
     ap.add_argument(
         "--discard-work",
         action="store_true",
-        help="跑完立即回收中间产物（脚本 / CI 用）；默认只在终端里问一句，非交互时自动回收",
+        help="跑完立即回收中间产物（脚本 / CI 用）；默认终端里保留 24 小时，非交互时立即回收",
     )
     ap.add_argument(
         "--renderer",
@@ -654,7 +694,9 @@ def main():
         default="word",
         help="PDF 导出渲染器：word（默认，需本机 Word）/ libreoffice / wps",
     )
-    ap.add_argument("--sample", action="store_true")
+    ap.add_argument(
+        "--sample", action="store_true", help="用自带样例跑一遍完整渲染（冒烟测试，零配置）"
+    )
     ap.add_argument(
         "--doctor",
         action="store_true",

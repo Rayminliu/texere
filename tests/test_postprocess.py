@@ -809,11 +809,12 @@ def test_keep_and_discard_work_are_mutually_exclusive(tmp_path):
     assert "互斥" in r.stderr.decode("utf-8", "replace")
 
 
-def test_workdir_prompt_only_asks_when_a_human_is_reading_it(tmp_path, monkeypatch):
-    """确认那句只在「人在终端前」问，且 y 才删、回车不删。
+def test_workdir_auto_on_tty_keeps_without_asking(tmp_path, monkeypatch, capsys):
+    """0.9.0 UX：人在终端也不再提问——AUTO 静默保留 + 一行提示。
 
-    _should_prompt 必须两个流都是 TTY：pytest / CI 里 stdout 是管道，而 stdin
-    可能仍然继承了终端——只查 stdin 会挂在那里等输入。
+    提问是内部工作流强加给用户（渲染成功后突然被问「验收确认」）；保留行为
+    本身不变（返修不必重跑），24h 自动回收兜底磁盘。_should_prompt 必须
+    两个流都是 TTY：pytest / CI 里 stdout 是管道，而 stdin 可能仍继承终端。
     """
     m = _render_module()
     assert m._should_prompt(True, True) is True
@@ -825,16 +826,50 @@ def test_workdir_prompt_only_asks_when_a_human_is_reading_it(tmp_path, monkeypat
     (keep / "body.docx").write_text("x", encoding="utf-8")
     wd = m._Workdir(str(keep))
     monkeypatch.setattr(m, "_should_prompt", lambda *a: True)
-    monkeypatch.setattr("builtins.input", lambda *a: "")  # 直接回车 = 先留着等返修
+
+    def _no_input(*_a):
+        raise AssertionError("0.9.0 起不再向用户提问")
+
+    monkeypatch.setattr("builtins.input", _no_input)
     assert wd.settle(m._Workdir.AUTO) == "kept"
     assert keep.exists() and wd.contents() == ["body.docx"]
+    out = capsys.readouterr().out
+    assert "已保留 24 小时供返修" in out and "--discard-work" in out, out
 
-    drop = tmp_path / "drop"
-    drop.mkdir()
-    wd2 = m._Workdir(str(drop))
-    monkeypatch.setattr("builtins.input", lambda *a: "y")  # 验收过了，是真过了
-    assert wd2.settle(m._Workdir.AUTO) == "discarded"
-    assert not drop.exists()
+
+def test_run_summary_line_answers_user_questions(tmp_path):
+    """0.9.0 UX：最后一行回答「成功了吗、在哪、多大」，不再只有管线步骤。"""
+    out = _run_render(tmp_path)
+    assert "✓ 完成：" in out, out
+    assert "o.docx（" in out and "KB" in out, out
+    assert os.path.exists(tmp_path / "o.docx")
+
+
+def test_render_help_has_examples_and_dependency_notes():
+    """0.9.0 UX：--help 自带最短可跑命令与依赖说明，不必去 docs 翻。"""
+    r = subprocess.run(
+        [sys.executable, os.path.join(KIT, "scripts", "render.py"), "--help"],
+        capture_output=True,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    out = r.stdout.decode("utf-8", "replace")
+    assert r.returncode == 0
+    assert "最短可跑" in out and "--src report.md --out report.docx" in out
+    assert "需本机渲染器" in out, "--pdf 必须标明渲染器依赖：" + out
+    assert "自动启用 --pdf" in out, "--check 必须标明与 --pdf 的关系：" + out
+
+
+def test_page_count_reads_pdf(tmp_path):
+    pymupdf = pytest.importorskip("pymupdf")
+    m = _render_module()
+    pdf = str(tmp_path / "t.pdf")
+    d = pymupdf.open()
+    d.new_page()
+    d.new_page()
+    d.save(pdf)
+    d.close()
+    assert m._page_count(pdf) == 2
+    assert m._page_count(str(tmp_path / "missing.pdf")) is None
 
 
 def test_workdir_fallback_reclaims_when_nobody_settles(tmp_path):

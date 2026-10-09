@@ -33,27 +33,43 @@ python scripts/render.py --version
 - `--config <file>`: 配置文件路径（可选）
 - `--pdf`: 生成 PDF 格式（默认用本机 Word 渲染器，可用 `--renderer` 切换为 libreoffice / wps）
 - `--check`: 检查 PDF 视觉质量（需要 PyMuPDF）；页面截图默认移到中间产物目录，`--keep-pages` 留在 PDF 同目录 check_pages/
-- `--keep-work`: 跑完**保留**中间产物（`all.md` / `body.docx` / `check_pages/`），不删
-- `--discard-work`: 跑完**立即回收**中间产物（与 `--keep-work` 互斥）
+- `--keep-work`: 跑完**保留**中间产物（`all.md` / `body.docx` / `check_pages/`）并打印返修指引，不删
+- `--discard-work`: 跑完**立即回收**中间产物（与 `--keep-work` 互斥；默认终端保留 24 小时 / 非交互立即回收）
 - `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word）
 - `--doctor`: 环境自检
 - `--sample`: 运行样本文档测试
 - `--version`: 显示版本号
 
-### 中间产物与「人工验收确认」环节
+### 中间产物的去留
 
-交付物产出后，中间产物**不再无条件删掉**（以前跑完就 rmtree，用户看过 PDF 说“这页要改”时
-只能整链重跑）。分三种情形：
+交付物产出后，中间产物默认**先留着**（以前跑完就 rmtree，用户看过 PDF 说“这页要改”时
+只能整链重跑）；0.9.0 起**不再向用户提问**——渲染成功后突然被问「验收确认」是把内部
+工作流强加给用户。分三种情形：
 
 | 情形 | 行为 |
 |---|---|
-| 人在终端前（stdin + stdout 都是 TTY） | 列出中间产物与路径，问一句「验收确认无需返修吗？[y/回车]」；**y 才删，直接回车先留着** |
-| 脚本 / CI / 输出被管道接管 | 不猜意图，沿用旧的「跑完即回收」，并提示改用 `--keep-work` |
+| 人在终端前（stdin + stdout 都是 TTY） | 静默保留 + 一行提示（位置 / 24 小时自动回收 / `--discard-work` 立即删） |
+| 脚本 / CI / 输出被管道接管 | 跑完即回收（常驻服务器的批量渲染不依赖「下次启动才回收」），并提示改用 `--keep-work` |
 | 渲染失败 / 缺图退出 | 一律回收（那时目录里没有可交付的东西，留着只会涨磁盘） |
 
 留着不担心长期占地：超过 24 小时的旧目录会在下次 `render.py` 启动时自动回收。
 返修时不必重跑渲染：拿 `body.docx` 直接用 `patch.py` / `edit.py` 改，或对照 `check_pages/`
 里的截图定位问题。
+
+渲染成功的最后一行是 `✓ 完成：…`——报告产出的 docx / pdf、页数（`--pdf`，读自 PDF
+本身）与截图位置（`--check --keep-pages`）；只出 docx 时报文件大小并提示如何加 `--pdf`。
+
+### 输出示例
+
+```text
+[1/3] merged 2 md files (3342 chars)
+[2/3] pandoc -> body.docx
+[3/3] postprocess -> 标书.docx
+✓ 完成：标书.docx + 标书.pdf（23 页，可打开 PDF 预览）
+```
+
+细节行（`[work]` / `[check]` / pandoc 的 WARNING）只在有话要说时出现；要完整现场加
+`--keep-work`。
 
 ---
 
