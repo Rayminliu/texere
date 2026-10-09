@@ -98,7 +98,7 @@ report — same fields and check names as any real run:
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.8.0",
+    "document": "bid.docx", "tool_version": "0.8.1",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },

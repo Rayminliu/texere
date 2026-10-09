@@ -61,6 +61,7 @@
         "caption_space_before": {"type": "number"},
         "caption_space_after": {"type": "number"},
         "caption_keep_with_next": {"type": "boolean"},
+        "title_size": {"type": "number"},
         "body_size": {"type": "number"},
         "h1_size": {"type": "number"},
         "h2_size": {"type": "number"},

@@ -92,8 +92,8 @@ Do **not** use it for:
    the TOC (if any) is inserted after it.
 4. **Body/heading fonts and sizes live in the template** — rebuild the global template with
    `python scripts/make_ref.py --body-font 楷体 --body-size 14`, or override per document via
-   config `style` (`body_size`, `h1_size`–`h3_size`, `margin_*` in cm) without touching the
-   template; `east_font`/`latin_font` still cover tables and captions only.
+   config `style` (`title_size`, `body_size`, `h1_size`–`h3_size`, `margin_*` in cm) without
+   touching the template; `east_font`/`latin_font` still cover tables and captions only.
 5. **Grid tables align by display width** — a CJK character counts as two columns. "Looks aligned in
    a monospace editor" can still parse into a single-column broken table; verify by rendering.
 6. **`--check` flags legitimately sparse pages** (signature block, heading alone before a table) —

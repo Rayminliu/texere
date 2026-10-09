@@ -49,10 +49,12 @@
 | 表格 | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
 | 表格 | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |
 | 字体 | `east_font` / `latin_font` | `宋体` / `Times New Roman`（**只作用于表格与题注**） |
-| 字号 | `body_size` / `h1_size` / `h2_size` / `h3_size` | `12` / `16` / `14` / `12.5`（pt；正文四样式与标题 1–3 的样式字号） |
+| 字号 | `title_size` / `body_size` / `h1_size` / `h2_size` / `h3_size` | `26` / `12` / `16` / `14` / `12.5`（pt；Title 样式、正文四样式与标题 1–3 的样式字号） |
 | 页边距 | `margin_top` / `margin_bottom` / `margin_left` / `margin_right` | `2.54` / `2.54` / `3` / `2.6`（cm） |
 
 > 颜色写 6 位十六进制（`404040`），粗细单位 1/8 pt，间距单位 pt，单元格边距单位 twips，页边距单位 cm。
 > 字号与页边距是**模板基线的逐文档出口**：只改写显式给出的键，没写的键保留模板
 > （含 `reference_doc` 甲方模板）自带版式；`body_size` 变更时首行缩进按「2 字符」自动重算。
+> `title_size` 只作用于 Title 本样式（YAML `title:` 的落点，作业类「标题三号」写 `16`），
+> Subtitle / Author 不跟随——需要时走 custom-style 或模板。
 

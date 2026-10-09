@@ -1230,3 +1230,22 @@ def test_margins_untouched_without_explicit_keys(tmp_path):
     out = _build_md(tmp_path, "# 标题\n\n正文。\n", {})
     for sec in Document(out).sections:
         assert abs(sec.left_margin.cm - 3.0) < 0.01, "应与模板基线一致"
+
+
+def test_title_size_overrides_title_style_only(tmp_path):
+    """0.8.0 验收残留：YAML title 落 Title 样式（模板基线 26pt），
+    作业类「标题三号（16pt）」用 style.title_size 直接写；Author 不跟随。"""
+    from docx import Document
+    from docx.shared import Pt
+
+    md = "---\ntitle: 课程作业标题\nauthor: 张三\n---\n\n# 第一节\n\n正文。\n"
+    out = _build_md(tmp_path, md, {"style": {"title_size": 16}})
+    doc = Document(out)
+    assert doc.styles["Title"].font.size == Pt(16)
+    title_p = next(p for p in doc.paragraphs if p.style.name == "Title")
+    assert title_p.text == "课程作业标题", "标题文字必须原样保留"
+
+    (tmp_path / "d2").mkdir()
+    out2 = _build_md(tmp_path / "d2", md, {})
+    doc2 = Document(out2)
+    assert doc2.styles["Title"].font.size == Pt(26), "没写键时保持模板基线（make_ref 的 26pt）"

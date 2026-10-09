@@ -52,11 +52,13 @@ restating them. Everything is optional; the defaults are the Chinese formal-docu
 | Tables | `cell_margin_v` / `cell_margin_h` / `table_para_space` | `40` / `80` / `1` |
 | Tables | `border_size` / `border_color` / `three_line_size` | `6` / `808080` / `12` |
 | Fonts | `east_font` / `latin_font` | `宋体` / `Times New Roman` (**tables and captions only**) |
-| Font sizes | `body_size` / `h1_size` / `h2_size` / `h3_size` | `12` / `16` / `14` / `12.5` (pt; the four body styles and Heading 1–3) |
+| Font sizes | `title_size` / `body_size` / `h1_size` / `h2_size` / `h3_size` | `26` / `12` / `16` / `14` / `12.5` (pt; the Title style, the four body styles, and Heading 1–3) |
 | Margins | `margin_top` / `margin_bottom` / `margin_left` / `margin_right` | `2.54` / `2.54` / `3` / `2.6` (cm) |
 
 > Colours are 6-digit hex (`404040`); border weights are in 1/8 pt; spacing is in pt; cell margins are in twips; page margins are in cm.
 > Font sizes and margins are a **per-document exit on top of the template baseline**: only keys you set explicitly are
 > rewritten — anything left out keeps the template's own values (including a client `reference_doc`); changing
 > `body_size` rescales the first-line indent to keep its 2-character width.
+> `title_size` resizes the Title style only (where a YAML `title:` lands; write `16` for the common
+> "title in 16 pt" assignment rule) — Subtitle / Author don't follow; use custom-style or the template for those.
 

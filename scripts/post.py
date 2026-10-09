@@ -97,6 +97,7 @@ S = {
     "caption_keep_with_next": True,  # 表题与表格同页；关掉可能省页数但会分家
     # --- 字号 / 页边距：模板基线的逐文档出口（make_ref 是全局模板，这里是单文档）
     # 只在 config.style 显式给出时才改写模板，未写的键原样保留甲方模板的自带版式
+    "title_size": 26.0,  # 封面标题样式 Title（YAML title 的落点；作业类「标题三号」写 16）
     "body_size": 12.0,  # 正文 pt（Normal / Body Text / First Paragraph / Compact）
     "h1_size": 16.0,  # 一级标题 pt（Heading 1 / 标题 1）
     "h2_size": 14.0,
@@ -349,6 +350,7 @@ _STYLE_FLOAT = (
     "h1_size",
     "h2_size",
     "h3_size",
+    "title_size",
     "margin_top",
     "margin_bottom",
     "margin_left",
@@ -413,6 +415,9 @@ _HEAD_SIZE_KEYS = {
     "h1_size": H1_STYLE_ALIASES,
     "h2_size": H2_STYLE_ALIASES,
     "h3_size": H3_STYLE_ALIASES,
+    # 只 Title 本样式，不含 TITLE_STYLE_ALIASES 里的 Subtitle/Author/Date——
+    # 作者行不该跟着标题字号走；那些要调走 custom-style 或模板
+    "title_size": {"Title", "标题"},
 }
 _MARGIN_KEYS = ("margin_top", "margin_bottom", "margin_left", "margin_right")
 
