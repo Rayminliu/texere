@@ -365,10 +365,30 @@ _STYLE_INT = (
 )
 _STYLE_COLOR = ("caption_gray", "header_gray", "toc_title_color", "table_header_color")
 
+# style 段全部合法键：四张类型清单 + apply_style_cfg 显式特判的键 + caption_words
+# （语义键走兼容路径，不是样式但 style 里接受）。与 config.schema.json 的 style
+# 键集合必须一致——test_postprocess 双向钉死；漏进白名单的键会被未知键 [warn] 误伤。
+KNOWN_STYLE_KEYS = frozenset(_STYLE_STR + _STYLE_FLOAT + _STYLE_INT + _STYLE_COLOR) | {
+    "header_rows",
+    "caption_keep_with_next",
+    "table_zebra",
+    "caption_words",
+}
+
 
 def apply_style_cfg(cfg):
-    """把 config.json 的 "style" 段套到全局设置 S 上；没写的保持默认。"""
+    """把 config.json 的 "style" 段套到全局设置 S 上；没写的保持默认。
+
+    未知键发 [warn]：拼错的键（body_ize / h1_ize）此前会**静默失效**——顶层
+    段有同样的 [warn] 机制（render._load_config），style 子键不能成为盲区。
+    """
     st = cfg.get("style") or {}
+    unknown = sorted(set(st) - KNOWN_STYLE_KEYS)
+    if unknown:
+        print(
+            "[warn] style 段键 %s 不被识别（多半是拼写有误，如 body_size 写成 body_ize）——"
+            "该键会被忽略，键表见 docs/CONFIG.zh-CN.md" % ", ".join(repr(k) for k in unknown)
+        )
     for k in _STYLE_STR:
         if k in st:
             S[k] = st[k]

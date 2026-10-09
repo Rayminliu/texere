@@ -16,10 +16,22 @@ repos:
   - repo: local
     hooks:
       # 秒级测试子集（不启动 Word）：版本一致性 / 文档同步 / 纯函数 / 编辑链 / 快照
-      # 完整套件（约 6-7 分钟，含 Word 验收）在推送前手动跑 python -m pytest
       - id: pytest-fast
         name: pytest (fast subset, no Word)
-        entry: python -m pytest tests/test_version.py tests/test_docs_sync.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q -x
+        entry: python -m pytest tests/test_version.py tests/test_docs_sync.py tests/test_deps_sync.py tests/test_validate_units.py tests/test_edit.py tests/test_snapshot.py -q -x
+        language: system
+        pass_filenames: false
+        always_run: true
+      # 全量套件（约 6-7 分钟，含 Word 真机验收）：CI 没有 Word，word 标记用例
+      # 只有本地能跑——这是唯一的自动化 Word 门禁，取代"推送前手动跑全量"的约定。
+      # 装 钩 子（只跑 pre-commit install 不会带上它）：
+      #   pre-commit install --hook-type pre-push
+      # 无 Word 的机器上 word 标记用例自动 SKIP，只多花约 2 分钟跑其余全量。
+      # stage 用新名 pre-push（pre-commit 3.x 起，旧名 push 已弃用）。
+      - id: pytest-word
+        name: pytest (full suite incl. Word acceptance, pre-push)
+        entry: python -m pytest -q
+        stages: [pre-push]
         language: system
         pass_filenames: false
         always_run: true

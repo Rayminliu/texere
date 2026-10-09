@@ -387,7 +387,24 @@ def _load_config(config_path):
     return cfg
 
 
-def _merge_sources(src_dir, config_path, cfg, tmp):
+def _reject_output_colliding_with_source(out_docx, md_files, src_root):
+    """--out 与源 Markdown 同路径：拒绝渲染（外部实测确凿的毁数据路径）。
+
+    写出去的是 docx 二进制，源 .md 会被永久覆盖且无提示。src 是目录时，out 落
+    到目录里**任何一个** .md 上都算撞——它们全部会被合并进正文。Windows 大小写
+    不敏感（report.md 与 REPORT.MD 同文件），比较走 normcase(realpath)。
+    """
+    out = os.path.normcase(os.path.realpath(out_docx))
+    candidates = [src_root] + list(md_files)
+    for c in candidates:
+        if os.path.normcase(os.path.realpath(c)) == out:
+            sys.exit(
+                "--out 与源 Markdown 同路径（%s）：渲染会把源文件覆盖成 docx 二进制，已拒绝。\n"
+                "  给 --out 换一个文件名。" % c
+            )
+
+
+def _merge_sources(src_dir, config_path, cfg, tmp, out_docx=""):
     """合并 src 下全部 .md、套用 content_fixes 替换、写出 all.md。
 
     中文主导的文档在此做直引号配对（smart 已关，见 _compile）：all.md 落盘的
@@ -404,6 +421,7 @@ def _merge_sources(src_dir, config_path, cfg, tmp):
     else:
         md_files = sorted(glob.glob(os.path.join(src_dir, "*.md")))
         src_root = src_dir
+    _reject_output_colliding_with_source(out_docx, md_files, src_root)
     parts = []
     for f in md_files:
         # utf-8-sig：源 md 带 BOM 时不至于让第一个字符变成乱码（记事本默认写 BOM）
@@ -524,11 +542,13 @@ def _page_count(pdf):
         return None
 
 
-def _print_summary(out_docx, pdf, want_check, keep_pages):
+def _print_summary(out_docx, pdf, want_check, keep_pages, renderer_name="word"):
     """最后一行以用户视角回答「成功了吗、在哪、几页」；管线细节在上面各步。
 
     docx-only 报文件大小（python-docx 数不了页数，不假装知道）；
     --pdf 报页数并指路预览；--check --keep-pages 顺带说明截图在哪。
+    LibreOffice 是唯一不能把刷新后的域写回 docx 的渲染器（Word/WPS 走 COM）——
+    那是交付级事实（TOC 域没刷新），在交付行里说明，别缩在步骤日志中间。
     """
     if pdf:
         head = "%s + %s" % (out_docx, pdf)
@@ -538,6 +558,10 @@ def _print_summary(out_docx, pdf, want_check, keep_pages):
             pages_dir = os.path.join(os.path.dirname(os.path.abspath(pdf)), "check_pages")
             if os.path.isdir(pages_dir):
                 head += "；页面截图在 %s" % pages_dir
+        if renderer_name == "libreoffice":
+            head += (
+                "；注意：LibreOffice 不会把刷新后的域写回 docx，交付 docx 前请用 Word/WPS 打开刷新"
+            )
     else:
         size_kb = max(1, os.path.getsize(out_docx) // 1024)
         head = "%s（%d KB）；需要 PDF/真机验收时追加 --pdf --check" % (out_docx, size_kb)
@@ -566,7 +590,7 @@ def render(
     wd = _Workdir(tempfile.mkdtemp(prefix="texere_"))
     tmp = wd.path
 
-    merged, src_root, all_md, cjk = _merge_sources(src_dir, config_path, cfg, tmp)
+    merged, src_root, all_md, cjk = _merge_sources(src_dir, config_path, cfg, tmp, out_docx)
     body = os.path.join(tmp, "body.docx")
     uniq = _resource_paths(src_root, cfg)
     run(_build_pandoc_cmd(all_md, body, ref, uniq, cfg, cjk=cjk))
@@ -600,7 +624,7 @@ def render(
     if not images_ok:
         sys.exit(1)
     # 最后一行永远回答用户真正想问的：成功了吗、文件在哪、几页
-    _print_summary(out_docx, pdf, want_check, keep_pages)
+    _print_summary(out_docx, pdf, want_check, keep_pages, renderer_name)
 
 
 def check_images(md_text, docx_path):
@@ -659,7 +683,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--src", help="Markdown 源：单个 .md 文件或目录（目录按文件名序合并全部 .md）")
-    ap.add_argument("--out", help="输出 docx 路径（父目录不存在会自动创建）")
+    ap.add_argument(
+        "--out", help="输出 docx 路径（父目录自动创建；同名文件会被覆盖；与源 md 同路径会被拒绝）"
+    )
     ap.add_argument(
         "--config", help="config.json 路径（可省：全部键都有默认值，键表见 docs/CONFIG.md）"
     )

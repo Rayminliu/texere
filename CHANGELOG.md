@@ -21,6 +21,36 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。  
 
+## 0.9.1 — 2026-10-09 — 防呆三连 + pre-push Word 门禁（用户边界实测五项）
+
+同一审计者实测大量边界场景 + 读核心代码，五项发现全部核实成立（另确认六项为好，
+含无注入面、并发安全）。两条"用户踩了也不自知"的隐蔽问题优先修。
+
+- **`--out` 撞源文件拒绝渲染（高，毁数据路径）**：`--src x.md --out x.md` 会把源
+  Markdown 永久覆盖成 docx 二进制且无任何提示（实测确凿）。现在 merge 后、pandoc 前
+  fail-fast：与 src 目录本身**或目录里任何一个 .md** 同路径都拒绝（目录合并场景），
+  比较走 `normcase(realpath)`——Windows 大小写不敏感，`REPORT.MD` 同样拦下。
+- **`style` 未知键 [warn]（高，静默失效）**：`{"style": {"body_ize": 16}}` 此前完全
+  静默——顶层未知键有 warn（0.7.1），style 子键是盲区。现在 `apply_style_cfg` 对
+  白名单之外的键发 `[warn]` 并指路键表；白名单 `KNOWN_STYLE_KEYS` 由测试钉死等于
+  schema 的 style 键集合——将来加键漏进白名单会被未知键 warn 误伤，测试当场红。
+- **pre-push Word 门禁**：新增 `pytest-word` 钩子（`stages: [pre-push]`，跑全量
+  `python -m pytest -q`）。CI 没有 Word，word 标记用例只有本地能跑——这道钩子把
+  "推送前手动跑全量"的约定变成强制。安装必须 `pre-commit install --hook-type
+  pre-push`（README 开发节双语同步，并写明无 Word 机器自动 SKIP 标记用例）。
+- **`raw_html` 文档化（中）**：pandoc reader 开着 `raw_html` 此前零文档；README 双语
+  「输入要求」与 SKILL 陷阱清单补上——源 md 里的 HTML 原样进 docx（契约不改内容，
+  不过滤），不可信来源先过目。默认保持开启（关掉会破坏插 HTML 结构的既有用法）。
+- **LibreOffice 域写回进交付行（低）**：LO 是唯一不能把刷新后的域写回 docx 的渲染器
+  （Word/WPS 走 COM 不受限），此前只缩在步骤日志的 `[warn]` 里。现在 `✓ 完成` 行在
+  LO 渲染时追加"交付 docx 前请用 Word/WPS 打开刷新"。
+- **`--out` 覆盖语义写进帮助（低，行为维持不变）**：同名覆盖是渲染器的幂等常态
+  （迭代/CI 重跑每次命中），不做运行时警告——那会在每次正常重渲染时制造噪音；
+  `--help` 与 SCRIPT_HELP 写明"同名文件会被覆盖"。顺带修正 README 双语里 0.8.0 后
+  已过时的"第一个 # 之前"描述（YAML 标题块保留居中是新行为）。
+- **测试 +6**：撞源守卫三边界（同路径 / 目录内 md / Windows 大小写，后者 nt 专属）、
+  style 未知键 warn + 白名单 schema 守卫、LO 交付行提示双向断言。
+
 ## 0.9.0 — 2026-10-09 — 终端 UX 转向「用户进度」（外部 UX 审查六项）
 
 用户拿真实文档跑通后给出六项 UX 审查（基于实际跑通 + 读代码，未改文件），全部核实

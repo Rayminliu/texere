@@ -107,6 +107,10 @@ Do **not** use it for:
    README §Reusing an existing template.
 9. **After editing an existing docx, always `--verify`** (or open in Word) — the only reliable proof
    the OOXML survived is that Word still opens the file.
+10. **Raw HTML passes through unfiltered** — the pandoc reader enables `raw_html`; HTML in the source
+    lands in the docx as-is (the contract forbids rewriting content). Review Markdown from untrusted
+    sources before rendering. `--out` must never be the same path as a source `.md` — render refuses
+    rather than overwrite it with binary.
 
 ## Minimal config shape
 

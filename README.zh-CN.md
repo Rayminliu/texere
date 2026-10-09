@@ -93,7 +93,7 @@ flowchart LR
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.9.0",
+    "document": "bid.docx", "tool_version": "0.9.1",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },
@@ -274,9 +274,12 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
   **注意**：注入封面后 `post.py` 会自动补一个空 `CoverInfo` 段，所以 config 里不要再写
   行首 / 行尾空行，否则封面容易溢出成两页（多出一张空白页）；
 - 强调用 `**加粗**`，灰底提示框用 `::: {custom-style="Lead"} … :::`；
-- **第一个 `#` 之前别放内容**（比如标题性的短语）：它既不会被当成封面，还会排在目录之后。
-  真放了 `post.py` 会打印 `[warn]` 列出来，但不会替你删（契约是不改内容）；
+- **第一个 `#` 之前别放正文**（标题性的短语之类）：YAML 的 `title` / `author` 会被保留居中
+  （无封面时），但普通段落开着目录时会排在目录之后——`post.py` 会 `[warn]` 列出来，但不会
+  替你删（契约是不改内容）；
 - config.json / 源 md 带 UTF-8 BOM 也能正常读（Windows 记事本默认写 BOM）；
+- **源 md 里的 HTML 会原样进 docx**：pandoc reader 开了 `raw_html`（需要插 HTML 结构时用），
+  而"不改内容"的契约意味着不做过滤——从不可信来源复制的 Markdown 先过目再渲染；
 - **表单 / 附件类文档**（没有 `#` 标题）也能处理：不插目录、不分节，只做封面与表格 / 题注排版。
   这类表格首行通常是字段名而非列标题，配 `"style": {"header_rows": 0}` 以免被灰底加粗。
 
@@ -424,16 +427,19 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 ## 🧪 开发
 
 ```bash
-pip install ruff pre-commit && pre-commit install      # ruff 一个工具顶 flake8 + black + isort
-pre-commit run --all-files                             # lint + 格式 + 不启 Word 的测试子集
-# Word 半边：CI 跳过、仅本机能验的部分（patch/validate e2e + Word/WPS 契约）
-python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # 全量：分层测试套件（L1–L4），约 6 分钟（实测 6 分 01 秒；发版 / 改渲染链路前跑）
+pip install ruff pre-commit
+pre-commit install                           # commit 钩子：ruff + 秒级测试子集
+pre-commit install --hook-type pre-push      # push 钩子：全量套件（含 Word 真机验收，约 6 分钟）
+pre-commit run --all-files                   # 手动跑：lint + 格式 + 不启 Word 的测试子集
 ```
+
+> **推送即验收**：pre-push 钩子跑全量 `python -m pytest -q`——CI 没有 Word，word 标记用例
+> 只有本地能跑，这道钩子是唯一的自动化 Word 门禁（无 Word 机器自动 SKIP 标记用例，只多花
+> 约 2 分钟）。只装 `pre-commit install` 不会带上它，必须补 `--hook-type pre-push`。
 
 > **托管 CI 跑无渲染器的那一半**（[ci.yml](.github/workflows/ci.yml)）：ruff + 快速子集 +
 > 全量套件（Word/WPS 用例自动 SKIP，LibreOffice 契约真跑）+ 渲染/验收冒烟与证据包。验收类用例要通过 COM 驱动
-> 一台真 Microsoft Word，托管 runner 给不了——这部分仍在本机跑，推送前手动全量。
+> 一台真 Microsoft Word，托管 runner 给不了——这部分由上面的 pre-push 钩子在本机把关。
 
 ## 🗺️ 文档地图
 

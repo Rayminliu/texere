@@ -29,7 +29,7 @@ python scripts/render.py --version
 
 ### 参数说明
 - `--src <dir|file.md>`: Markdown 源（目录按文件名序合并，也可直接给单个 .md 文件）（必需）
-- `--out <file>`: 输出 DOCX 文件路径（必需）
+- `--out <file>`: 输出 DOCX 文件路径（必需；父目录自动创建，同名文件会被覆盖，与源 Markdown 同路径会被拒绝）
 - `--config <file>`: 配置文件路径（可选）
 - `--pdf`: 生成 PDF 格式（默认用本机 Word 渲染器，可用 `--renderer` 切换为 libreoffice / wps）
 - `--check`: 检查 PDF 视觉质量（需要 PyMuPDF）；页面截图默认移到中间产物目录，`--keep-pages` 留在 PDF 同目录 check_pages/

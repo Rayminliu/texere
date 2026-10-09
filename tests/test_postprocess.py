@@ -883,6 +883,113 @@ def test_workdir_fallback_reclaims_when_nobody_settles(tmp_path):
     assert not d.exists(), "失败路径没回收中间产物"
 
 
+# ---------------------------------------------------------------------------
+# 0.9.1：--out 撞源文件守卫 / style 未知键 warn / LO 域写回进交付行
+# ---------------------------------------------------------------------------
+
+
+def test_out_same_path_as_source_md_is_refused(tmp_path):
+    """--out 与 --src 同路径：拒绝渲染且源文件毫发无损（外部实测：源被写成 docx 二进制）。"""
+    src = tmp_path / "over.md"
+    src.write_text("# 第一章\n\n正文。\n", encoding="utf-8")
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(src),
+            "--out",
+            str(src),
+        ],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    assert r.returncode != 0
+    assert "同路径" in (r.stdout + r.stderr).decode("utf-8", "replace")
+    assert src.read_text(encoding="utf-8").startswith("# 第一章"), "源文件被动了"
+
+
+def test_out_same_path_as_md_inside_src_dir_is_refused(tmp_path):
+    """src 是目录时，out 落到目录里任何一个 .md 上都算撞——它们全都会被合并。"""
+    d = tmp_path / "src"
+    d.mkdir()
+    victim = d / "01_chapter.md"
+    victim.write_text("# 第一章\n\n正文。\n", encoding="utf-8")
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(d),
+            "--out",
+            str(victim),
+        ],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    assert r.returncode != 0
+    assert victim.read_text(encoding="utf-8").startswith("# 第一章")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 大小写不敏感，其余平台 normcase 是恒等")
+def test_out_same_file_different_case_is_refused_on_windows(tmp_path):
+    src = tmp_path / "over.md"
+    src.write_text("# 第一章\n\n正文。\n", encoding="utf-8")
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(src),
+            "--out",
+            str(tmp_path / "OVER.MD"),
+        ],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    assert r.returncode != 0, "Windows 上大小写不同也是同一个文件"
+
+
+def test_style_unknown_key_warns_not_silent(tmp_path, capsys):
+    """拼错的 style 键（body_ize）此前静默失效——现在必须 [warn]。"""
+    post = _load_post()
+    post.apply_style_cfg({"style": {"body_ize": 16}})
+    out = capsys.readouterr().out
+    assert "[warn]" in out and "body_ize" in out, "未知 style 键必须大声报"
+    assert "docs/CONFIG" in out, "warn 要指路键表"
+
+    capsys.readouterr()
+    post.apply_style_cfg({"style": {"body_size": 16, "margin_left": 2.0, "header_rows": 0}})
+    assert "[warn]" not in capsys.readouterr().out, "合法键不许误警"
+
+
+def test_known_style_keys_match_schema():
+    """warn 白名单 == schema style 键集合：新键漏进白名单会被未知键 [warn] 误伤。"""
+    import json as _json
+
+    post = _load_post()
+    schema = _json.load(open(os.path.join(KIT, "config.schema.json"), encoding="utf-8"))
+    schema_style = set(schema["properties"]["style"]["properties"])
+    assert set(post.KNOWN_STYLE_KEYS) == schema_style, (
+        "KNOWN_STYLE_KEYS 与 schema style 键漂移: %s" % (set(post.KNOWN_STYLE_KEYS) ^ schema_style)
+    )
+
+
+def test_summary_flags_libreoffice_field_writeback(tmp_path, capsys):
+    """LO 是唯一不能写回域的渲染器——交付级事实要出现在 ✓ 完成行里。"""
+    m = _render_module()
+    m._print_summary("x.docx", "x.pdf", False, False, "libreoffice")
+    out = capsys.readouterr().out
+    assert "写回" in out and "Word/WPS" in out, out
+
+    capsys.readouterr()
+    m._print_summary("x.docx", "x.pdf", False, False, "word")
+    assert "写回" not in capsys.readouterr().out, "Word/WPS 不该被误提示"
+
+
 def test_images_survive_postprocess(tmp_path):
     """后处理绝不能把图片弄丢（曾被自动编号抹掉过 28 张）。"""
     pymupdf = pytest.importorskip("pymupdf")

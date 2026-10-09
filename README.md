@@ -98,7 +98,7 @@ report — same fields and check names as any real run:
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.9.0",
+    "document": "bid.docx", "tool_version": "0.9.1",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },
@@ -291,10 +291,13 @@ python scripts/render.py --src examples/tables --out examples/tables/tables.docx
   **Note**: after injecting cover lines, `post.py` appends one blank `CoverInfo` paragraph itself — so do
   not put leading/trailing blank lines in the config, or the cover overflows onto a second (blank) page.
 - Emphasis is `**bold**`; a grey callout box is `::: {custom-style="Lead"} … :::`.
-- **Do not put content before the first `#`** (a title-like phrase, say): it is neither treated as a cover
-  nor kept in place — it ends up after the TOC. `post.py` prints a `[warn]` listing it, but will not delete
-  it for you (the contract forbids changing content).
+- **Do not put body text before the first `#`** (a title-like phrase, say): a YAML `title` / `author` block
+  is kept and centered (when there is no cover), but plain paragraphs end up after the TOC — `post.py`
+  prints a `[warn]` listing them and will not delete them for you (the contract forbids changing content).
 - config.json and source `.md` files may carry a UTF-8 BOM (Windows Notepad writes one by default).
+- **Raw HTML in the source lands in the docx as-is**: the pandoc reader enables `raw_html` (there when you
+  need HTML structure), and the "never rewrite content" contract means it is not filtered — review Markdown
+  pasted from untrusted sources before rendering.
 - **Form-style / appendix documents** (no `#` headings) are supported: no TOC, no section split, just cover
   and table/caption typesetting. Their tables usually start with field names rather than column headers, so
   set `"style": {"header_rows": 0}` to keep the first row from being shaded as a header.
@@ -467,17 +470,21 @@ Follow these when editing the template or hand-writing content:
 ## 🧪 Development
 
 ```bash
-pip install ruff pre-commit && pre-commit install      # ruff replaces flake8 + black + isort
-pre-commit run --all-files                             # lint + format + a Word-free test subset
-# Word half: skipped on CI, only verifiable locally (patch/validate e2e + Word/WPS contracts)
-python -m pytest tests/test_patch.py tests/test_validate.py tests/test_renderer_contract.py -q
-python -m pytest -q                                    # full layered suite (L1–L4): ~6 min (measured 6m1s; before releases / renderer-chain changes)
+pip install ruff pre-commit
+pre-commit install                           # commit hook: ruff + the fast test subset
+pre-commit install --hook-type pre-push      # push hook: the full suite (incl. real-Word acceptance, ~6 min)
+pre-commit run --all-files                   # manual run: lint + format + the Word-free test subset
 ```
+
+> **Accept on push**: the pre-push hook runs the full `python -m pytest -q` — CI has no Word, so the
+> word-marked cases only ever run locally and this hook is the one automated Word gate (on Word-less
+> machines the marked cases auto-skip and it costs ~2 extra minutes). A bare `pre-commit install`
+> does NOT install it; you must add `--hook-type pre-push`.
 
 > **Hosted CI runs the renderer-free half** ([ci.yml](.github/workflows/ci.yml)): ruff + the fast subset +
 > the full suite (Word/WPS cases auto-skip; LibreOffice contracts run for real) + a render/validate smoke with an evidence artifact.
 > The acceptance tests still drive a real Microsoft Word over COM, which no hosted runner provides —
-> that part runs locally; do the full run before pushing.
+> that part is gated locally by the pre-push hook above.
 
 ## 🗺️ Documentation map
 
