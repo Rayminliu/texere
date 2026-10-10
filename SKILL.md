@@ -1,49 +1,34 @@
 ---
 name: texere
-description: "The Chinese formal document compiler — Reference/Spec → Deterministic Document → Evidence. Renders Markdown into properly typeset Chinese formal documents (docx + PDF) with unified validation: 9 automated checks (package integrity, image embedding, TOC fields, page numbering, blank pages, renderer acceptance, visual drift), structured report (report.json), and evidence package (screenshots + signature). Use when generating tenders, bids, grant applications, final reports, white papers from Markdown with explicit design contracts (profile.json or ref.docx). Also supports targeted edits to existing docx without re-typesetting. Should not be used for tracked changes, comments, watermarks, or theses. English documents: a neutral layout baseline exists (profiles/neutral-en-v1.json), but full English business-document conventions are out of scope."
+description: "The Chinese formal document compiler — Markdown → typeset docx/PDF with evidence. Renders Chinese formal documents (tenders, bids, grant applications, final reports, official notices) from Markdown with explicit design contracts, then validates with 9 automated checks (package integrity, source content, image embedding, TOC fields, page numbering, blank pages, renderer acceptance, visual drift) producing report.json + screenshots + signature. Also does targeted edits to an existing docx without re-typesetting. Not for tracked changes, comments, watermarks, or theses. English documents: a neutral layout baseline exists (profiles/neutral-en-v1.json); full English conventions are out of scope."
 license: MIT
-compatibility: Requires a local renderer (Word / WPS / LibreOffice, select with `--renderer`) and pandoc 3.1+, Python 3.10+, python-docx and lxml. DOCX generation is cross-platform; PDF export and renderer acceptance need a renderer (Word / WPS on Windows, LibreOffice where available).
+compatibility: pandoc 3.1+, Python 3.10+, python-docx and lxml; PDF export and renderer acceptance need a local renderer (Word / WPS on Windows, LibreOffice elsewhere — select with `--renderer`). DOCX generation is cross-platform.
 ---
 
 # texere
 
-**Reference/Spec → Deterministic Document → Evidence**
+**Compiler, not converter** — every visual rule is explicit in `ref.docx` + config. **Contract, not
+guesswork** — the pipeline never rewrites body/caption text (unless you configure `content_fixes`,
+an explicit replacement table you wrote). **Evidence, not hope** — one command produces a 9-check
+report where SKIP is never counted as PASS.
 
-Three pillars: **compiler, not converter** (every visual rule is explicit in `ref.docx` + config);
-**contract, not guesswork** (post-processing is layout-only — it never rewrites body or caption text;
-the pipeline stays faithful *unless* `content_fixes` is configured, and that is an explicit
-replacement table you wrote, not a silent rewrite);
-**evidence, not hope** (one command produces a 9-check report + screenshots + signature, where every
-check reports PASS / FAIL / SKIP / ERROR and SKIP is never counted as PASS).
-
-> **Documentation map**: this file is the agent entry point — decisions, contracts, pitfalls, commands.
-> Field-level detail (every config key, `style` table, table syntax, known limitations) lives **only**
-> in `README.md` / `README.zh-CN.md`; per-script CLI options live **only** in `docs/SCRIPT_HELP.md`.
-> Do not restate those tables here — `tests/test_docs_sync.py` fails the commit if you do.
+> Where details live (do not restate them here — `tests/test_docs_sync.py` fails the commit):
+> every config key → `docs/CONFIG.md`; CLI options → `docs/SCRIPT_HELP.md`; table syntax →
+> `docs/TABLES.md`; check-by-check validation → `docs/VALIDATION.md`; scenario recipes →
+> `BEST_PRACTICES.md`.
 
 ## Quick start
 
 ```bash
-python scripts/render.py --doctor     # environment self-check: pandoc / deps / renderer engine identity
+python scripts/render.py --doctor     # environment self-check: pandoc / deps / renderer
 python scripts/render.py --sample     # smoke test -> sample_out.docx/.pdf
 
-# Render Markdown → DOCX + PDF（--src 可以是目录，也可以是单个 .md 文件）
 python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
-#    --keep-work keeps all.md / body.docx / check_pages/ so a rework edits the
-#    existing body.docx with patch.py / edit.py instead of re-rendering the chain
+#    --src takes a directory (merged in filename order) or a single .md
 
-# Validate (Compiler + Contract + Evidence)
-python scripts/validate.py bid.docx --out evidence/
-
-# Edit with declarative Patch (Agent-friendly)
-python scripts/patch.py bid.docx patch.json --dry-run
-python scripts/patch.py bid.docx patch.json --apply --validate
-
-# Edit an existing docx (targeted, opposite contract — see "Two chains")
-python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify
-
-python -m pytest -q                   # layered suite (L1–L4, ~6 min; measured 6m1s; Word/WPS cases auto-skip on hosted CI, LibreOffice contracts run for real — full Word acceptance stays local)
-python scripts/snapshot.py bid.pdf    # layout regression; exit 1 on drift
+python scripts/validate.py bid.docx --out evidence/          # 9-check gate + evidence package
+python scripts/patch.py bid.docx patch.json --dry-run        # then --apply --validate
+python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify   # targeted edit
 ```
 
 Run from the repository root. Dependencies: `pip install -r requirements.txt`; pandoc and a
@@ -51,66 +36,42 @@ renderer are system-level (`--doctor` verifies both).
 
 ## When to use / when not to
 
-Use it for:
+Use for: Chinese formal documents from Markdown (tenders, bids, grants, reports, notices); one-command
+pre-delivery acceptance with evidence; declarative patch editing with dry-run and hash preconditions;
+targeted edits to an existing docx without re-typesetting.
 
-- **Chinese formal documents from Markdown**: tenders, bids, grant applications, final reports,
-  official documents — with an explicit design contract (config + `ref.docx`, or `reference_doc`).
-- **One-command pre-delivery acceptance**: 9 checks, structured report, evidence package.
-- **Agent-friendly Patch editing**: declarative operations with dry-run and hash preconditions.
-- **Targeted edits to an existing docx**: text, paragraphs, table cells, headers/footers — without
-  re-typesetting anything else.
-
-Do **not** use it for:
-
-- **Comments, tracked changes, redaction, watermarks, content controls** on an existing docx —
-  out of scope by design; use a general-purpose docx skill.
-- **Bulk content filling** — the editing chain is for targeted point edits. Do the bulk fill
-  (`--fill` covers coordinate-based batch filling; anything smarter is on the caller), then use
-  this skill for typesetting and acceptance.
-- **Theses or book manuscripts** — no bibliography (citeproc), equation numbering, or odd/even headers.
-- **Full English business-document conventions** — defaults (A4, SimSun/SimHei, full-width punctuation,
-  Chinese caption keywords) are Chinese-document conventions. A neutral English **layout baseline**
-  exists (`profiles/neutral-en-v1.json` + `examples/en-report/`: Times New Roman block paragraphs,
-  Arial headings, `Page {n}` footer); it is a baseline, not English convention coverage.
+Do **not** use for: comments / tracked changes / redaction / watermarks / content controls on an
+existing docx (out of scope — use a general docx skill); bulk content filling (the edit chain is for
+point edits; `--fill` covers coordinate-based batch filling only); theses or book manuscripts (no
+bibliography, equation numbering, or odd/even headers); full English business conventions (the
+`neutral-en-v1` profile is a layout baseline, not convention coverage).
 
 ## Hard contract and pitfalls
 
-1. **Layout only, never content — scoped to `post.py`.** `post.py` does not touch any text in body or
-   captions. Figure and table numbers are **hand-written** in the source; renumber manually after
-   insert/delete. An `auto_number` feature once existed, silently corrupted body text, and was
-   removed entirely — do not reintroduce caption rewriting. If automatic numbering is ever needed:
-   Word `SEQ`/`REF` fields. Guarded by `tests/test_postprocess.py::test_never_touches_text`.
-   The scope matters: `content_fixes` / `content_fixes_file` run *earlier*, in the render pipeline
-   (after merging Markdown, before conversion), and they do rewrite text — on purpose, from a table
-   the user supplied. Never tell an agent "output text is byte-identical to the source" without
-   checking whether that config key is populated.
-2. **Cover lines carry no leading/trailing blanks** — `post.py` appends one blank `CoverInfo`
+1. **The pipeline never rewrites content** — layout only. `content_fixes` / `content_fixes_file` are
+   the sanctioned exception (explicit replacement table, applied at merge time). An `auto_number`
+   feature once silently corrupted body text and was removed — do not reintroduce caption rewriting;
+   use Word `SEQ`/`REF` fields. Guard: `test_postprocess.py::test_never_touches_text`.
+2. **`--out` must not be a source path** — render refuses (it would overwrite the .md with binary).
+3. **Raw HTML passes through unfiltered** — the pandoc reader enables `raw_html`; review Markdown
+   from untrusted sources before rendering.
+4. **Cover lines take no leading/trailing blanks** — `post.py` appends one blank `CoverInfo`
    paragraph itself; extra blanks overflow the cover onto a second page.
-3. **Do not put content before the first `#`** — with the TOC on it lands after the TOC and `post.py`
-   warns; with `toc:false` it stays at the top (an `[info]`, not a warning). `post.py` never deletes
-   it (contract #1). A YAML `title`/`author` block is kept and centered when there is no cover, and
-   the TOC (if any) is inserted after it.
-4. **Body/heading fonts and sizes live in the template** — rebuild the global template with
-   `python scripts/make_ref.py --body-font 楷体 --body-size 14`, or override per document via
-   config `style` (`title_size`, `body_size`, `h1_size`–`h3_size`, `margin_*` in cm) without
-   touching the template; `east_font`/`latin_font` still cover tables and captions only.
-5. **Grid tables align by display width** — a CJK character counts as two columns. "Looks aligned in
-   a monospace editor" can still parse into a single-column broken table; verify by rendering.
-6. **`--check` flags legitimately sparse pages** (signature block, heading alone before a table) —
-   false positives; a short final page with content is only a WARN (natural ending), other sparse
-   pages fail; relax with `--max-empty N`, retune the threshold with `--near-empty-chars N`, or
-   fail short last pages too with `--strict-last`.
-7. **Snapshot baselines are machine-specific** (Word version + fonts) — re-record with
-   `snapshot.py --update` after switching machines.
-8. **Client-mandated template wins** — point `reference_doc` at their docx; cover sheets, sealing,
-   signature pages and page-number rules still need manual compliance review. Inheritance details:
-   README §Reusing an existing template.
-9. **After editing an existing docx, always `--verify`** (or open in Word) — the only reliable proof
-   the OOXML survived is that Word still opens the file.
-10. **Raw HTML passes through unfiltered** — the pandoc reader enables `raw_html`; HTML in the source
-    lands in the docx as-is (the contract forbids rewriting content). Review Markdown from untrusted
-    sources before rendering. `--out` must never be the same path as a source `.md` — render refuses
-    rather than overwrite it with binary.
+5. **No body text before the first `#`** — a YAML `title`/`author` block is kept and centered (no
+   cover); plain paragraphs land after the TOC with a `[warn]` (never deleted — contract #1).
+6. **Fonts/sizes/margins**: rebuild the global template with `make_ref.py`, or override per document
+   via config `style` (`title_size`, `body_size`, `h1_size`–`h3_size`, `margin_*` in cm);
+   `east_font`/`latin_font` cover tables and captions only.
+7. **Grid tables are parsed by display width** (CJK = 2 columns) — render aligns them automatically
+   at merge time (source untouched); `align_tables.py --fix` tidies the source itself.
+8. **`--check` sparse pages**: a short final page is only a WARN (natural ending); other sparse pages
+   FAIL — tune with `--max-empty` / `--near-empty-chars` / `--strict-last`.
+9. **Snapshot baselines are machine-specific** — re-record with `snapshot.py --update` after
+   switching machines.
+10. **A client-mandated template wins** — point `reference_doc` at their docx; sealing, signature
+    pages and page-number rules still need human compliance review.
+11. **After editing an existing docx, always `--verify`** (or open in Word) — the only proof the
+    OOXML survived is that Word still opens it.
 
 ## Minimal config shape
 
@@ -123,61 +84,44 @@ Do **not** use it for:
 }
 ```
 
-Short documents (notices/announcements, homework-style short reports): `"mode": "simple-report"` is
-the out-of-the-box switch — no TOC, no page break before any H1, and the title/author lines before
-the first H1 are kept and centered. Just `"toc": false` still works when only the TOC page is
-unwanted. Form-style documents (no `#` headings) need
-`"style": {"header_rows": 0}` so the field-name first row isn't shaded as a header.
+Three starting points: formal documents write nothing; short documents (notices, homework) use
+`{"mode": "simple-report"}` (no TOC, no page break before H1, title/author kept centered); forms
+(first table row is field names) use `{"style": {"header_rows": 0}}`.
 
-CJK documents: ASCII double quotes are paired into full-width `“”` at merge time and pandoc's
-`smart` extension is switched off (its open/close heuristic assumes space-separated Western text
-and mispairs every quote in Chinese text). Type full-width quotes directly and nothing changes.
-
-Every field and `style` key: `docs/CONFIG.md`. Table syntax (pipe vs grid, multi-level headers,
-merged cells, column widths): `docs/TABLES.md`.
+CJK text: ASCII double quotes are paired into full-width `“”` at merge time and pandoc `smart` is
+disabled (its heuristic assumes space-separated Western text and mispairs every quote in Chinese).
+Every field and `style` key: `docs/CONFIG.md`.
 
 ## Two chains, opposite contracts
 
 | | Rendering chain | Editing chain |
 |---|---|---|
 | Input | Markdown | an existing docx |
-| Contract | layout only, never content | **change only what is asked; leave every other byte alone** |
+| Contract | layout only, never content | change only what is asked; every other byte untouched |
 
-Full command reference for both: README §Usage, `docs/EDITING.md` and `docs/SCRIPT_HELP.md`.
-Two rules that matter for agents:
+1. **Word splits text into runs unpredictably** — `edit.py` matches concatenated paragraph text and
+   writes into the run where the match starts; never hand-edit `run.text`.
+2. **An anchor matching more than one paragraph is refused** — after a TOC refresh a heading exists
+   twice; use a precise anchor or `--all-anchors`.
 
-1. **Word splits text into runs unpredictably.** `edit.py` matches against the concatenated
-   paragraph text and writes the replacement into the run where the match starts, so per-run
-   formatting survives — never hand-edit `run.text`.
-2. **An anchor matching more than one paragraph is refused.** After a TOC refresh, a heading exists
-   both in the TOC and in the body; use a precise anchor or `--all-anchors`.
-
-Re-typesetting someone else's docx goes through Markdown (`pandoc` → clean → render); the cleaning
-steps are in README §Reusing an existing template.
+Re-typesetting someone else's docx goes through Markdown; see README §Reusing an existing template.
 
 ## Acceptance gate
 
-Scale the gate to the document: for a short one (a notice, a homework report) the default docx-only render plus one
-`--pdf --check` before delivery is the whole gate; reserve the full `validate.py` evidence package below for formal
-multi-page deliverables.
-
-After any real render, the delivery gate is one command:
+Scale the gate to the document: a short one (notice, homework) needs only the default render plus
+one `--pdf --check` before delivery; reserve `validate.py` for formal multi-page deliverables.
 
 ```bash
-python scripts/validate.py bid.docx --out evidence/
+python scripts/validate.py bid.docx --out evidence/ --source-md chapters/01_bid.md
 ```
 
-Nine checks run against a **single** shared export from the selected renderer: package integrity, source content
-(`--source-md` body comparison, else `--expected-hash` artifact hash), image embedding, section
-count, TOC field, page numbering (footer region only, continuity), blank pages (threshold),
-renderer acceptance, visual drift (baseline, **all pages** by default). Exit code 1 on FAIL or ERROR.
-Output: `report.json` + sampled page screenshots + `signature` — a **checksum manifest** (docx + report
-hashes, plus how many checks were skipped). It is not a cryptographic signature: no key, so it proves
-*which artifact this evidence describes*, not that the evidence was not tampered with.
+Nine checks on one shared export: package integrity, source content (`--source-md` body comparison),
+image embedding (per-image sha256), section count, TOC field, page numbering, blank pages, renderer
+acceptance, visual drift. Exit 1 on FAIL **or ERROR**. Output: `report.json` + screenshots +
+`signature` (a checksum manifest proving *which artifact* the evidence describes — not tamper-proof).
 
-Read the statuses before trusting the gate: a check that could not run reports `SKIP` and is not
-counted as passed. `Passed: 7/9 (skipped: 2)` means two things were never verified — treat that as
-weaker evidence, not as a pass. Check-by-check table: `docs/VALIDATION.md`.
+Read the statuses: `SKIP` means "could not run" and is never counted as passed —
+`Passed: 7/9 (skipped: 2)` is weaker evidence, not a pass. Details: `docs/VALIDATION.md`.
 
 ## Patch schema (Agent API)
 
@@ -194,5 +138,5 @@ weaker evidence, not as a pass. Check-by-check table: `docs/VALIDATION.md`.
 ```
 
 Operations: `replace_text` / `insert_after` / `insert_before` / `delete_paragraph` / `set_cell` /
-`add_row` / `del_row`. Flow: `--dry-run` → `--apply --validate`. Full schema and CLI:
-`docs/SCRIPT_HELP.md` §patch.py.
+`add_row` / `del_row`. Flow: `--dry-run` → `--apply --validate`. Full schema: `docs/SCRIPT_HELP.md`
+§patch.py.
