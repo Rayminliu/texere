@@ -66,6 +66,37 @@ def display_width(s: str) -> int:
     return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
 
 
+def iter_image_search_dirs(src_root, extra=None):
+    """图片搜索目录的**唯一实现**：render 的 --resource-path 与 validate 的逐图
+    定位共用（外部实测：同一份 md，render 能嵌进去的图 validate 却定位不到，
+    image_embedding 被迫降级 SKIP——两个入口的解析口径必须一致）。
+
+    顺序有意义（先到先得）：src 自身 → 其全部子目录 → 父目录 → 父目录的一级
+    子目录 → extra（config 的 resource_paths / CLI 补充）。
+
+    只做纯路径计算；调用方各自决定拿它干什么（render 拼 argv 有字符预算，
+    validate 定位文件没有）。
+    """
+    res = [os.path.abspath(src_root)]
+    for root, dirs, _files in os.walk(src_root):
+        res.extend(os.path.abspath(os.path.join(root, d)) for d in dirs)
+    parent = os.path.dirname(os.path.abspath(src_root))
+    if os.path.isdir(parent):
+        res.append(os.path.abspath(parent))
+        res.extend(
+            os.path.abspath(os.path.join(parent, d))
+            for d in sorted(os.listdir(parent))
+            if os.path.isdir(os.path.join(parent, d))
+        )
+    res.extend(os.path.abspath(p) for p in extra or [])
+    seen, uniq = set(), []
+    for p in res:
+        if p not in seen:
+            seen.add(p)
+            uniq.append(p)
+    return uniq
+
+
 # ---------------------------------------------------------------------------
 # 快照口径（snapshot.py 与 validate.py 的视觉漂移必须同一把尺子）
 # ---------------------------------------------------------------------------

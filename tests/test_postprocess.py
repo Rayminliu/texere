@@ -1391,3 +1391,81 @@ def test_title_size_overrides_title_style_only(tmp_path):
     out2 = _build_md(tmp_path / "d2", md, {})
     doc2 = Document(out2)
     assert doc2.styles["Title"].font.size == Pt(26), "没写键时保持模板基线（make_ref 的 26pt）"
+
+
+# ---------------------------------------------------------------------------
+# 0.9.2：grid 自动对齐进渲染链 + validate 图片口径与 render 统一
+# ---------------------------------------------------------------------------
+
+
+def test_render_auto_aligns_misaligned_grid_tables(tmp_path):
+    """手写 grid 必然错位（pandoc 按显示宽度解析）：渲染链自动对齐，
+    源文件不动，docx 里单元格内容正确。"""
+    from docx import Document
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "01.md").write_text(
+        "# 第一章标题足够长\n\n"
+        "+-+-+\n"
+        "| 列表头甲乙 | 列表头丙丁 |\n"
+        "+==+==+\n"
+        "| 数据甲乙丙丁 | 数据戊己庚辛 |\n"
+        "+-+-+\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "o.docx"
+    r = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(KIT, "scripts", "render.py"),
+            "--src",
+            str(src),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+    )
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    out_text = r.stdout.decode("utf-8", "replace")
+    assert "grid table 自动对齐" in out_text, out_text
+    assert (src / "01.md").read_text(encoding="utf-8").startswith("# 第一章"), "源文件被动了"
+    tbl = Document(str(out)).tables[0]
+    assert [c.text for c in tbl.rows[0].cells] == ["列表头甲乙", "列表头丙丁"]
+    assert [c.text for c in tbl.rows[1].cells] == ["数据甲乙丙丁", "数据戊己庚辛"]
+
+
+def test_validate_locates_images_in_sibling_dirs_like_render(tmp_path):
+    """审计实测：同一份 md，render 报 images 1/1 ok，validate 却降级 SKIP——
+    现在两入口共用 iter_image_search_dirs，validate 走到逐图身份校验。"""
+    pymupdf = pytest.importorskip("pymupdf")
+    from docx import Document
+
+    png = tmp_path / "fig.png"
+    pymupdf.open().new_page().get_pixmap().save(str(png))
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "01.md").write_text(
+        "# 第一章标题足够长\n\n![图 架构](fig.png)\n\n正文引用这张图。\n", encoding="utf-8"
+    )
+    body = str(tmp_path / "body.docx")
+    # resource-path 给父目录：复刻 render 的父目录扩展（图在 src 的兄弟位置）
+    subprocess.run(
+        _pandoc_cmd(str(src / "01.md"), body, str(tmp_path)), check=True, capture_output=True
+    )
+    import importlib.util
+
+    scripts = os.path.join(KIT, "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    spec = importlib.util.spec_from_file_location(
+        "validate_r7", os.path.join(scripts, "validate.py")
+    )
+    vmod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vmod)
+    md_text = (src / "01.md").read_text(encoding="utf-8")
+    res = vmod.check_image_embedding(body, md_text, str(src / "01.md"))
+    assert res.status == vmod.PASS, "逐图身份校验应 PASS 而非降级 SKIP：" + res.message
+    assert Document(body).inline_shapes, "pandoc 没把图嵌进去，夹具失效"

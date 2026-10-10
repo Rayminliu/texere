@@ -49,6 +49,7 @@ from _shared import (
     DEFAULT_MAX_DIFF,
     SPARSE_OK_RE,
     force_utf8_stdio,
+    iter_image_search_dirs,
 )
 from _shared import sha256_file as _sha256_file
 from _verify import (
@@ -160,10 +161,16 @@ def check_source_content_integrity(
         missing = [s for s in segs if s not in doc_text]
         if missing:
             sample = " / ".join(m[:24] for m in missing[:3])
+            hint = ""
+            if any(re.fullmatch(r"[|:+\-=\s]+", m) for m in missing[:3]):
+                # 残片形如表格分隔行：0.9.2 起分隔行已在源头剔除，理论上不会再出现
+                hint = (
+                    "（片段形似表格分隔行残片：0.9.2 已修分隔行误判；若仍出现请附源 md 报 issue）"
+                )
             return CheckResult(
                 "source_content",
                 FAIL,
-                f"源内容缺失：{len(missing)}/{len(segs)} 段未在 docx 中找到（例：{sample}）",
+                f"源内容缺失：{len(missing)}/{len(segs)} 段未在 docx 中找到（例：{sample}）{hint}",
             )
         return CheckResult("source_content", PASS, f"正文等价性：{len(segs)} 段全部命中 docx")
 
@@ -215,7 +222,11 @@ def _docx_image_shas(doc) -> list[str]:
 
 
 def check_image_embedding(
-    docx_path: str, md_ref_text: str = None, md_path: str = None, doc=None
+    docx_path: str,
+    md_ref_text: str = None,
+    md_path: str = None,
+    doc=None,
+    search_dirs=None,
 ) -> CheckResult:
     """检查图片：能给源 md 就做逐图身份 + 顺序校验，否则退回数量下限。
 
@@ -225,9 +236,12 @@ def check_image_embedding(
       - 只有 md_ref_text：仍是数量下限 `n_img >= n_ref`。
       - 都没有：SKIP。
 
+    search_dirs：源图候选目录（_shared.iter_image_search_dirs 构造，与 render 的
+    --resource-path 同一口径；外部实测口径不一致时 render 能嵌入的图 validate
+    定位不到，被迫假降级 SKIP）。
+
     失败闭环（fail-close）只在「身份 / 顺序」这条轴：解析不到源图路径属于验证器能力
-    边界（解析规则在 render 的 resource_paths），不能把「部分未校验」算成强 PASS——
-    降级为 SKIP。
+    边界，不能把「部分未校验」算成强 PASS——降级为 SKIP。
     """
     try:
         doc = _open_doc(docx_path, doc)
@@ -272,7 +286,9 @@ def check_image_embedding(
 
         # ---- 逐图身份比对 ----
         md_dir = os.path.dirname(os.path.abspath(md_path))
-        paths = _md_image_paths(md_ref_text, md_dir)
+        if search_dirs is None:
+            search_dirs = iter_image_search_dirs(md_dir)
+        paths = _md_image_paths(md_ref_text, md_dir, search_dirs=search_dirs)
         resolved = [p for p in paths if p]
         unresolved = len(paths) - len(resolved)
         ev["resolved"] = len(resolved)
@@ -648,6 +664,7 @@ def generate_evidence_package(
     renderer=None,
     config_path: str = None,
     reference_doc: str = None,
+    resource_paths=None,
 ):
     """生成证据包：report.json + 截图 + signature。
 
@@ -689,6 +706,14 @@ def generate_evidence_package(
                 # 不排掉会把示例算进引用数，凭空判 image_embedding FAIL。
                 md_ref_text = _outside_code_fences(f.read())
 
+        # 源图候选目录与 render 的 --resource-path 同一套口径（含 --resource-paths
+        # 补充）；没有源 md 就没有解析这回事，留 None 让检查自己走 SKIP。
+        _img_search_dirs = (
+            iter_image_search_dirs(os.path.dirname(os.path.abspath(source_md)), resource_paths)
+            if source_md and os.path.exists(source_md)
+            else None
+        )
+
         # ---- docx 只解一次：共用 Document 实例注入给下游 docx 级检查 ----
         # 272 页文档上 python-docx 的冷启动解压 + 构 lxml 树是大头，
         # 而之前同一个文件在一条验证链里被解 6 次（4 个检查 + profile 断言 + 本函数）。
@@ -713,7 +738,7 @@ def generate_evidence_package(
                 "image_embedding",
                 check_image_embedding,
                 (docx_path, md_ref_text, source_md),
-                {"doc": doc},
+                {"doc": doc, "search_dirs": _img_search_dirs},
             ),
             ("section_count", check_section_count, (docx_path,), {"doc": doc}),
             ("toc_field", check_toc_field, (docx_path,), {"doc": doc}),
@@ -831,6 +856,15 @@ def main():
         "equivalence checking instead of the weaker artifact hash",
     )
     ap.add_argument(
+        "--resource-paths",
+        nargs="+",
+        default=None,
+        metavar="DIR",
+        help="Extra directories to locate source images for the per-image identity check "
+        "(same resolution as render's resource-path; src dir and its subdirectories are "
+        "searched automatically)",
+    )
+    ap.add_argument(
         "--sample-visual",
         action="store_true",
         help="Compare only first/middle/last page against the baseline (default: all pages)",
@@ -898,6 +932,7 @@ def main():
         renderer=renderer,
         config_path=a.config,
         reference_doc=a.reference,
+        resource_paths=a.resource_paths,
     )
 
     # 打印报告

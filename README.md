@@ -98,7 +98,7 @@ report — same fields and check names as any real run:
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.9.1",
+    "document": "bid.docx", "tool_version": "0.9.2",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },
@@ -176,6 +176,10 @@ result — nothing to configure first. Read on only if `--doctor` complains.
 Short reports and notices get an out-of-the-box switch: one line `"mode": "simple-report"` in the config turns off the TOC and the
 chapter page breaks, and keeps the title/author lines centered ahead of the body. ASCII quotes in Chinese text are paired into
 full-width `“”` automatically.
+
+**Pick the flow by stage**: iterate with the default (a docx in seconds); `--pdf` for the delivery draft; `--check` is a
+pre-delivery visual acceptance — run it once, not on every iteration; for multi-page formal documents and bids add
+`python scripts/validate.py bid.docx --out evidence/` (the 9-check gate) before delivery.
 
 No renderer installed? Run `python scripts/render.py --sample` (without `--pdf`) to get a docx you can open anywhere; do the rendering and acceptance once Word / WPS / LibreOffice is available.
 

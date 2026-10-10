@@ -18,9 +18,10 @@
 Use pipe tables for simple lists and price tables; **use grid tables for complex headers, merged cells, and
 when you need to control column widths**.
 
-> Misaligned pipes (CJK wide characters are the usual culprit) don't need hand-fixing:
-> `python scripts/align_tables.py doc.md --fix` re-aligns by display width with cell bytes preserved.
-> See [SCRIPT_HELP](SCRIPT_HELP.md).
+> Misaligned pipes (CJK wide characters are the usual culprit) don't need hand-fixing: **rendering
+> aligns them automatically** — `render.py` re-aligns at merge time by display width (cell bytes
+> verified, source file untouched); run `python scripts/align_tables.py doc.md --fix` only to tidy the
+> source itself. See [SCRIPT_HELP](SCRIPT_HELP.md).
 
 ### Grid tables: the three tricks
 

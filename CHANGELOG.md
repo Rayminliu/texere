@@ -21,6 +21,41 @@
 
 目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。  
 
+## 0.9.2 — 2026-10-09 — 校验器自洽（grid 假 FAIL + 图片口径 + grid 自动对齐）
+
+同一审计者的 skill 层审查：两条源码 bug（其一"咬了两次"）+ 流程分级建议，全部核实
+成立。核心矛盾是**校验器与文档自相矛盾**：文档推荐 grid table，校验器却不认。
+
+- **表格分隔行不再误判为正文（源码 bug，最严重）**：`_source_md_segments` 旧正则
+  `[-=:\s]+` 漏了 `|` 和 `+`——宽管道表（≥5 列）分隔行归一化成 `:-:-:-:-:-`（≥8 字）
+  假 FAIL；grid 表分隔行任何列数都假 FAIL，而 grid 恰是文档自己推荐的复杂表格方案
+  （列宽/合并单元格/多级表头）。修在**原始行**上：`[|:+\-=\s]+` 一并剔除，含两种
+  分隔行的端到端回归钉死。实测修复前 `validate --source-md` 对 grid 文档必炸。
+- **图片解析口径与 render 统一（源码 bug）**：`_md_image_paths` 只查 md 目录和 cwd，
+  render 能嵌进去的图（子目录/兄弟目录/父目录扩展）validate 定位不到，image_embedding
+  被迫假降级 SKIP。现在：候选目录唯一实现 `_shared.iter_image_search_dirs`，render 的
+  `--resource-path` 与 validate 的逐图定位共用；validate 新增 `--resource-paths` 显式
+  补充。实测同一份"图在兄弟目录"的 md：render `images: 1/1 ok` + validate
+  `逐图比对 1/1 身份与顺序一致`（修复前 SKIP）。docstring 里"不该重复实现一套"的
+  承诺这次真兑现了。
+- **grid table 渲染前自动对齐（设计 #5/#6 的合并解）**：pandoc 按显示宽度解析 grid，
+  中文手写几乎必错位。`render.py` 合并阶段跑 `align_tables.process_text`（壳→壳复用，
+  不搬代码）：错位表格自动重排后再交给 pandoc，源文件不写回，单元格内容逐字自校验，
+  对不了的 `[warn]` 指路 `align_tables --fix`。pipe table 不受影响。至此"手写必错、
+  靠外部工具兜底"的半残体验闭环：校验器认 grid（上一条）+ 渲染自动对齐（本条）。
+- **流程分级写进文档（设计 #3，不加 `--light` 旗标）**：render 默认本就是秒级 docx-only，
+  `--pdf`/`--check`/`validate` 全是显式 opt-in——缺的不是开关是引导。README 双语快速
+  开始加"按文档阶段选流程"，SKILL 验收门槛节加"短文档的整个门禁 = 默认渲染 + 交付前
+  一次 `--pdf --check`"。
+- **`simple-report` 提到 config 文档顶部（设计 #4）**：CONFIG 双语开头加"三种常见起点"
+  （正式 / 短文档 / 表单），按文档类型选配置不再埋在字段表中间。
+- **报错可操作（#7）**：`源内容缺失` 的样例若形似分隔行残片，附"0.9.2 已修；若仍出现
+  请附源 md 报 issue"提示。
+- **测试 +7**：宽管道/grid 分隔行单测（含端到端 source_content PASS）、兄弟目录图片
+  口径（`_md_image_paths` 与 check 级）、grid 自动对齐 e2e（源不动 + 单元格正确）、
+  validate 兄弟目录逐图身份 PASS；端到端实证：含宽管道表 + 错位 grid + 兄弟目录图的
+  一份 md，render 与 validate 结论首次完全一致。
+
 ## 0.9.1 — 2026-10-09 — 防呆三连 + pre-push Word 门禁（用户边界实测五项）
 
 同一审计者实测大量边界场景 + 读核心代码，五项发现全部核实成立（另确认六项为好，

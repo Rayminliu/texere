@@ -93,7 +93,7 @@ flowchart LR
 ```json
 {
   "metadata": {
-    "document": "bid.docx", "tool_version": "0.9.1",
+    "document": "bid.docx", "tool_version": "0.9.2",
     "pandoc_version": "pandoc 3.11",
     "renderer": { "name": "Microsoft Word" }
   },
@@ -164,6 +164,10 @@ python scripts/render.py --src examples/tender --out 标书.docx `
 
 写短报告、短通知有开箱开关：config 里一行 `"mode": "simple-report"` 就不插目录、章节不另起一页，
 H1 前的标题/作者行自动居中保留；中文里的 ASCII 直引号也会自动配对成全角 `“”`。
+
+**按文档阶段选流程**：日常迭代用默认（秒级 docx）；`--pdf` 出交付稿；`--check` 是交付前跑
+一次的目视验收，不必每次迭代都带；几十页的正式文档/标书，交付前再加
+`python scripts/validate.py 标书.docx --out evidence/` 做 9 项门禁。
 
 没装任何渲染器？先 `python scripts/render.py --sample`（不带 `--pdf`）拿一份 docx 看效果；渲染与验收等装了 Word / WPS / LibreOffice 再做。
 

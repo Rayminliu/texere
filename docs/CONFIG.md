@@ -4,6 +4,12 @@
 
 ## Configuration
 
+**Three common starting points** (every other key is optional; the defaults are the Chinese formal-document conventions):
+
+- Formal document / bid: write nothing at all;
+- Short document (notice / announcement / homework): `{"mode": "simple-report"}`;
+- Form / appendix (first table row is field names): `{"style": {"header_rows": 0}}`.
+
 ### config.json fields
 
 | Field | Purpose |

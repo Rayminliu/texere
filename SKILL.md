@@ -157,6 +157,10 @@ steps are in README §Reusing an existing template.
 
 ## Acceptance gate
 
+Scale the gate to the document: for a short one (a notice, a homework report) the default docx-only render plus one
+`--pdf --check` before delivery is the whole gate; reserve the full `validate.py` evidence package below for formal
+multi-page deliverables.
+
 After any real render, the delivery gate is one command:
 
 ```bash

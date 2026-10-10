@@ -1041,3 +1041,82 @@ class TestEvidenceInProcess:
         # 选项名与文件名都要保留：它们才回答「用哪些开关跑的哪份文档」
         assert "validate.py" in cli and "leak.docx" in cli and "cfg.json" in cli
         assert "--enforce-profile=on" in cli
+
+
+# ---------------------------------------------------------------------------
+# 0.9.2：表格分隔行误判（审计者被咬两次）+ 图片口径与 render 统一
+# ---------------------------------------------------------------------------
+
+
+class TestTableSeparatorRowsNeverCompare:
+    """分隔行必须在**原始行**上剔除：管道 `|:---|` 归一化后是 :-:-:（_normalize 删
+    `|`、收 `-`），grid 的 `+` 干脆不参与归一化——只挡 `-=:` 的旧正则让宽管道表
+    （≥5 列）和任意 grid 表假 FAIL，而 grid 恰是文档推荐的复杂表格方案。"""
+
+    def test_wide_pipe_separator_row_is_skipped(self):
+        md = "| 列甲 | 列乙 | 列丙 | 列丁 | 列戊 |\n|:---|:---|:---|:---|:---|\n"
+        assert v._source_md_segments(md) == ["列甲列乙列丙列丁列戊"]
+
+    def test_grid_separator_rows_are_skipped(self):
+        md = "+------+------+\n| 甲乙 | 丙丁 |\n+======+======+\n"
+        assert v._source_md_segments(md) == []
+
+    def test_grid_and_pipe_tables_pass_source_content(self, tmp_path):
+        """含两种表格的文档 + 对应 docx：source_content 必须 PASS（修复前假 FAIL）。"""
+        doc = Document()
+        doc.add_paragraph("标题行文字足够长了")
+        tbl = doc.add_table(rows=3, cols=2)
+        for row, texts in zip(
+            tbl.rows,
+            (
+                ["列表头甲乙丙丁", "列表头戊己庚辛"],
+                ["数据甲乙丙丁戊", "数据己庚辛壬癸"],
+                ["网格甲乙丙丁", "网格戊己庚辛"],
+            ),
+        ):
+            for cell, t in zip(row.cells, texts):
+                cell.text = t
+        f = tmp_path / "t.docx"
+        doc.save(str(f))
+        md = tmp_path / "t.md"
+        md.write_text(
+            "标题行文字足够长了\n\n"
+            "| 列表头甲乙丙丁 | 列表头戊己庚辛 |\n"
+            "|:---|:---|:---:|\n"
+            "| 数据甲乙丙丁戊 | 数据己庚辛壬癸 |\n"
+            "\n+------+------+\n"
+            "| 网格甲乙丙丁 | 网格戊己庚辛 |\n"
+            "+======+======+\n",
+            encoding="utf-8",
+        )
+        res = v.check_source_content_integrity(str(f), source_md=str(md))
+        assert res.status == v.PASS, res.message
+
+
+class TestImageSearchDirsSharedWithRender:
+    """render 能找到的图 validate 也必须能找到（同一套 iter_image_search_dirs）。"""
+
+    def test_sibling_dir_resolves_only_with_search_dirs(self, tmp_path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "media").mkdir()
+        (tmp_path / "media" / "a.png").write_bytes(b"x")
+        md = "![图一](a.png)\n"
+        # 旧行为：只查 md 目录和 cwd → 定位不到（这就是假 SKIP 的来源）
+        assert v._md_image_paths(md, str(tmp_path / "src")) == [None]
+        dirs = v.iter_image_search_dirs(str(tmp_path / "src"))
+        got = v._md_image_paths(md, str(tmp_path / "src"), search_dirs=dirs)
+        assert [os.path.basename(p) for p in got] == ["a.png"]
+
+    def test_check_level_defaults_to_shared_dirs(self, tmp_path):
+        """check_image_embedding 不传 search_dirs 时自动用共享口径——md 同目录没图
+        但兄弟/子目录有，定位得到就该走身份校验而不是降级 SKIP。"""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "media").mkdir()
+        (tmp_path / "media" / "a.png").write_bytes(b"x")
+        md = tmp_path / "src" / "a.md"
+        md.write_text("![图一](a.png)\n", encoding="utf-8")
+        res = v.check_image_embedding(
+            _save_docx(tmp_path, "d.docx"), md.read_text(encoding="utf-8"), str(md)
+        )
+        # docx 里没有图 → 数量下限就 FAIL（能定位才会 FAIL，定位不到是 SKIP）
+        assert res.status == v.FAIL, "定位成功却还在 SKIP：" + res.message

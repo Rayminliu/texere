@@ -134,7 +134,9 @@ def _source_md_segments(md_text: str, min_len: int = 8) -> list[str]:
       - ``` / ~~~ 代码块整体（围栏判定与 _compile._outside_code_fences 同一条规则：
         记录开栏字符，只有同样的字符才关闭 —— ``` 包 inside 里的 ~~~ 不会误闭）
       - ::: / :::: pandoc fenced div 的栅栏行
-      - |:---|---| 表格分隔行
+      - 表格分隔行：管道 `|:---|:---|` 与 grid `+===+===+` 一并在**原始行**上判定
+        （0.9.2 前只挡 `-=:`，宽管道表归一化成 :-:-:-:-:- 后 ≥8 字符照样假 FAIL，
+        grid 表任何列数都假 FAIL——而 grid 恰是文档自己推荐的复杂表格方案）
       - 列表符号 `- ` / `* ` / `1. `（Word 里没有这个字符）
       - 行尾硬换行的 `\\`
       - 归一化后过短的片段（< 8 字符）
@@ -150,7 +152,7 @@ def _source_md_segments(md_text: str, min_len: int = 8) -> list[str]:
                 fence = None
             continue
         stripped = line.strip()
-        if not stripped or re.fullmatch(r"[-=:\s]+", stripped):
+        if not stripped or re.fullmatch(r"[|:+\-=\s]+", stripped):
             continue
         if stripped.startswith(":::"):  # pandoc fenced div
             continue
@@ -191,18 +193,20 @@ def _md_image_raw_refs(md_text: str) -> list[str]:
     return refs
 
 
-def _md_image_paths(md_text: str, md_dir: str = None) -> list[str | None]:
+def _md_image_paths(md_text: str, md_dir: str = None, search_dirs=None) -> list[str | None]:
     """按文档顺序解析 `![](path)` 指向的真实文件；解析不到的位置留 None。
 
-    解析顺序：md 所在目录 → 当前目录 → 原样（绝对路径）。
-    解析不到不判失败，只在消息里说明「N 张无法定位」——路径规则属于
-    render.py 的 resource_paths，这里不该重复实现一套。
+    search_dirs 给出时用它作为候选目录（validate 经 _shared.iter_image_search_dirs
+    构造，与 render 的 --resource-path 同一套口径）；否则退回 md 所在目录 → 当前
+    目录 → 原样（绝对路径）的旧行为。解析不到不判失败，只在消息里说明
+    「N 张无法定位」——路径规则与 render 同源，不再各自实现。
     """
     found = []
+    bases = search_dirs if search_dirs is not None else [md_dir, os.getcwd()]
     for raw in _md_image_raw_refs(md_text):
         cand = raw
         if not os.path.isabs(cand):
-            for base in (md_dir, os.getcwd()):
+            for base in bases:
                 if not base:
                     continue
                 p = os.path.join(base, cand)

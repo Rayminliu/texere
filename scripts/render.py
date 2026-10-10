@@ -29,8 +29,14 @@ from _compile import (
     is_cjk_dominant,
     pair_cjk_quotes,
 )
-from _shared import UTF8_ENV, __version__, force_utf8_stdio
+from _shared import (
+    UTF8_ENV,
+    __version__,
+    force_utf8_stdio,
+    iter_image_search_dirs,
+)
 from _shared import display_width as dw
+from align_tables import process_text as align_grid_tables
 from renderers import SUPPORTED_RENDERERS, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -445,6 +451,16 @@ def _merge_sources(src_dir, config_path, cfg, tmp, out_docx=""):
     if cjk:
         fixed, n_pair, n_odd = pair_cjk_quotes(merged)
         merged = fixed.rstrip("\n") + "\n"
+    # grid table 自动对齐（R7 #6）：pandoc 按显示宽度解析 grid，中文手写几乎必错位。
+    # 对齐只动竖线与填充空格（单元格内容逐字自校验），源文件不写回——渲染吃到的
+    # all.md 就是转换输入，证据链不打折。pipe table 不受影响（无 + 分隔行不算块）。
+    merged, aligned, align_errors = align_grid_tables(merged)
+    if aligned:
+        print("      grid table 自动对齐: %d 处（行 %s；源文件未动）" % (len(aligned), aligned))
+    for err in align_errors:
+        print(
+            "[warn] %s——pandoc 按位置解析会得到错位表格，请修源文件或跑 align_tables.py --fix" % err
+        )
     with open(all_md, "w", encoding="utf-8") as fh:
         fh.write(merged)
     print("[1/3] merged %d md files (%d chars)" % (len(parts), len(merged)))
@@ -462,41 +478,19 @@ def _merge_sources(src_dir, config_path, cfg, tmp, out_docx=""):
 def _resource_paths(src_root, cfg):
     """算出 pandoc 的 --resource-path 去重列表。
 
-    图片常放在 src 的子目录或**兄弟**目录里（真实项目里 md 在 src/、图在 media/），
-    pandoc 只按给出的路径查找，故把 src、其全部子目录、src 的父目录及其一级子目录
-    都加进 resource-path；还可用 config 的 resource_paths 补充。
-
-    Windows 整条命令行上限 32767 字符：src 放在 /tmp 这类位置时，父目录的一级
-    子目录能膨胀到上千个，直接把 pandoc 挤炸（WinError 206，实测踩过）。故设字符
-    预算，超支时从尾部裁剪——父目录扩展本来就是兜底（排在最后），src 自身/子目录/
-    显式 resource_paths 永不裁；真有图被裁到，pandoc 的 WARNING 会兜住。
+    候选目录的唯一实现在 _shared.iter_image_search_dirs（validate 的逐图定位
+    用同一套——外部实测两入口口径不一致会让 image_embedding 假降级 SKIP）。
+    这里只叠加 Windows 的 argv 字符预算（32767 上限，取保守值留余量）：src 放
+    /tmp 这类位置时父目录的一级子目录能膨胀到上千个，直接把 pandoc 挤炸
+    （WinError 206，实测踩过）。超支从尾部裁剪——父目录扩展本来就是兜底（排在
+    最后），src 自身/子目录/显式 resource_paths 永不裁；真有图被裁到，pandoc 的
+    WARNING 会兜住。
     """
-    core = [src_root]
-    for root, dirs, _files in os.walk(src_root):
-        core.extend(os.path.join(root, d) for d in dirs)
-    core.extend(cfg.get("resource_paths") or [])
-    parent = os.path.dirname(os.path.abspath(src_root))
-    ext = []
-    if os.path.isdir(parent):
-        ext.append(parent)
-        ext.extend(
-            sorted(
-                os.path.join(parent, d)
-                for d in os.listdir(parent)
-                if os.path.isdir(os.path.join(parent, d))
-            )
-        )
-
-    seen, uniq = set(), []
-    for p, droppable in [(x, False) for x in core] + [(x, True) for x in ext]:
-        p = os.path.abspath(p)
-        if p not in seen:
-            seen.add(p)
-            uniq.append((p, droppable))
-
+    extras = [os.path.abspath(p) for p in (cfg.get("resource_paths") or [])]
+    dirs = iter_image_search_dirs(src_root)
     kept, used, dropped = [], 0, 0
-    for p, droppable in uniq:
-        if droppable and used + len(p) + 1 > RESOURCE_PATH_BUDGET:
+    for p in dirs:
+        if used and used + len(p) + 1 > RESOURCE_PATH_BUDGET:
             dropped += 1
             continue
         kept.append(p)
@@ -506,6 +500,8 @@ def _resource_paths(src_root, cfg):
             "[warn] --resource-path 超出预算（%d 字符），已裁掉 %d 个父目录扩展；"
             "图片搜不到时用 config 的 resource_paths 显式指定" % (RESOURCE_PATH_BUDGET, dropped)
         )
+    # 显式指定的路径在预算之外——用户点名要搜的目录不参与裁剪
+    kept.extend(p for p in extras if p not in kept)
     return kept
 
 

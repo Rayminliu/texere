@@ -71,6 +71,9 @@ python scripts/render.py --version
 细节行（`[work]` / `[check]` / pandoc 的 WARNING）只在有话要说时出现；要完整现场加
 `--keep-work`。
 
+grid table 在合并阶段**自动对齐**（0.9.2 起）：手写的错位表格按显示宽度重排后再交给
+pandoc，源文件不写回；单元格内容逐字自校验，对不了的大声 `[warn]`。pipe table 不受影响。
+
 ---
 
 ## post.py - 文档后处理
@@ -127,6 +130,8 @@ python scripts/validate.py bid.docx --quiet
 - `--baseline <dir>`: 视觉基线目录（页图 p001.png…，与 snapshot.py 同口径 dpi=100 比对）
 - `--expected-hash <hash>`: 期望的 docx 文件 SHA256（产件级，只证明字节未变）
 - `--source-md <file>`: 源 Markdown，开启正文等价性比对（比 hash 强得多，见下）
+- `--resource-paths <DIR [DIR …]>`: 逐图身份校验的额外源图目录（src 目录及其子目录已自动搜索，
+  与 render 的图片搜索同一套口径）
 - `--sample-visual`: 视觉比对只比首 / 中 / 尾三页（默认逐页全量）
 - `--max-empty <n>`: 允许的最大空白页数（默认：0）
 - `--enforce-profile`: 把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言
