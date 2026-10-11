@@ -28,6 +28,27 @@
 
 ## 未发布
 
+### 路由修复：distill.py 从文档深处提到入口（用户实测三轮返工的教训）
+
+用户拿着甲方 docx 模板，第一反应是手写脚本解析 XML 猜样式，三轮才撞到"封面继承不了"
+——而这条早就写在 README 复用模板一节（第 346 行的 `distill.py` 提示）。三个事实：
+
+- **SKILL.md 里 distill 零命中**：守卫防"说的每句是谎"，不防"该说的没说"——这是
+  路由缺口，不是诚实性缺口。修复全部是文档级轻改动，零新机制：
+
+- **SKILL.md Quick start**：加"Client supplied a template docx? Distill it first"一段
+  （一句命令 + 封面继承不了 + 先看一眼封面）。
+- **README 双语快速开始**：`distill.py --out cfg.json` 与"按文档阶段选流程"并列；
+  明确"先蒸馏再写 config""搭封面之前先看一眼模板封面"。
+- **validate 摘要加范围声明**（用户反馈"SKIP 让全绿像质量良好"）：每次报告末尾打印
+  `Note: these checks prove structure & content, not typography — judge fonts/cover/
+  layout by eye on the rendered pages.`——9 项没有一项覆盖字体字号封面，全绿证明不了
+  "好看"；把工具能证明什么一句话说破。quiet 模式也不消失（--quiet 省的是装饰不是
+  诚实）。测试 +2（test_validate_units.py::TestReportScopeStatement）。
+
+- 用户自查的另一条（"14 页作业该不该用"的判断题）不加：SKILL「When to use / when
+  not to」与快速开始「按文档阶段选流程」已覆盖，重复即冗余。
+
 ### policy.py 接入 validate 退出码（0.9.2 遗留的"未接线"挂起件落地）
 
 `scripts/policy.py`（四级严重度模型）此前一直是 README 自述"尚未接入 validate 退出码"

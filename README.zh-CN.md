@@ -169,6 +169,11 @@ H1 前的标题/作者行自动居中保留；中文里的 ASCII 直引号也会
 一次的目视验收，不必每次迭代都带；几十页的正式文档/标书，交付前再加
 `python scripts/validate.py 标书.docx --out evidence/` 做 9 项门禁。
 
+**手里有甲方给的 docx 模板？先蒸馏再写 config**：
+`python scripts/distill.py 甲方模板.docx --out cfg.json`——它会报告模板里实际有什么
+（页面、正文字体、页眉页脚）并给出建议 config。注意封面永远继承不了（`post.py` 自己注入），
+动手搭封面之前先看一眼模板的封面长什么样。详见 [复用已有模板](#复用已有模板)。
+
 没装任何渲染器？先 `python scripts/render.py --sample`（不带 `--pdf`）拿一份 docx 看效果；渲染与验收等装了 Word / WPS / LibreOffice 再做。
 
 **如果 `--doctor` 报错**——`pandoc` 必需；`--pdf` 与验证器需要本机渲染器（默认 Word；可 `--renderer` 选 LibreOffice / WPS）：

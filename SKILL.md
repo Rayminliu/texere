@@ -31,6 +31,17 @@ python scripts/patch.py bid.docx patch.json --dry-run        # then --apply --va
 python scripts/edit.py bid.docx --replace "示例科技=某某科技" --verify   # targeted edit
 ```
 
+**Client supplied a template docx? Distill it first — before writing any config:**
+
+```bash
+python scripts/distill.py 客户模板.docx --out cfg.json
+```
+
+It reports what the template actually contains (page setup, body/heading fonts, headers/footers)
+plus a suggested config and the matching `make_ref.py` command. **The cover can never be
+inherited** — `post.py` always injects its own; look at the template's cover once before
+building one. Details: `README.zh-CN.md` §复用已有模板 / `BEST_PRACTICES.md`.
+
 Run from the repository root. Dependencies: `pip install -r requirements.txt`; pandoc and a
 renderer are system-level (`--doctor` verifies both).
 

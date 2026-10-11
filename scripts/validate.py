@@ -870,6 +870,12 @@ def print_report(report: dict, quiet: bool = False):
     skipped = report["summary"].get("skipped", 0)
     # 「8/9 通过 + 1 跳过」和「8/9 通过 + 1 失败」在旧口径下长得一样，这里分开写
     print(f"Passed: {passed}/{total}" + (f" (skipped: {skipped})" if skipped else ""))
+    # 范围声明：9 项管的是结构与内容事实（包 / 正文 / 图 / 页码 / 漂移），
+    # 不管「好不好看」。绿字证明不了字体字号对——那是人眼对着渲染图判的事
+    # （--check 的截图 / evidence/page-XXX.png）。把工具能证明什么、不能证明
+    # 什么一句话说破，免得「全绿」被读成「版式正确」。
+    print("Note: these checks prove structure & content, not typography —")
+    print("      judge fonts/cover/layout by eye on the rendered pages.")
 
     if report["summary"]["failed"] > 0:
         print(f"\n❌ Validation FAILED ({report['summary']['failed']} checks failed)")

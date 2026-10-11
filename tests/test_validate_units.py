@@ -188,6 +188,38 @@ class TestStatusConstants:
         assert (v.PASS, v.FAIL, v.SKIP, v.ERROR) == ("PASS", "FAIL", "SKIP", "ERROR")
 
 
+class TestReportScopeStatement:
+    """摘要必须一句话说破「9 项证明什么、不证明什么」。
+
+    全绿容易被读成「版式正确」——但 9 项没有一项覆盖字体字号封面。这条声明
+    是工具向人眼认输的那句话：结构我担保，好看你自己看。quiet 模式也不消失
+    （--quiet 省的是装饰，不是诚实）。
+    """
+
+    @staticmethod
+    def _report():
+        from scripts._verify import CheckResult
+
+        report = {
+            "metadata": {},
+            "checks": {},
+            "summary": {"total": 1, "passed": 1, "failed": 0, "skipped": 0},
+        }
+        v._tally(report, CheckResult("package_integrity", v.PASS, "OK"))
+        return report
+
+    def test_scope_statement_present(self, capsys):
+        v.print_report(self._report())
+        out = capsys.readouterr().out
+        assert "not typography" in out, "摘要缺范围声明"
+        assert "by eye" in out, "范围声明没指给人眼核对的路"
+
+    def test_scope_statement_survives_quiet(self, capsys):
+        v.print_report(self._report(), quiet=True)
+        out = capsys.readouterr().out
+        assert "not typography" in out, "--quiet 把诚实声明也静音了"
+
+
 class TestNoFailOpen:
     """「查不了」必须报 SKIP 或 ERROR，绝不能报 PASS。
 

@@ -181,6 +181,12 @@ full-width `“”` automatically.
 pre-delivery visual acceptance — run it once, not on every iteration; for multi-page formal documents and bids add
 `python scripts/validate.py bid.docx --out evidence/` (the 9-check gate) before delivery.
 
+**Got a client-supplied template docx? Distill it before writing any config**:
+`python scripts/distill.py client-template.docx --out cfg.json` reports what the template actually
+contains (page setup, body fonts, headers/footers) and suggests a config. Note the cover can never
+be inherited (`post.py` injects its own) — look at the template's cover once before building yours.
+See [Reusing an existing template](#reusing-an-existing-template).
+
 No renderer installed? Run `python scripts/render.py --sample` (without `--pdf`) to get a docx you can open anywhere; do the rendering and acceptance once Word / WPS / LibreOffice is available.
 
 **If `--doctor` complains** — `pandoc` is required; `--pdf` and the validator need a renderer (default Word; pick LibreOffice/WPS with `--renderer`):
