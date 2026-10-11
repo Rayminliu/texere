@@ -484,7 +484,7 @@ pre-commit run --all-files                   # 手动跑：lint + 格式 + 不�
 | `scripts/distill.py` | 蒸馏模板 docx，输出建议 config（页面设置 / 字体 / 页眉页脚） |
 | `scripts/make_ref.py` | 重新生成 `assets/ref.docx`（改字体 / 字号 / 间距时用它） |
 | `scripts/align_tables.py` | 对齐 Markdown 源文件的表格（纯文本重排，不改单元格内容） |
-| `scripts/policy.py` | 验收策略模型库（四级严重度 + renderer 矩阵）；**尚未接入 validate 退出码** |
+| `scripts/policy.py` | 验收策略模型库（四级严重度 + renderer 矩阵）；经 `--acceptance-mode` 接入 validate 退出码（只裁决 profile 契约层——核心检查任何模式都硬门禁） |
 | `scripts/_shared.py` | 公共原语：语言词表（字体 / 题注 / 目录文案）、SHA256、显示宽度、UTF-8 控制台 |
 | `scripts/_ooxml.py` | OOXML 有序插入原语（ECMA-376 元素顺序表，唯一实现） |
 | `scripts/_docx_edit.py` | docx 编辑原语 + 结构化异常（`edit.py` 与 `patch.py` 共用） |

@@ -123,6 +123,10 @@ acceptance, visual drift. Exit 1 on FAIL **or ERROR**. Output: `report.json` + s
 Read the statuses: `SKIP` means "could not run" and is never counted as passed —
 `Passed: 7/9 (skipped: 2)` is weaker evidence, not a pass. Details: `docs/VALIDATION.md`.
 
+The 9 checks are hard gates in every mode. `--acceptance-mode advisory` (with `--enforce-profile`)
+downgrades only profile-contract FAILs to WARN (exit 0) when the client wants the layout contract
+advised, not enforced; `strict` keeps them fatal. Details: `docs/SCRIPT_HELP.md` §Acceptance modes.
+
 ## Patch schema (Agent API)
 
 ```json

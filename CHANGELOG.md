@@ -19,7 +19,49 @@
 - **依赖 / 安全：开启**（依赖库出现安全问题或不兼容）
 - **新功能：仅在确有未覆盖、且值得进入核心的真实需求时**
 
-目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。  
+目标不是「永不更新」，而是「即使半年、一年不更新，项目依然完整、可信、可用」。
+
+> **状态更正（0.9.3）**：上面"功能开发：停止"的声明与实际行为脱节——0.6.4 之后
+> 实际发布了 0.7.0 / 0.8.0 / 0.8.1 / 0.9.0 / 0.9.1 / 0.9.2，其中 0.8.0 与 0.9.0
+> 是功能版本，近半年保持每周量级的提交。实际执行的模式是**问题驱动的小步演进**
+> （新功能仅在确有未覆盖的真实需求时进入核心），本表如实更正，不再自称维护模式。
+
+## 未发布
+
+### policy.py 接入 validate 退出码（0.9.2 遗留的"未接线"挂起件落地）
+
+`scripts/policy.py`（四级严重度模型）此前一直是 README 自述"尚未接入 validate 退出码"
+的挂起模型。本轮按 0.6.4 时代写下的 Phase 2 计划接进门禁，**opt-in，缺省行为逐字不变**：
+
+- **新增 `--acceptance-mode free|advisory|strict`**：策略只裁决 **profile 契约层**
+  （`--enforce-profile` 编译出的 `profile.*` 断言）——`free` 全 observe 不拦、
+  `advisory` 把契约 FAIL 降级为 WARN（亮黄灯，退出码 0）、`strict` 保持硬失败。
+- **核心 9 项 + `profile.load` 是物理不变量**，任何模式 FAIL/ERROR 都退 1：策略无权
+  把「包坏了」调成绿。实现在 `policy.evaluate` 的 `enforced_check_results`（在这些键里
+  severity 不作数），名单由 `policy.core_invariants()` 给出。
+- **ERROR 一律 fail-close**：FAIL 是「属性不符」（策略可按严格度降级），ERROR 是
+  「无法判定」（检查崩了）——任何 severity 都无权把「不知道」降级成「合格」，只有
+  `ignore`（明确声明不观测）例外。这是本仓「查不了当 PASS 是最大失真」铁律在策略
+  模型里的对应约束。
+- **降级不销毁证据**：被 observe/WARN 掩盖的失败原样留在 report 的 checks 里，同时记进
+  `metadata.acceptance.observed_failures`；结论行 `Acceptance verdict: PASS/WARN/FAIL
+  (mode: …)` 打到 stdout；`metadata.acceptance` 记录 `mode` / `verdict` /
+  `renderers_required` / `observed_failures` / `warnings`。
+- **renderer 矩阵不做成检查项**（诚实性取舍）：`acceptance.renderers` 如实记进
+  `metadata.acceptance.renderers_required`——单次运行只跑一个渲染器，「多渲染器都通过」
+  只能由编排层跨运行聚合，单次运行里做这个判定就是撒谎。
+- 配套：`_run_profile_asserts` 的兜底 ERROR 检查名从 `profile_assert` 统一为
+  `profile.load`（与 `_verify.compile_profile_checks` 打开失败时的命名一致）；
+  `policy.core_invariants()` / `policy.mode_policy()` 新增；`AcceptanceSummary`
+  新增 `observed_failures`。
+- 测试 +12：`test_policy.py` 补 enforced_map 覆盖 / ERROR fail-close / 契约层不越界 /
+  模式解析；`test_validate_units.py::TestAcceptancePolicyWiring` 十项（缺省不扰动 /
+  advisory 降级 / strict 硬失败 / 核心不变量压策略 / ERROR fail-close / verdict↔退出码
+  自洽 / renderers_required 落盘）。端到端实测：同一份契约层 4 FAIL 的文档，free→exit 0、
+  advisory→exit 0（verdict WARN）、strict→exit 1、缺省→exit 1。
+- 文档：`SCRIPT_HELP.md`（参数 + 示例 + §验收策略模式表）、`VALIDATION.md` /
+  `VALIDATION.zh-CN.md`（§Acceptance modes）、README 双语仓库地图（policy.py 行改为
+  已接线）、SKILL.md 验收节一句提及。  
 
 ## 0.9.2 — 2026-10-09 — 校验器自洽（grid 假 FAIL + 图片口径 + grid 自动对齐）
 

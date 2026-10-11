@@ -97,7 +97,22 @@ profile 与渲染 config 是**两个不同的对象**，刻意不打通：
 
 可选键（任何 profile 都可写；5 个内置 profile 均未使用）：`baseline_dir`（未传 `--baseline` 时
 视觉漂移检查回退读它）与 `acceptance.renderers`（多渲染器验收矩阵，如 `["word", "wps"]`；
-由 `policy.py` 消费，未接入 validate 退出码）。
+`validate.py --acceptance-mode` 把它如实记进 `metadata.acceptance.renderers_required`——
+单次运行只跑一个渲染器，「多渲染器都通过」由编排层跨运行聚合）。
+
+### 验收策略模式（`--acceptance-mode`，policy.py 0.9.3 起接线）
+
+四级严重度策略模型（`scripts/policy.py`）已接进退出码——按需开启：
+
+- **核心 9 项 + `profile.load` 是物理不变量**：任何模式下 FAIL/ERROR 都退 1。
+  策略无权把「包坏了」调成绿。
+- 策略只裁决 **profile 契约层**（`profile.*` 断言）：`free` 全部 observe 不拦；`advisory`
+  把契约 FAIL 降级为 WARN（退出码 0，亮黄灯；被掩盖的失败仍记进
+  `metadata.acceptance.observed_failures`）；`strict` 保持硬失败。不传该旗标 =
+  0.9.2 行为逐字不变。
+- 激活时 stdout 打印 `Acceptance verdict: PASS/WARN/FAIL (mode: …)` 结论行，
+  `metadata.acceptance` 记录 `mode` / `verdict` / `renderers_required` / `observed_failures`。
+  细节见 `docs/SCRIPT_HELP.md` §验收策略模式。
 
 **profile 刻意保持自包含、不做继承**（这是设计决策，不是没注意到重复）：5 个内置 profile 各自
 写完整契约，没有 `base` / `extends`。理由：一份 profile 就是要独立审计的验收契约，「本次签的

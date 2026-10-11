@@ -100,7 +100,23 @@ Which profile fields the gate actually enforces (details: `docs/SCRIPT_HELP.md` 
 
 Optional keys (valid in any profile; none of the five built-in profiles uses them): `baseline_dir`
 (visual-drift fallback when `--baseline` is not passed) and `acceptance.renderers`
-(multi-renderer acceptance matrix, e.g. `["word", "wps"]`; consumed by `policy.py`, which is not wired into the validate exit code).
+(multi-renderer acceptance matrix, e.g. `["word", "wps"]`; recorded into `metadata.acceptance.renderers_required`
+by `validate.py --acceptance-mode` — a single run exercises one renderer, so "all renderers passed"
+is aggregated across runs by the orchestrating layer).
+
+### Acceptance modes (`--acceptance-mode`, policy.py wired in since 0.9.3)
+
+The four-severity policy model (`scripts/policy.py`) now gates the exit code — opt-in:
+
+- The **core 9 checks + `profile.load` are physical invariants**: any FAIL/ERROR exits 1 in
+  every mode. Policy cannot turn a broken package green.
+- Policy rules over the **profile contract layer** (`profile.*` assertions) only: `free` observes
+  everything without gating, `advisory` downgrades contract FAILs to WARN (exit 0, yellow light;
+  the masked failures are still recorded in `metadata.acceptance.observed_failures`), `strict`
+  keeps them hard failures. Omitting the flag = 0.9.2 behavior, byte for byte.
+- When active, stdout prints an `Acceptance verdict: PASS/WARN/FAIL (mode: …)` line and
+  `metadata.acceptance` records `mode` / `verdict` / `renderers_required` / `observed_failures`.
+  Details: `docs/SCRIPT_HELP.md` §Acceptance modes.
 
 **Profiles are deliberately self-contained — no inheritance** (a design decision, not an oversight):
 each of the five built-in profiles states its whole contract, there is no `base` / `extends`. The reason:

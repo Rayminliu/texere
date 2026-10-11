@@ -1120,3 +1120,101 @@ class TestImageSearchDirsSharedWithRender:
         )
         # docx 里没有图 → 数量下限就 FAIL（能定位才会 FAIL，定位不到是 SKIP）
         assert res.status == v.FAIL, "定位成功却还在 SKIP：" + res.message
+
+
+class TestAcceptancePolicyWiring:
+    """0.9.3：policy.py 接进 validate 门禁（--acceptance-mode）。
+
+    全部零 Word 依赖：_apply_acceptance_policy 只消费 report dict；
+    退出码语义用合成 report 直接断言（与 main() 的分支同一条件式）。
+    """
+
+    @staticmethod
+    def _report(checks):
+        """合成最小 report：checks 是 (name, status) 对。"""
+        from scripts._verify import CheckResult
+
+        report = {
+            "metadata": {},
+            "checks": {},
+            "summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
+        }
+        for name, status in checks:
+            v._tally(report, CheckResult(name, status, ""))
+        return report
+
+    def test_no_mode_returns_none_and_leaves_report_untouched(self):
+        """缺省（不传 mode）：不产生 acceptance 键，行为与 0.9.2 同型。"""
+        report = self._report([("package_integrity", "FAIL")])
+        assert v._apply_acceptance_policy(report, None, {}) is None
+        assert "acceptance" not in report["metadata"]
+
+    def test_strict_contract_fail_is_fail(self):
+        report = self._report([("profile.body_font", "FAIL")])
+        verdict = v._apply_acceptance_policy(report, "strict", {})
+        assert verdict == "FAIL"
+        assert report["metadata"]["acceptance"]["verdict"] == "FAIL"
+
+    def test_advisory_contract_fail_downgrades_to_warn(self):
+        report = self._report([("profile.body_font", "FAIL")])
+        verdict = v._apply_acceptance_policy(report, "advisory", {})
+        assert verdict == "WARN"
+        acc = report["metadata"]["acceptance"]
+        assert acc["warnings"] == 1
+
+    def test_core_fail_is_fail_even_in_free_mode(self):
+        """核心不变量任何模式都硬门禁——策略调不松物理事实。"""
+        report = self._report([("package_integrity", "FAIL"), ("profile.body_font", "FAIL")])
+        verdict = v._apply_acceptance_policy(report, "free", {})
+        assert verdict == "FAIL"
+
+    def test_contract_fail_with_clean_core_is_pass_in_advisory(self):
+        """只有契约层挂、核心全绿：advisory 判 WARN 而非 FAIL（降级成立的前提）。"""
+        report = self._report([("package_integrity", "PASS"), ("profile.body_font", "FAIL")])
+        assert v._apply_acceptance_policy(report, "advisory", {}) == "WARN"
+
+    def test_all_green_is_pass_in_any_mode(self):
+        report = self._report([("package_integrity", "PASS"), ("toc_field", "SKIP")])
+        assert v._apply_acceptance_policy(report, "strict", {}) == "PASS"
+
+    def test_renderers_required_recorded_from_profile(self):
+        report = self._report([("package_integrity", "PASS")])
+        v._apply_acceptance_policy(
+            report, "advisory", {"acceptance": {"renderers": ["word", "wps"]}}
+        )
+        assert report["metadata"]["acceptance"]["renderers_required"] == ["word", "wps"]
+
+    def test_contract_error_is_fail_even_in_advisory(self):
+        """契约层 ERROR（无法判定）advisory 也不放行——查不了≠合格。"""
+        report = self._report([("package_integrity", "PASS"), ("profile.body_font", "ERROR")])
+        assert v._apply_acceptance_policy(report, "advisory", {}) == "FAIL"
+
+    def test_exit_code_semantics_mirror_main(self):
+        """main() 的退出码条件式：verdict PASS/WARN→0，否则 1（fail-close 缺省）。"""
+        report = self._report([("profile.body_font", "FAIL")])
+        verdict = v._apply_acceptance_policy(report, "advisory", {})
+        exit_advisory = 0 if verdict in ("PASS", "WARN") else 1
+        assert exit_advisory == 0
+
+        report2 = self._report([("package_integrity", "FAIL"), ("profile.body_font", "FAIL")])
+        verdict2 = v._apply_acceptance_policy(report2, "advisory", {})
+        exit_core = 0 if verdict2 in ("PASS", "WARN") else 1
+        assert exit_core == 1  # 核心挂了，WARN 救不了
+
+    def test_default_semantics_unchanged(self):
+        """无 mode 时退出码只看 summary.failed——0.9.2 行为逐字保持。"""
+        report = self._report([("package_integrity", "PASS"), ("profile.body_font", "FAIL")])
+        assert v._apply_acceptance_policy(report, None, {}) is None
+        assert (0 if report["summary"]["failed"] == 0 else 1) == 1
+
+    def test_all_green_verdict_pass_matches_exit_zero(self):
+        """free/全绿场景：verdict=PASS 必须对应退出码 0（verdict 与退出码不自相矛盾）。"""
+        report = self._report(
+            [
+                ("package_integrity", "PASS"),
+                ("profile.body_font", "FAIL"),  # 契约层 FAIL：free 下只 observe
+            ]
+        )
+        verdict = v._apply_acceptance_policy(report, "free", {})
+        assert verdict == "PASS"
+        assert (0 if verdict in ("PASS", "WARN") else 1) == 0

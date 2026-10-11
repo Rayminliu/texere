@@ -119,6 +119,12 @@ python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json
 # 把 profile 当成可执行契约强制执行（profile.<field> 计入门禁）
 python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json --enforce-profile
 
+# 验收策略模式：profile 契约层 FAIL 降级为 WARN（亮黄灯，退出码 0）
+python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json --enforce-profile --acceptance-mode advisory
+
+# 验收策略模式：契约层硬失败（strict 与默认的差别只在契约层可配 severity）
+python scripts/validate.py bid.docx --profile profiles/formal-cn-v1.json --enforce-profile --acceptance-mode strict
+
 # 静默模式（仅输出摘要）
 python scripts/validate.py bid.docx --quiet
 ```
@@ -136,6 +142,11 @@ python scripts/validate.py bid.docx --quiet
 - `--max-empty <n>`: 允许的最大空白页数（默认：0）
 - `--enforce-profile`: 把 profile 里声明的页面/字体/标题/表格/目录编译成硬断言
   （profile 即文档规范；默认只把 profile 当 baseline 选择器，不强制）
+- `--acceptance-mode <free|advisory|strict>`: 验收策略模式（policy.py 接入门禁）。
+  核心九项不变量与 profile.load 在任何模式都硬门禁（FAIL/ERROR 退 1）；策略只裁决
+  profile 契约层：`advisory` 把契约 FAIL 降级为 WARN（亮黄灯，退出码 0，被掩盖的
+  失败记进 `metadata.acceptance.observed_failures`）；`strict` 契约层硬失败；`free`
+  全部 observe 不拦。缺省（不传）= 一切 FAIL 照旧退 1，行为与 0.9.2 逐字一致
 - `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word；PDF 相关验收随之切换）
 - `--config <file>`: 渲染时的 config.json——其 sha256 进证据（provenance：哪份契约）
 - `--reference <file>`: 渲染时的 reference docx——其 sha256 进证据（provenance：哪个模板）
@@ -176,6 +187,24 @@ python scripts/validate.py bid.docx --quiet
 这些断言走 OOXML 读取，**不依赖 Word**；只覆盖 profile 真正声明的字段，未声明的不凭空编造。
 未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响。
 
+#### 验收策略模式（`--acceptance-mode`，policy.py 接线）
+
+`--acceptance-mode` 把 `policy.py` 的四级严重度模型接进退出码（0.9.3 起不再只是模型库）。
+裁决范围是 **profile 契约层**（`profile.*` 断言）；核心 9 项 + `profile.load` 是物理不变量，
+**任何模式都硬门禁**（FAIL/ERROR 退 1），severity 调不松——策略无权把「包坏了」调成绿：
+
+| 模式 | 契约层 FAIL | 核心九项 FAIL | 退出码 |
+| --- | --- | --- | --- |
+| （缺省，不传） | 退 1（0.9.2 语义） | 退 1 | `failed>0 → 1` |
+| `free` | observe（不拦） | 退 1 | 仅核心失败时 1 |
+| `advisory` | 降级 WARN（亮黄灯） | 退 1 | 仅核心失败时 1 |
+| `strict` | 硬失败 | 退 1 | 任一失败即 1 |
+
+模式运行时：结论行 `Acceptance verdict: PASS/WARN/FAIL (mode: …)` 打到 stdout，
+`metadata.acceptance` 记录 `mode` / `verdict` / `renderers_required`（来自 profile 的
+`acceptance.renderers`，供编排层跨运行聚合多渲染器矩阵）/ `observed_failures`（被
+observe 掩盖但实际 FAIL 的检查名——降级不销毁证据）。
+
 #### 检查语义边界（Known limitations，只记录不实现）
 
 - **`profile.page` 只看 `doc.sections[0]`（first_section）**：多节文档（如 cover=A4、body=A3
@@ -215,7 +244,9 @@ python scripts/validate.py bid.docx --quiet
 #### Profile 可选键（5 个内置 profile 均未使用，合法）
 
 - `baseline_dir`：视觉基线目录。`validate.py` 在未传 `--baseline` 时回退读它，供视觉漂移检查定位 `p*.png` 基线。
-- `acceptance.renderers`：多渲染器验收矩阵（如 `["word", "wps"]`，两个环境都要通过）；由 `policy.py` 的 `required_renderers` 消费（策略模型库，未接入 validate 退出码）。
+- `acceptance.renderers`：多渲染器验收矩阵（如 `["word", "wps"]`，两个环境都要通过）；
+  `validate.py --acceptance-mode` 把它如实记进 `metadata.acceptance.renderers_required`
+  （单次运行只跑一个渲染器，「多渲染器都通过」由编排层跨运行聚合）。
 
 示例：
 

@@ -530,7 +530,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `scripts/distill.py` | Distill a template docx into a suggested `config.json` (page setup, fonts, headers, footers) |
 | `scripts/make_ref.py` | Rebuild `assets/ref.docx` (use when changing fonts / sizes / spacing) |
 | `scripts/align_tables.py` | Normalize Markdown source table alignment (pure text reflow, never changes cell content) |
-| `scripts/policy.py` | Acceptance-policy model library (four severity levels + renderer matrix); **not wired into the validate exit code yet** |
+| `scripts/policy.py` | Acceptance-policy model library (four severity levels + renderer matrix); wired into the validate exit code via `--acceptance-mode` (contract layer only — core checks stay hard gates) |
 | `scripts/_shared.py` | Shared primitives: language word lists (fonts / captions / TOC wording), SHA256, display width, UTF-8 stdio |
 | `scripts/_ooxml.py` | OOXML ordered-insertion primitives (ECMA-376 element order tables, single implementation) |
 | `scripts/_docx_edit.py` | docx editing primitives + structured errors (shared by `edit.py` and `patch.py`) |

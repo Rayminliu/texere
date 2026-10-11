@@ -2,6 +2,7 @@
 
 用法:
   python scripts/validate.py <document.docx> [--out evidence-dir] [--profile profile.json]
+  python scripts/validate.py <document.docx> --enforce-profile --acceptance-mode advisory
 
 检查项:
   - Package integrity: DOCX 包结构完整
@@ -13,6 +14,12 @@
   - Blank pages: 空白页数量在阈值内
   - Word open/export: 真机验收 (Word 打开 + 导 PDF)
   - Visual baseline drift: 与基线逐页比对 (可选)
+
+验收策略 (--acceptance-mode, 0.9.3 起; policy.py 接线):
+  核心九项 + profile.load 是物理不变量, 任何模式 FAIL/ERROR 都退 1;
+  策略只裁决 profile 契约层: advisory 把契约 FAIL 降级为 WARN (退出码 0),
+  strict 保持硬失败, free 全 observe。缺省不传 = 0.9.2 行为逐字不变。
+  renderer 矩阵 (acceptance.renderers) 记入 metadata.acceptance 供跨运行聚合。
 
 状态分级 (tests/test_validate.py 守住):
   PASS  检查跑通且判为合格
@@ -79,6 +86,9 @@ from _visual_diff import (
     compute_visual_diff as check_visual_drift,
 )
 from docx import Document
+from policy import core_invariants, mode_policy
+from policy import evaluate as policy_evaluate
+from policy import required_renderers as _required_renderers
 from renderers import SUPPORTED_RENDERERS, RenderResult, get_renderer
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -616,7 +626,45 @@ def _run_profile_asserts(report: dict, profile: dict, docx_path: str, doc):
         for res in compile_profile_checks(profile, docx_path, doc=doc):
             _tally(report, res)
     except Exception as e:
-        _tally(report, CheckResult("profile_assert", ERROR, f"profile 断言执行失败：{e}"))
+        _tally(report, CheckResult("profile.load", ERROR, f"profile 断言执行失败：{e}"))
+
+
+def _apply_acceptance_policy(report: dict, mode: str, profile: dict):
+    """0.9.3：把 policy 模型接进门禁（--acceptance-mode 时激活）。
+
+    职责边界：
+      - 核心九项 + profile.load 是**物理不变量**，任何模式 FAIL/ERROR 都硬门禁
+        （enforced_check_results），severity 调不松——策略无权把「包坏了」调成绿。
+      - 策略只裁决 profile 契约层（profile.* 断言）：advisory 把 FAIL 降为 WARN
+        （退出码仍为 0，亮黄灯），strict 保持硬失败，free/observe 一切不拦。
+      - 契约层被降级的 FAIL 会原样留在 report（不销毁证据），verdict 单独给出，
+        并进 metadata.acceptance；被 observe 掩盖的失败同时记 observed_failures。
+      - acceptance.renderers（renderer 矩阵）如实记进 metadata.acceptance——
+        单次运行只跑一个渲染器，「多渲染器都通过」只能由编排层跨运行聚合。
+    """
+    if not mode:
+        return None
+    pol = mode_policy(mode)
+
+    core = []
+    for name, chk in report["checks"].items():
+        if name in core_invariants() or name.startswith("profile."):
+            core.append(CheckResult(name, chk["status"], chk["message"]))
+    summary, verdict = policy_evaluate(
+        core,
+        pol,
+        mode=mode,
+        renderers_required=_required_renderers(profile.get("acceptance") if profile else None),
+        enforced_check_results=core_invariants(),
+    )
+    report["metadata"]["acceptance"] = {
+        "mode": mode,
+        "verdict": verdict,
+        "renderers_required": summary.renderers_required,
+        "observed_failures": summary.observed_failures,
+        "warnings": summary.warnings,
+    }
+    return verdict
 
 
 def _write_screenshots(shared_pdf: str, out_dir: str) -> list:
@@ -665,6 +713,7 @@ def generate_evidence_package(
     config_path: str = None,
     reference_doc: str = None,
     resource_paths=None,
+    acceptance_mode: str = None,
 ):
     """生成证据包：report.json + 截图 + signature。
 
@@ -764,6 +813,10 @@ def generate_evidence_package(
         if enforce_profile:
             _run_profile_asserts(report, profile, docx_path, doc)
 
+        # 3c. 验收策略（仅在 --acceptance-mode 时激活；否则 metadata 无 acceptance 键，
+        # report.json / 退出码与 0.9.2 逐字节同型）
+        verdict = _apply_acceptance_policy(report, acceptance_mode, profile)
+
         # 4. 生成 PDF 截图证据（复用同一份导出 PDF）
         # 截图是证据的辅助件，不许反噬主件：异常穿出会让 report.json / signature
         # 都写不出来（与 _run_profile_asserts 同型的坑）。失败只记进 metadata——
@@ -787,6 +840,9 @@ def generate_evidence_package(
             print(f"[warn] 证据落盘失败：{type(e).__name__}: {e}", file=sys.stderr)
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    # verdict 随返回值带给 CLI 层（不写进 report：report.json 结构对拍三方守卫，
+    # 顶层加键属于格式变更；真相在 metadata.acceptance 里，这里只是传递通道）。
+    report["_acceptance_verdict"] = verdict
     return report
 
 
@@ -876,6 +932,15 @@ def main():
         "默认只当 baseline 选择器，不编译成检查项）",
     )
     ap.add_argument(
+        "--acceptance-mode",
+        choices=["free", "advisory", "strict"],
+        default=None,
+        help="验收策略模式（policy.py 接入门禁）：free=契约层全 observe 不拦；"
+        "advisory=契约层 FAIL 降级 WARN（亮黄灯，退出码 0）；strict=契约层硬失败。"
+        "核心九项不变量与 profile.load 在任何模式都硬门禁；缺省（不传）= 0.9.2 行为，"
+        "一切 FAIL 照旧退 1",
+    )
+    ap.add_argument(
         "--max-empty",
         type=int,
         default=0,
@@ -933,10 +998,27 @@ def main():
         config_path=a.config,
         reference_doc=a.reference,
         resource_paths=a.resource_paths,
+        acceptance_mode=a.acceptance_mode,
     )
 
     # 打印报告
     print_report(report, quiet=a.quiet)
+
+    # 0.9.3：策略模式的结论行（只在 --acceptance-mode 时出现，不扰动默认输出契约）
+    verdict = report.pop("_acceptance_verdict", None)
+    if a.acceptance_mode and verdict is not None:
+        acc = report["metadata"].get("acceptance", {})
+        if verdict == "FAIL":
+            print("\n⛔ Acceptance verdict: FAIL (mode: %s)" % a.acceptance_mode)
+        elif verdict == "WARN":
+            print(
+                "\n⚠️ Acceptance verdict: WARN (mode: %s) — contract-layer failures "
+                "downgraded, exit 0" % a.acceptance_mode
+            )
+            if acc.get("observed_failures"):
+                print("   observed (not gated): %s" % ", ".join(acc["observed_failures"]))
+        else:
+            print("\n✅ Acceptance verdict: PASS (mode: %s)" % a.acceptance_mode)
 
     print(f"\nEvidence package saved to: {os.path.abspath(a.out)}")
     print("  - report.json (structured validation report)")
@@ -944,6 +1026,12 @@ def main():
     print("  - signature (checksum manifest, not a cryptographic signature)")
 
     # 退出码
+    # 默认（无 --acceptance-mode）：0.9.2 语义原样——任一 FAIL/ERROR 即 1。
+    # 有 --acceptance-mode：门禁结论由 verdict 决定（核心不变量与 ERROR 已在
+    # policy.evaluate 里 fail-close：契约层 FAIL 可被 advisory 降级为 WARN，
+    # 但「无法判定」与核心失败永远到不了 WARN）。
+    if a.acceptance_mode:
+        sys.exit(0 if verdict == "WARN" or verdict == "PASS" else 1)
     sys.exit(0 if report["summary"]["failed"] == 0 else 1)
 
 
