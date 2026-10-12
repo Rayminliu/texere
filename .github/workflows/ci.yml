@@ -3,9 +3,9 @@ name: CI
 # 分层 CI 策略——为什么这样写才绿：
 #
 # 托管 runner 没有 Microsoft Word COM，也没有本机的版式基线，所以 CI 绝不碰：
-#   1. PDF 导出与 --check：--sample 内部把渲染器硬编码成 word 且强制走 PDF，
-#      在 runner 上必炸（render.py main() 里写死 "word"）——CI 冒烟改用
-#      显式 --src 渲染纯 docx，不带 --pdf；
+#   1. PDF 导出与 --check：需要渲染器 COM/soffice，runner 上必炸——
+#      CI 冒烟用显式 --src 渲染纯 docx，不带 --pdf（0.9.3 起 --sample
+#      也已改为纯 docx，同样可跑，但 CI 保持显式路径便于单独断言产物）；
 #   2. 版式快照比对：基线绑定录基那台机器的 Word 版本与字体，
 #      换机必漂移（README「已知边界」）；
 #   3. COM 并发 canary：由环境变量门控，CI 不设即默认 SKIP。

@@ -12,7 +12,7 @@ python scripts/render.py [OPTIONS]
 # 环境自检
 python scripts/render.py --doctor
 
-# 冒烟测试（使用样本文档）
+# 冒烟测试（使用样本文档；产纯 docx，不需要本机渲染器）
 python scripts/render.py --sample
 
 # 渲染真实文档

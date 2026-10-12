@@ -165,7 +165,7 @@ are in [Known limitations](#known-limitations).
 
 ```powershell
 python scripts/render.py --doctor     # is my environment ready?
-python scripts/render.py --sample     # smoke test -> sample_out.docx/.pdf
+python scripts/render.py --sample     # smoke test -> sample_out.docx (pure docx, no renderer needed)
 python scripts/render.py --src examples/tender --out bid.docx `
     --config examples/tender/config.json --pdf --check
 ```
@@ -252,7 +252,7 @@ The five flows you'll actually run; every flag for every script lives in
 ```bash
 # 0. Environment
 python scripts/render.py --doctor                                # self-check: pandoc / deps / Word engine
-python scripts/render.py --sample                                # smoke test -> sample_out.docx/.pdf
+python scripts/render.py --sample                                # smoke test -> sample_out.docx
 
 # 1. Render Markdown → DOCX + PDF + visual check (--check implies --pdf)
 python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check

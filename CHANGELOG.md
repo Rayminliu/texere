@@ -28,6 +28,24 @@
 
 ## 未发布
 
+### --sample 回归纯 docx 冒烟（用户实测抓到的"隐性 PDF 默认"）
+
+用户反馈"看起来会默认产出一个 PDF"。排查结论：`render.py` 本体确实不带默认 PDF
+（`--pdf` 是 store_true），但 **`--sample` 内部把 `want_pdf=True` 和 Word 渲染器
+硬编码**（0.6.x 时代写死）——而它恰恰是新手跑的第一条命令，被 CLI 帮助宣传为
+"零配置冒烟测试"。后果：没装 Word 的机器第一条命令必炸；与本仓 0.9.2 刚立档的
+「按文档阶段选流程、迭代不带 PDF」自相矛盾；CI 作者也早知道（ci.yml 注释原话
+"--sample 内部强制走 PDF，在 runner 上必炸"，故绕行显式 --src）。修复：
+
+- `render.py`：`--sample` 改为纯 docx 路径（want_pdf=False, want_check=False），
+  preflight 不再触碰渲染器探测——没装 Office 的机器零依赖跑通；`--help` 措辞同步；
+  结尾摘要自然落到 docx-only 分支（"需要 PDF/真机验收时追加 --pdf --check"）。
+- 根目录 `sample_out.pdf` 残留清除（gitignored 本地产物）；README 双语 ×2、SKILL、
+  SCRIPT_HELP 共 5 处 `sample_out.docx/.pdf` 注释改为 `sample_out.docx`（注明纯 docx
+  不需渲染器）；ci.yml 注释更正并说明 CI 保持显式路径的理由。
+- 实测：`--sample` 0.6s 出 14KB docx，无 PDF；想看带 PDF 与截图的完整演示，
+  Quick start 第三条命令（显式 `--pdf --check`）本来就是。
+
 ### 路由修复：distill.py 从文档深处提到入口（用户实测三轮返工的教训）
 
 用户拿着甲方 docx 模板，第一反应是手写脚本解析 XML 猜样式，三轮才撞到"封面继承不了"

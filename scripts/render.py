@@ -717,7 +717,9 @@ def main():
         help="PDF 导出渲染器：word（默认，需本机 Word）/ libreoffice / wps",
     )
     ap.add_argument(
-        "--sample", action="store_true", help="用自带样例跑一遍完整渲染（冒烟测试，零配置）"
+        "--sample",
+        action="store_true",
+        help="用自带样例跑一遍完整渲染（冒烟测试，零配置零渲染器依赖，产纯 docx）",
     )
     ap.add_argument(
         "--doctor",
@@ -737,12 +739,16 @@ def main():
         atexit.register(shutil.rmtree, tmp, ignore_errors=True)
         shutil.copy(os.path.join(KIT, "assets", "sample.md"), os.path.join(tmp, "01_sample.md"))
         out = os.path.join(KIT, "sample_out.docx")
+        # 纯 docx 冒烟（0.9.3）：此前身经 want_pdf=True + Word 硬编码——新手第一
+        # 条命令就被强制要求本机装 Word（没装直接炸），且与「按文档阶段选流程、
+        # 迭代不带 PDF」的分级自相矛盾。冒烟要证明的是 pandoc→docx 管线通了，
+        # 不是 PDF；想看带 PDF/截图的完整演示，Quick start 第三条命令就是。
         render(
             tmp,
             out,
             os.path.join(KIT, "assets", "sample_config.json"),
-            True,
-            True,
+            False,
+            False,
             "word",
             work_mode=work_mode,
         )

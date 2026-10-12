@@ -154,7 +154,7 @@ flowchart LR
 
 ```powershell
 python scripts/render.py --doctor     # 我的环境准备好了吗？
-python scripts/render.py --sample     # 冒烟测试，产出 sample_out.docx/.pdf
+python scripts/render.py --sample     # 冒烟测试，产出 sample_out.docx（纯 docx，不需渲染器）
 python scripts/render.py --src examples/tender --out 标书.docx `
     --config examples/tender/config.json --pdf --check
 ```
@@ -237,7 +237,7 @@ Pandoc 生成 DOCX，texere 在此之外还做五件事：
 ```bash
 # 0. 环境
 python scripts/render.py --doctor                                # 自检：pandoc / 依赖 / Word 引擎
-python scripts/render.py --sample                                # 冒烟测试 -> sample_out.docx/.pdf
+python scripts/render.py --sample                                # 冒烟测试 -> sample_out.docx
 
 # 1. 正式渲染（--check 会自动补 --pdf）
 python scripts/render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check
