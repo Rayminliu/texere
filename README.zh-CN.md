@@ -154,13 +154,15 @@ flowchart LR
 
 ```powershell
 python scripts/render.py --doctor     # 我的环境准备好了吗？
-python scripts/render.py --sample     # 冒烟测试，产出 sample_out.docx（纯 docx，不需渲染器）
+
+# 开箱第一件事：渲染 examples/tender 这份真实投标文件（docx + PDF）
 python scripts/render.py --src examples/tender --out 标书.docx `
-    --config examples/tender/config.json --pdf --check
+    --config examples/tender/config.json --pdf
 ```
 
-第三条命令渲染一份真实投标文件、在所选渲染器（默认 Word）里验收、导出 PDF 并检查产物——**不用先配任何东西**。
-只有 `--doctor` 报错时才需要往下看。
+这条命令**不用先配任何东西**：examples/tender 是仓库自带的完整示例（正文 + config），
+跑完你就有一份真实标书的 docx + PDF。之后把 `--src` 指向你自己的 Markdown、config
+换成自己的（或蒸馏甲方的），就是正式使用；交付前再加 `--check` 做目视验收。
 
 写短报告、短通知有开箱开关：config 里一行 `"mode": "simple-report"` 就不插目录、章节不另起一页，
 H1 前的标题/作者行自动居中保留；中文里的 ASCII 直引号也会自动配对成全角 `“”`。
@@ -174,7 +176,7 @@ H1 前的标题/作者行自动居中保留；中文里的 ASCII 直引号也会
 （页面、正文字体、页眉页脚）并给出建议 config。注意封面永远继承不了（`post.py` 自己注入），
 动手搭封面之前先看一眼模板的封面长什么样。详见 [复用已有模板](#复用已有模板)。
 
-没装任何渲染器？先 `python scripts/render.py --sample`（不带 `--pdf`）拿一份 docx 看效果；渲染与验收等装了 Word / WPS / LibreOffice 再做。
+没装任何渲染器？去掉 `--pdf --check` 直接跑（渲染与验收分开）——产出纯 docx 在任何机器都能打开看效果；等装了 Word / WPS / LibreOffice 再补 PDF 验收。（`--sample` 仍在：一条命令产出 `sample_out.docx`，用于验证安装是否完整。）
 
 **如果 `--doctor` 报错**——`pandoc` 必需；`--pdf` 与验证器需要本机渲染器（默认 Word；可 `--renderer` 选 LibreOffice / WPS）：
 
@@ -237,7 +239,6 @@ Pandoc 生成 DOCX，texere 在此之外还做五件事：
 ```bash
 # 0. 环境
 python scripts/render.py --doctor                                # 自检：pandoc / 依赖 / Word 引擎
-python scripts/render.py --sample                                # 冒烟测试 -> sample_out.docx
 
 # 1. 正式渲染（--check 会自动补 --pdf）
 python scripts/render.py --src 章节目录 --out 标书.docx --config cfg.json --pdf --check

@@ -12,7 +12,10 @@ python scripts/render.py [OPTIONS]
 # 环境自检
 python scripts/render.py --doctor
 
-# 冒烟测试（使用样本文档；产纯 docx，不需要本机渲染器）
+# 开箱演示：渲染仓库自带的真实标书示例（正文 + config 全齐，不用先配任何东西）
+python scripts/render.py --src examples/tender --out 标书.docx --config examples/tender/config.json --pdf
+
+# 冒烟测试（验证安装：产 sample_out.docx，纯 docx 不需渲染器）
 python scripts/render.py --sample
 
 # 渲染真实文档

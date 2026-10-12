@@ -165,13 +165,16 @@ are in [Known limitations](#known-limitations).
 
 ```powershell
 python scripts/render.py --doctor     # is my environment ready?
-python scripts/render.py --sample     # smoke test -> sample_out.docx (pure docx, no renderer needed)
+
+# First thing out of the box: render the bundled tender example (docx + PDF)
 python scripts/render.py --src examples/tender --out bid.docx `
-    --config examples/tender/config.json --pdf --check
+    --config examples/tender/config.json --pdf
 ```
 
-That third command renders a real tender document, accepts it in the chosen renderer (Word by default), exports the PDF and checks the
-result — nothing to configure first. Read on only if `--doctor` complains.
+This command needs **nothing configured first**: `examples/tender` is a complete bundled example
+(body + config). After it runs you hold a real tender's docx + PDF. Then point `--src` at your own
+Markdown and swap in your own config (or distill the client's template) — that is normal use; add
+`--check` before delivery for the visual acceptance.
 
 Short reports and notices get an out-of-the-box switch: one line `"mode": "simple-report"` in the config turns off the TOC and the
 chapter page breaks, and keeps the title/author lines centered ahead of the body. ASCII quotes in Chinese text are paired into
@@ -187,7 +190,7 @@ contains (page setup, body fonts, headers/footers) and suggests a config. Note t
 be inherited (`post.py` injects its own) — look at the template's cover once before building yours.
 See [Reusing an existing template](#reusing-an-existing-template).
 
-No renderer installed? Run `python scripts/render.py --sample` (without `--pdf`) to get a docx you can open anywhere; do the rendering and acceptance once Word / WPS / LibreOffice is available.
+No renderer installed? Drop `--pdf --check` and run anyway (rendering and acceptance are separate) — the pure docx opens anywhere; add PDF acceptance once Word / WPS / LibreOffice is available. (`--sample` still exists: one command producing `sample_out.docx`, useful to verify the installation.)
 
 **If `--doctor` complains** — `pandoc` is required; `--pdf` and the validator need a renderer (default Word; pick LibreOffice/WPS with `--renderer`):
 
@@ -252,7 +255,6 @@ The five flows you'll actually run; every flag for every script lives in
 ```bash
 # 0. Environment
 python scripts/render.py --doctor                                # self-check: pandoc / deps / Word engine
-python scripts/render.py --sample                                # smoke test -> sample_out.docx
 
 # 1. Render Markdown → DOCX + PDF + visual check (--check implies --pdf)
 python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
@@ -388,7 +390,7 @@ page-number format and table styling cannot be inferred — they are listed as i
 ## ⚙️ Configuration and tables
 
 Reference material lives in the docs, so this manual can stay a product page. Start with the defaults —
-they are what `render.py --sample` and every example uses — and open the reference when you need a key:
+they are what the bundled examples and `assets/sample_config.json` use — and open the reference when you need a key:
 
 | Need | Where |
 |---|---|

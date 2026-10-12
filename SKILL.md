@@ -21,7 +21,9 @@ report where SKIP is never counted as PASS.
 
 ```bash
 python scripts/render.py --doctor     # environment self-check: pandoc / deps / renderer
-python scripts/render.py --sample     # smoke test -> sample_out.docx (pure docx, no renderer needed)
+
+python scripts/render.py --src examples/tender --out bid.docx --config examples/tender/config.json --pdf
+#    out-of-the-box demo: bundled example, nothing to configure; then --src your own chapters/
 
 python scripts/render.py --src chapters/ --out bid.docx --config cfg.json --pdf --check
 #    --src takes a directory (merged in filename order) or a single .md
