@@ -190,7 +190,7 @@ contains (page setup, body fonts, headers/footers) and suggests a config. Note t
 be inherited (`post.py` injects its own) — look at the template's cover once before building yours.
 See [Reusing an existing template](#reusing-an-existing-template).
 
-No renderer installed? Drop `--pdf --check` and run anyway (rendering and acceptance are separate) — the pure docx opens anywhere; add PDF acceptance once Word / WPS / LibreOffice is available. (`--sample` still exists: one command producing `sample_out.docx`, useful to verify the installation.)
+No renderer installed? Drop `--pdf --check` and run anyway (rendering and acceptance are separate) — the pure docx opens anywhere; add PDF acceptance once Word / WPS / LibreOffice is available.
 
 **If `--doctor` complains** — `pandoc` is required; `--pdf` and the validator need a renderer (default Word; pick LibreOffice/WPS with `--renderer`):
 
@@ -550,7 +550,7 @@ documented there, or if SCRIPT_HELP invents one that doesn't exist.
 | `scripts/_mutate.py` | mutate capability pure-logic core (declarative Patch engine: schema check, preconditions, 7 `op(doc, spec) -> MutationResult` primitives, assess/dry_run/apply/validate orchestration + shared edit helpers); `patch.py`/`edit.py` re-export and degrade `MutationResult` back to `tuple[bool, str]` |
 | `profiles/*.json` | Design contracts: `formal-cn-v1` (general formal), `gongwen-v1`, `tender-v1`, `application-v1`, `neutral-en-v1` (English layout baseline) |
 | `assets/ref.docx` | The Chinese typesetting template: 宋体 body, 黑体 heading ladder, table borders, caption styles, cover styles (CoverTop/…), callout styles (Lead/SmallNote) |
-| `assets/sample.md` / `assets/sample_config.json` | Pinned regression fixture, not a showcase: `--sample`, four test files and `baselines/` all render this one document. Showcases live in `examples/` |
+| `assets/sample.md` / `assets/sample_config.json` | Pinned regression fixture, not a showcase: four test files and `baselines/` all render this one document. Showcases and the out-of-box demo live in `examples/` |
 | `examples/` | Runnable examples: tender, official document (gongwen), application form, meeting minutes, business analysis report, contract, table styling (see `examples/README.md`) |
 | `docs/` | `SCRIPT_HELP.md` (CLI reference, **Chinese-only**), `CONFIG.md` (config fields), `TABLES.md` (tables), `VALIDATION.md` (9 checks), `EDITING.md` (editing + Patch) — the latter four each with a `.zh-CN` mirror |
 | `baselines/` | Snapshot baselines (per-renderer dirs, e.g. baselines/word/) |

@@ -15,9 +15,6 @@ python scripts/render.py --doctor
 # 开箱演示：渲染仓库自带的真实标书示例（正文 + config 全齐，不用先配任何东西）
 python scripts/render.py --src examples/tender --out 标书.docx --config examples/tender/config.json --pdf
 
-# 冒烟测试（验证安装：产 sample_out.docx，纯 docx 不需渲染器）
-python scripts/render.py --sample
-
 # 渲染真实文档
 python scripts/render.py \
   --src chapters/ \
@@ -40,7 +37,6 @@ python scripts/render.py --version
 - `--discard-work`: 跑完**立即回收**中间产物（与 `--keep-work` 互斥；默认终端保留 24 小时 / 非交互立即回收）
 - `--renderer <word|libreoffice|wps>`: PDF 导出渲染器（默认 word）
 - `--doctor`: 环境自检
-- `--sample`: 运行样本文档测试
 - `--version`: 显示版本号
 
 ### 中间产物的去留
@@ -624,7 +620,7 @@ A: 在 `post.py` 的 `S` 字典中添加默认值，在 `apply_style_cfg()` 中�
 ### Q: 如何调试渲染问题？
 A: 
 1. 先用 `--doctor` 检查环境
-2. 用 `--sample` 测试基本功能
+2. 用仓库自带的 `examples/tender` 跑一遍最小链路（`--src examples/tender --out test.docx`）
 3. 检查 `scripts/` 子进程输出中的警告信息
 
 ### Q: 如何扩展验证项？

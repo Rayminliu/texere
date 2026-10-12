@@ -176,7 +176,7 @@ H1 前的标题/作者行自动居中保留；中文里的 ASCII 直引号也会
 （页面、正文字体、页眉页脚）并给出建议 config。注意封面永远继承不了（`post.py` 自己注入），
 动手搭封面之前先看一眼模板的封面长什么样。详见 [复用已有模板](#复用已有模板)。
 
-没装任何渲染器？去掉 `--pdf --check` 直接跑（渲染与验收分开）——产出纯 docx 在任何机器都能打开看效果；等装了 Word / WPS / LibreOffice 再补 PDF 验收。（`--sample` 仍在：一条命令产出 `sample_out.docx`，用于验证安装是否完整。）
+没装任何渲染器？去掉 `--pdf --check` 直接跑（渲染与验收分开）——产出纯 docx 在任何机器都能打开看效果；等装了 Word / WPS / LibreOffice 再补 PDF 验收。
 
 **如果 `--doctor` 报错**——`pandoc` 必需；`--pdf` 与验证器需要本机渲染器（默认 Word；可 `--renderer` 选 LibreOffice / WPS）：
 
@@ -366,7 +366,7 @@ python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时写出 con
 ## ⚙️ 配置与表格
 
 参考类内容下沉到 docs，本手册才能保持「产品首页」的定位。默认值已经够跑通
-`render.py --sample` 和所有示例，需要查某个键时再翻参考：
+默认值已经够跑通 examples/tender 和所有示例，需要查某个键时再翻参考：
 
 | 要查什么 | 在哪 |
 |---|---|
@@ -502,7 +502,7 @@ pre-commit run --all-files                   # 手动跑：lint + 格式 + 不�
 | `scripts/_mutate.py` | mutate 能力纯逻辑核（声明式 Patch 引擎：schema 校验、前置条件、7 个 `op(doc, spec) -> MutationResult` 操作原语、assess/dry_run/apply/validate 编排 + 共享编辑助手）；`patch.py`/`edit.py` re-export 并把 `MutationResult` 降级回 `tuple[bool, str]` |
 | `profiles/*.json` | 设计契约：`formal-cn-v1`（通用正式）、`gongwen-v1`、`tender-v1`、`application-v1`、`neutral-en-v1`（英文排版基线） |
 | `assets/ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
-| `assets/sample.md` / `assets/sample_config.json` | 钉死的回归夹具，不是展示样例：`--sample`、四个测试文件与 `baselines/` 都只渲染这一份文档。展示请看 `examples/` |
+| `assets/sample.md` / `assets/sample_config.json` | 钉死的回归夹具，不是展示样例：四个测试文件与 `baselines/` 都只渲染这一份文档（`--sample` 已删）。展示与开箱演示请看 `examples/` |
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `SCRIPT_HELP.md`（CLI 参考，**仅中文单份**）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——后四者各有 `.zh-CN` 镜像 |
 | `baselines/` | 快照基线（按渲染器分目录，如 baselines/word/） |

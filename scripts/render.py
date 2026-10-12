@@ -2,7 +2,7 @@
 
 用法:
   python scripts/render.py --src <md目录> --out <out.docx> [--config config.json] [--pdf] [--check]
-  python scripts/render.py --sample     # 用自带 sample.md 做冒烟测试
+  python scripts/render.py --src examples/tender --out bid.docx --pdf   # 开箱示例
 
 依赖: pandoc、python-docx；--pdf 需本机 Word + pywin32；--check 需 PyMuPDF。
 说明: 若招标方/甲方提供强制格式模板 docx，可在 config 中设 "reference_doc" 指向它，
@@ -674,7 +674,8 @@ def main():
             "  python scripts/render.py --src report.md --out report.docx"
             "          # 秒级出 docx，零配置\n"
             "  python scripts/render.py --src report.md --out report.docx --pdf --check\n"
-            "  python scripts/render.py --sample           # 自带样例冒烟测试\n"
+            "  python scripts/render.py --src examples/tender --out bid.docx --pdf"
+            "   # 开箱示例\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -717,11 +718,6 @@ def main():
         help="PDF 导出渲染器：word（默认，需本机 Word）/ libreoffice / wps",
     )
     ap.add_argument(
-        "--sample",
-        action="store_true",
-        help="用自带样例跑一遍完整渲染（冒烟测试，零配置零渲染器依赖，产纯 docx）",
-    )
-    ap.add_argument(
         "--doctor",
         action="store_true",
         help="只做环境自检：pandoc / Python 依赖 / Word，不渲染",
@@ -733,30 +729,12 @@ def main():
     if a.doctor:
         sys.exit(doctor())
 
-    if a.sample:
-        tmp = tempfile.mkdtemp(prefix="texere_sample_")
-        # 这里以前完全没清理：每跑一次 --sample 就在 %TEMP% 留一个目录
-        atexit.register(shutil.rmtree, tmp, ignore_errors=True)
-        shutil.copy(os.path.join(KIT, "assets", "sample.md"), os.path.join(tmp, "01_sample.md"))
-        out = os.path.join(KIT, "sample_out.docx")
-        # 纯 docx 冒烟（0.9.3）：此前身经 want_pdf=True + Word 硬编码——新手第一
-        # 条命令就被强制要求本机装 Word（没装直接炸），且与「按文档阶段选流程、
-        # 迭代不带 PDF」的分级自相矛盾。冒烟要证明的是 pandoc→docx 管线通了，
-        # 不是 PDF；想看带 PDF/截图的完整演示，Quick start 第三条命令就是。
-        render(
-            tmp,
-            out,
-            os.path.join(KIT, "assets", "sample_config.json"),
-            False,
-            False,
-            "word",
-            work_mode=work_mode,
-        )
-        print("sample ok ->", out)
-        return
+    # --sample 已删（0.9.3）：用户拿到手的第一件事是渲染自己的文档，examples/
+    # 接管全部演示职责；assets/sample.md 保留为钉死的回归夹具（四个测试文件与
+    # baselines/ 渲染它），但不再有 CLI 入口。
 
     if not a.src or not a.out:
-        sys.exit("需要 --src 与 --out，或使用 --sample")
+        sys.exit("需要 --src 与 --out（示例：--src examples/tender --out bid.docx）")
     if not os.path.exists(a.src):
         sys.exit("找不到 --src: " + a.src)
     if a.check and not a.pdf:

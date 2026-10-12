@@ -28,6 +28,20 @@
 
 ## 未发布
 
+### 删除 --sample CLI 入口（examples/ 接管全部演示职责）
+
+用户裁决："sample 不需要，要测试有 example"。上一轮已把 `--sample` 降位出 Quick start，
+本轮彻底删除——开箱叙事只剩一条线：examples/tender 直跑就是第一份产物：
+
+- `render.py`：`--sample` 分支与 argparse 选项删除；缺 `--src/--out` 的报错改为
+  直接给出示例命令；docstring/epilog 同步。
+- **`assets/sample.md` 保留**：它仍是钉死的回归夹具（四个测试文件与 `baselines/`
+  渲染它），只是不再有 CLI 入口——夹具身份在 README 双语仓库地图改写。
+- 文档清引用：README 双语（"没装渲染器"段、配置节、仓库地图）、SKILL、
+  SCRIPT_HELP（示例/参数表/FAQ）。
+- 根目录 `sample_out.docx` 残留清除；测试套件确认零依赖 `--sample`（全部走
+  `_sample_render` 的显式 `--src` 渲染）；守卫全绿，开箱命令实测 exit 0。
+
 ### 测试提速：全量套件 354s → 164s（-54%），validate e2e 165s → 85s
 
 用户反馈 pre-push 的 6 分钟太慢。诊断（pytest --durations）：test_validate 的 20 个
