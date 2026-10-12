@@ -98,6 +98,33 @@ def test_missing_file_exits(tmp_path):
     run(DISTILL, str(tmp_path / "nope.docx"), expect=1)
 
 
+# ---------------------------------------------------------------- 字体可用性（0.9.3）
+
+
+def test_font_availability_alias_resolution_shown(tpl):
+    """中文名字体经 GDI 别名解析后，报告展示解析到的家族名（宋体→SimSun 等）。"""
+    out = run(DISTILL, tpl)
+    # 楷体/黑体在 Windows 上应解析成功并显示别名；非 Windows 平台探测直通不标注
+    if sys.platform != "win32":
+        pytest.skip("GDI+ 字体探测仅 Windows")
+    assert "→" in out, "别名解析结果应展示在字体行（如 楷体→KaiTi）"
+    assert "[字体缺失]" not in out, "楷体/黑体是 Windows 常驻字体，不该误报缺失"
+
+
+def test_font_missing_is_flagged_not_silent(tmp_path):
+    """模板指定了本机没有的字体：必须显式报缺失，不许静默（回退 = 契约无声失效）。"""
+    t = make_tpl(tmp_path / "missing.docx", header=None, footer=None)
+    # 覆盖正文样式为不存在的字体名
+    d = Document(t)
+    set_ea(d.styles["Normal"], "绝不存在的字体XYZ42", 14)
+    d.save(t)
+    out = run(DISTILL, t)
+    if sys.platform != "win32":
+        pytest.skip("GDI+ 字体探测仅 Windows")
+    assert "[字体缺失]" in out, "缺失字体必须被点名"
+    assert "绝不存在的字体XYZ42" in out
+
+
 # ---------------------------------------------------------------- 建议 config
 
 

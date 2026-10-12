@@ -28,6 +28,22 @@
 
 ## 未发布
 
+### distill 报告新增字体本机可用性检测（回答"字体怎么保证"）
+
+字体是引用不是嵌入：docx 只写名字，渲染时系统按名解析，**本机没有就静默回退**——
+版式契约（reference_doc / profile 断言）无声失效，用户到最后才知道字不对。蒸馏报告
+现在逐字体标注解析结果：
+
+- 实现 `distill._font_available`：GDI+ flat API（ctypes，零新依赖），
+  `GdipCreateFontFamilyFromName` 按名解析（与 Word 同源，中英文别名内部处理），
+  缺失返回 `FontFamilyNotFound(17)`——状态码即真相，不靠回落值猜；
+- 展示规范英文名（`GdipGetFamilyName` 传 LANGID 0x0409）：**宋体→SimSun、
+  楷体→KaiTi**——跨机器稳定不变的注册名，可作对拍锚点（实测：传 0 取进程
+  locale 名，zh-CN 机器上请求 SimSun 也返回"宋体"，locale 名做不了锚点）；
+- 缺失标 `[字体缺失]` 并指路（安装该字体或换本机等价字体）；非 Windows /
+  探测失败直通不拦路（探测是提示不是门禁，宁缺毋假）。
+- 测试 +2（别名解析展示 / 缺失必须点名不许静默）；SCRIPT_HELP distill 节同步。
+
 ### --sample 回归纯 docx 冒烟（用户实测抓到的"隐性 PDF 默认"）
 
 用户反馈"看起来会默认产出一个 PDF"。排查结论：`render.py` 本体确实不带默认 PDF

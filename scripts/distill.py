@@ -7,7 +7,8 @@
   python scripts/distill.py 甲方模板.docx                  # 打印报告 + 建议 config
   python scripts/distill.py 甲方模板.docx --out cfg.json    # 同时把建议 config 写成文件
 
-能确定的：页面设置、正文/标题的字体字号、页眉页脚文字、分节数、表格数。
+能确定的：页面设置、正文/标题的字体字号、页眉页脚文字、分节数、表格数、
+模板字体在本机是否可用（引用式排版能否落地的关键一环）。
 确定不了的：封面结构、表格细节、页码格式——这些在报告里提示人工确认。
 
 为什么叫"蒸馏"而不是"转换"：转换是让工具去理解模板（做不到，也不可靠）；
@@ -30,6 +31,64 @@ def cm(v):
     if v is None:
         return "n/a"
     return round(v / EMU_PER_CM, 2)
+
+
+def _font_available(name):
+    """查一个字体名在本机是否可用，返回 (可用?, 规范英文名|None)。
+
+    docx 里只写字体名字，渲染时由系统按名解析；名字在本机不存在时 Word 会
+    静默回退到别的字体——版式契约（reference_doc / profile 断言的字体与字号）
+    就在无声中失效。此函数把「解析得到什么」提前亮出来，放进蒸馏报告。
+
+    实测口径（Windows GDI+ flat API）：
+      - GdipCreateFontFamilyFromName 按名解析走 GDI+ 字体集合（与 Word 同源），
+        中文别名在内部处理：'宋体'/'SimSun'、'黑体'/'SimHei'、'楷体'/'KaiTi'
+        均解析到同一族；真正缺失时返回状态码 FontFamilyNotFound(17)——
+        不抛异常、不靠回落值猜，状态码即真相；
+      - GdipGetFamilyName 的第三参是 LANGID：传 0 取进程 locale 名（zh-CN
+        机器上请求 SimSun 也返回"宋体"），传 0x0409 (en-US) 才返回规范
+        英文名。**报告统一展示英文名**——它是跨机器稳定不变的注册名，
+        中文 locale 名换个机器就变，做不了对拍锚点。
+
+    非 Windows 或探测自身失败 → (True, None)：查不了就不拦路（探测是提示
+    不是门禁，宁缺毋假）。
+    """
+    if not name or os.name != "nt":
+        return True, None
+    try:
+        import ctypes
+
+        gdiplus = ctypes.windll.gdiplus
+        token = ctypes.c_ulong()
+
+        import ctypes.wintypes as wt
+
+        class _StartupInput(ctypes.Structure):
+            _fields_ = [
+                ("GdiplusVersion", wt.UINT),
+                ("DebugEventCallback", ctypes.c_void_p),
+                ("SuppressBackgroundThread", ctypes.c_int),
+                ("SuppressExternalCodecs", ctypes.c_int),
+            ]
+
+        si = _StartupInput(1, None, 0, 0)
+        if gdiplus.GdiplusStartup(ctypes.byref(token), ctypes.byref(si), None) != 0:
+            return True, None
+        try:
+            family = ctypes.c_void_p()
+            status = gdiplus.GdipCreateFontFamilyFromName(
+                ctypes.c_wchar_p(name), None, ctypes.byref(family)
+            )
+            if status == 0:  # Ok
+                buf = ctypes.create_unicode_buffer(64)
+                gdiplus.GdipGetFamilyName(family, buf, 0x0409)  # en-US：规范英文名
+                gdiplus.GdipDeleteFontFamily(family)
+                return True, buf.value
+            return False, None  # FontFamilyNotFound(17) 等：名字在本机解析不到
+        finally:
+            gdiplus.GdiplusShutdown(token)
+    except Exception:
+        return True, None  # 探测失败不拦路：宁缺毋假
 
 
 def style_font(st):
@@ -99,15 +158,25 @@ def distill(path):
             report.append("  %-6s : （模板里没有这个样式）" % label)
             continue
         east, latin, size = style_font(st)
-        report.append(
-            "  %-6s : 中文=%s  西文=%s  %s"
-            % (
-                label,
-                east or "-",
-                latin or "-",
-                ("%.1fpt" % size) if size else "字号未指定",
-            )
+        line = "  %-6s : 中文=%s  西文=%s  %s" % (
+            label,
+            east or "-",
+            latin or "-",
+            ("%.1fpt" % size) if size else "字号未指定",
         )
+        # 字体可用性：名字只写进 docx，渲染时系统按名解析，缺了就静默回退——
+        # 版式契约无声失效。这里提前亮「解析得到什么」，缺的指路安装。
+        for fname in (east, latin):
+            if not fname:
+                continue
+            ok, resolved = _font_available(fname)
+            if not ok:
+                line += "\n           [字体缺失] %s 在本机解析不到（Word 将静默回退，" % fname
+                line += "版式会悄悄变）— 安装该字体，或改用本机有的等价字体"
+                break
+            if resolved and resolved != fname:
+                line += "（%s→%s）" % (fname, resolved)
+        report.append(line)
         if label == "正文" and east:
             body_east = (east, size)
 
