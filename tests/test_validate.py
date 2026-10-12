@@ -54,23 +54,13 @@ class TestPackageIntegrity:
     """Test package integrity checks."""
 
     @pytest.mark.word
-    def test_valid_package(self, tmp_path):
-        """Valid DOCX should pass."""
-        docx = _build_sample_docx(tmp_path)
+    def test_valid_package(self):
+        """Valid DOCX should pass（0.9.3 起读会话级共享 evidence，不再每用例起 Word）。"""
+        report, stdout, _dir = _sample_render.shared_evidence()
 
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-            ],  # Don't use --quiet for this test
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert result.returncode == 0
-        assert "package_integrity" in result.stdout or "package_integrity" in result.stderr
+        assert report["summary"]["failed"] == 0
+        assert "package_integrity" in stdout
+        assert report["checks"]["package_integrity"]["status"] == "PASS"
 
     def test_corrupted_package_exits(self, tmp_path):
         """Corrupted ZIP should fail."""
@@ -121,124 +111,60 @@ class TestPackageIntegrity:
 class TestImageEmbedding:
     """Test image embedding checks."""
 
-    def test_images_embedded(self, tmp_path):
-        """Sample has no images but should report correctly."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert "image_embedding" in result.stdout
-        assert "PASS" in result.stdout
+    def test_images_embedded(self):
+        """Sample has no images but should report correctly（共享 evidence，不重复起 Word）。"""
+        _report, stdout, _dir = _sample_render.shared_evidence()
+        assert "image_embedding" in stdout
+        assert "PASS" in stdout
 
 
 @pytest.mark.word
 class TestSectionCount:
     """Test section count validation."""
 
-    def test_reasonable_sections(self, tmp_path):
-        """Sample document should have reasonable sections."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert "section_count" in result.stdout
-        assert "PASS" in result.stdout
+    def test_reasonable_sections(self):
+        """Sample document should have reasonable sections（共享 evidence）。"""
+        _report, stdout, _dir = _sample_render.shared_evidence()
+        assert "section_count" in stdout
+        assert "PASS" in stdout
 
 
 @pytest.mark.word
 class TestTOCField:
     """Test TOC field validation."""
 
-    def test_toc_exists(self, tmp_path):
-        """Sample should have TOC."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
+    def test_toc_exists(self):
+        """Sample should have TOC（共享 evidence）。"""
+        _report, stdout, _dir = _sample_render.shared_evidence()
 
         # Should either pass (TOC exists) or skip (no TOC detected)
-        assert "toc_field" in result.stdout
+        assert "toc_field" in stdout
 
 
 @pytest.mark.word
 class TestPageNumbering:
     """Test page numbering validation."""
 
-    def test_continuous_pages(self, tmp_path):
-        """Pages should be continuous."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert "page_numbering" in result.stdout
-        assert "PASS" in result.stdout
+    def test_continuous_pages(self):
+        """Pages should be continuous（共享 evidence）。"""
+        _report, stdout, _dir = _sample_render.shared_evidence()
+        assert "page_numbering" in stdout
+        assert "PASS" in stdout
 
 
 @pytest.mark.word
 class TestBlankPages:
     """Test blank page detection."""
 
-    def test_no_blank_pages(self, tmp_path):
-        """Sample should have no blank pages."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert "blank_pages" in result.stdout
+    def test_no_blank_pages(self):
+        """Sample should have no blank pages（共享 evidence）。"""
+        _report, stdout, _dir = _sample_render.shared_evidence()
+        assert "blank_pages" in stdout
         # Sample has 4 pages, should pass with max_empty=0
-        assert "PASS" in result.stdout
+        assert "PASS" in stdout
 
     def test_max_empty_relaxes_threshold(self, tmp_path):
-        """--max-empty should relax the threshold."""
+        """--max-empty should relax the threshold（不同输入：保持独立 spawn）。"""
         docx = _build_sample_docx(tmp_path)
 
         # This should work even if there are blank pages
@@ -263,52 +189,26 @@ class TestBlankPages:
 class TestWordAcceptance:
     """Test Word acceptance validation."""
 
-    def test_word_opens_and_exports(self, tmp_path):
-        """Document should open in Word and export PDF."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert "renderer_acceptance" in result.stdout
-        assert "PASS" in result.stdout
+    def test_word_opens_and_exports(self):
+        """Document should open in Word and export PDF（共享 evidence）。"""
+        _report, stdout, _dir = _sample_render.shared_evidence()
+        assert "renderer_acceptance" in stdout
+        assert "PASS" in stdout
 
 
 @pytest.mark.word
 class TestVisualDrift:
     """Test visual drift detection."""
 
-    def test_drift_skipped_without_baseline(self, tmp_path):
-        """Should skip drift check without baseline."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert "visual_drift" in result.stdout
+    def test_drift_skipped_without_baseline(self):
+        """Should skip drift check without baseline（共享 evidence）。"""
+        _report, stdout, _dir = _sample_render.shared_evidence()
+        assert "visual_drift" in stdout
         # Should PASS with skip message
-        assert "PASS" in result.stdout or "跳过" in result.stdout
+        assert "PASS" in stdout or "跳过" in stdout
 
     def test_drift_with_profile(self, tmp_path):
-        """Should use profile if provided."""
+        """Should use profile if provided（不同输入：保持独立 spawn）。"""
         docx = _build_sample_docx(tmp_path)
         profile = os.path.join(KIT, "profiles", "formal-cn-v1.json")
 
@@ -337,34 +237,18 @@ class TestEvidencePackage:
     运行：同一份产物不该拆成四次 Word 往返。
     """
 
-    def test_evidence_artifacts_created(self, tmp_path):
-        """Evidence directory, report.json, signature and screenshots all created."""
-        docx = _build_sample_docx(tmp_path)
-        evidence_dir = tmp_path / "evidence"
+    def test_evidence_artifacts_created(self):
+        """Evidence directory, report.json, signature and screenshots all created（共享 evidence）。"""
+        _report, _stdout, evidence_dir = _sample_render.shared_evidence()
 
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--out",
-                str(evidence_dir),
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
+        assert os.path.isdir(evidence_dir)
+        assert any(os.scandir(evidence_dir))
 
-        assert result.returncode == 0
-        assert evidence_dir.exists()
-        assert any(evidence_dir.iterdir())
-
-        report_path = evidence_dir / "report.json"
-        assert report_path.exists()
+        report_path = os.path.join(evidence_dir, "report.json")
+        assert os.path.exists(report_path)
 
         # Verify JSON structure
-        report = json.load(open(report_path, encoding="utf-8"))
+        report = _report
         assert "metadata" in report
         assert "checks" in report
         assert "summary" in report
@@ -372,11 +256,12 @@ class TestEvidencePackage:
         assert "passed" in report["summary"]
         assert "failed" in report["summary"]
 
-        sig_path = evidence_dir / "signature"
-        assert sig_path.exists()
+        sig_path = os.path.join(evidence_dir, "signature")
+        assert os.path.exists(sig_path)
 
         # Verify signature content
-        content = sig_path.read_text(encoding="utf-8")
+        with open(sig_path, encoding="utf-8") as f:
+            content = f.read()
         assert "document_hash" in content
         assert "checks_passed" in content
         # report.json 的 hash 也要进证据清单：否则改报告结论不会破坏证据
@@ -392,7 +277,9 @@ class TestEvidencePackage:
                 assert "file[%s]:" % name in content, "截图 %s 未入证据清单" % name
 
         # Should have at least one screenshot
-        png_files = list(evidence_dir.glob("page-*.png"))
+        png_files = [
+            n for n in os.listdir(evidence_dir) if n.startswith("page-") and n.endswith(".png")
+        ]
         assert len(png_files) >= 1
 
 
@@ -400,21 +287,11 @@ class TestExitCodes:
     """Test exit code behavior."""
 
     @pytest.mark.word
-    def test_success_exit_code(self, tmp_path):
-        """Successful validation should exit 0."""
-        docx = _build_sample_docx(tmp_path)
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--quiet",
-            ],
-            capture_output=True,
-        )
-
-        assert result.returncode == 0
+    def test_success_exit_code(self):
+        """Successful validation should exit 0（共享 evidence：check=True 已证 exit 0）。"""
+        _report, _stdout, _dir = _sample_render.shared_evidence()
+        # shared_evidence 内部 subprocess.run(check=True)：能拿到返回值即退出码 0
+        assert _report["summary"]["failed"] == 0
 
     def test_failure_exit_code(self, tmp_path):
         """Failed validation should exit 1."""
@@ -463,12 +340,20 @@ class TestHelpAndVersion:
 
 @pytest.mark.word
 class TestProfileValidation:
-    """Test profile integration."""
+    """Test profile integration（0.9.3：四个内置 profile 合并为一次参数化运行）。
 
-    def test_formal_cn_profile(self, tmp_path):
-        """Default formal-cn profile should work."""
+    旧版每个 profile 各 spawn 一次 validate = 4 次 Word 往返；profile 的差异只
+    影响 --profile 文件本身（metadata 附带与 baseline 回退），同一份文档上行为
+    仅在契约字段上有别——参数化共享 docx、逐 profile 断言 exit 0 语义不变。
+    """
+
+    @pytest.mark.parametrize(
+        "profile_name",
+        ["formal-cn-v1.json", "tender-v1.json", "gongwen-v1.json", "application-v1.json"],
+    )
+    def test_profile_works(self, tmp_path, profile_name):
         docx = _build_sample_docx(tmp_path)
-        profile = os.path.join(KIT, "profiles", "formal-cn-v1.json")
+        profile = os.path.join(KIT, "profiles", profile_name)
 
         result = subprocess.run(
             [
@@ -484,70 +369,7 @@ class TestProfileValidation:
             encoding="utf-8",
         )
 
-        assert result.returncode == 0
-
-    def test_tender_profile(self, tmp_path):
-        """Tender profile should work."""
-        docx = _build_sample_docx(tmp_path)
-        profile = os.path.join(KIT, "profiles", "tender-v1.json")
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--profile",
-                profile,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert result.returncode == 0
-
-    def test_gongwen_profile(self, tmp_path):
-        """Gongwen profile should work."""
-        docx = _build_sample_docx(tmp_path)
-        profile = os.path.join(KIT, "profiles", "gongwen-v1.json")
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--profile",
-                profile,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert result.returncode == 0
-
-    def test_application_profile(self, tmp_path):
-        """Application profile should work."""
-        docx = _build_sample_docx(tmp_path)
-        profile = os.path.join(KIT, "profiles", "application-v1.json")
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--profile",
-                profile,
-                "--quiet",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-
-        assert result.returncode == 0
+        assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.word
@@ -557,24 +379,9 @@ class TestReportStructure:
     三项断言读的是同一份 report.json，合并到一次 validate 运行。
     """
 
-    def test_report_structure_complete(self, tmp_path):
-        """Report contains all 9 checks, a timestamp and the tool version."""
-        docx = _build_sample_docx(tmp_path)
-        evidence_dir = tmp_path / "evidence"
-
-        subprocess.run(
-            [
-                sys.executable,
-                os.path.join(KIT, "scripts", "validate.py"),
-                docx,
-                "--out",
-                str(evidence_dir),
-                "--quiet",
-            ],
-            check=True,
-        )
-
-        report = json.load(open(evidence_dir / "report.json", encoding="utf-8"))
+    def test_report_structure_complete(self):
+        """Report contains all 9 checks, a timestamp and the tool version（共享 evidence）。"""
+        report, _stdout, _dir = _sample_render.shared_evidence()
 
         expected_checks = [
             "package_integrity",
@@ -688,7 +495,11 @@ class TestFinalizeIsReadOnly:
 
 @pytest.mark.word
 def test_provenance_recorded(tmp_path):
-    """证据必须回答「哪个契约 + 哪个转换器」：config/ref 的 sha256 与 pandoc 版本进 metadata 和 signature。"""
+    """证据必须回答「哪个契约 + 哪个转换器」（不同输入：--config/--reference 独立 spawn）。
+
+    0.9.3：断言本体不变，但 docx 改用共享渲染产物直接拷贝——渲染只做一次
+    （rendered_copy 已是进程级缓存），这里只省掉重复渲染，validate 仍独立跑。
+    """
     docx = _build_sample_docx(tmp_path)
     evidence_dir = tmp_path / "evidence"
     result = subprocess.run(

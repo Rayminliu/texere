@@ -5,12 +5,17 @@
 之后每条用例拿现成产物的拷贝——改写型用例（--apply 重写输入）不污染共享源，
 只读用例拿到的是同一字节状态。
 
+0.9.3 起 validate 侧同样收敛：shared_evidence() 让整批「只读断言」用例共用
+唯一一次 validate 运行（此前 15 个用例 = 15 次 Word COM 往返）。
+
 test_patch 与 test_validate 各加载一份本模块；加载器用 sys.modules 去重，
 保证两个文件拿到同一个实例，缓存才真正跨文件生效。
 """
 
 import atexit
+import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -66,3 +71,41 @@ def rendered_copy(tmp_path):
         )
         _RENDERED = rendered
     return shutil.copy2(_RENDERED, str(tmp_path / "test.docx"))
+
+
+# ---- validate evidence 会话级共享（0.9.3）：一次 Word 往返喂全部只读断言 ----
+
+_EVIDENCE = None  # (report_dict, stdout, evidence_dir) 进程级缓存
+
+
+def shared_evidence():
+    """跑一次 validate 产出 evidence 包，返回 (report_dict, stdout, evidence_dir)。
+
+    背景（0.9.3 提速）：test_validate 的 20 个 word 用例里有 15 个各自 spawn
+    一次完整 validate——同一份样例文档、每用例一次 Word COM 导出（~8s/次）。
+    其中绝大多数是**只读断言**（report.json 结构 / 各检查状态 / signature 内容 /
+    stdout 措辞），对同一份文档重复问同一个问题。这里收敛为进程内唯一一次
+    validate 运行，共享 stdout 与 evidence 目录；断言仍走真实 CLI 产物，
+    只是问题只问一次。
+
+    只读断言用 shared_evidence()；真正要**不同输入**的用例（坏包、不同
+    max-empty、--acceptance-mode 组合、finalize 写回行为）保持原样各自 spawn。
+    """
+    global _EVIDENCE
+    if _EVIDENCE is None:
+        _require_renderer()
+        base = tempfile.mkdtemp(prefix="texere_shared_evidence_")
+        atexit.register(shutil.rmtree, base, ignore_errors=True)
+        # rendered_copy 期望 path-like（内部用 tmp_path / "test.docx"）——给它 pathlib
+        docx = rendered_copy(pathlib.Path(base))
+        out_dir = os.path.join(base, "evidence")
+        r = subprocess.run(
+            [sys.executable, os.path.join(KIT, "scripts", "validate.py"), docx, "--out", out_dir],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        report = json.load(open(os.path.join(out_dir, "report.json"), encoding="utf-8"))
+        _EVIDENCE = (report, r.stdout, out_dir)
+    return _EVIDENCE

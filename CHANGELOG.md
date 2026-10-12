@@ -28,6 +28,26 @@
 
 ## 未发布
 
+### 测试提速：全量套件 354s → 164s（-54%），validate e2e 165s → 85s
+
+用户反馈 pre-push 的 6 分钟太慢。诊断（pytest --durations）：test_validate 的 20 个
+word 用例共 165s，其中 15 个用例**各自 spawn 一次完整 validate**——同一份样例文档、
+每用例一次 Word COM 导出（~8s/次），而绝大多数是只读断言（report 结构 / 检查状态 /
+signature 内容 / stdout 措辞），对同一份文档重复问同一个问题。修复沿用渲染侧已有的
+收敛模式（tests/_sample_render.py 进程级渲染缓存）：
+
+- `_sample_render.shared_evidence()`：进程内**唯一一次** validate 运行，共享
+  report.json / stdout / evidence 目录给全部只读断言——Word 往返从 15 次降到 1 次；
+- 改写只读用例 11 个（valid_package / images / sections / toc / page_numbering /
+  blank_pages / word_acceptance / drift_skip / evidence_artifacts / exit_code /
+  report_structure）为读共享产物，断言语义逐字保留；
+- 四个内置 profile 用例参数化合并（TestProfileValidation），断言不变；
+- **不动的**：不同输入的用例（坏包、--max-empty、drift_with_profile、--config/
+  --reference provenance、finalize 写回、patch 链）保持独立 spawn——它们验证的
+  是「不同参数下的行为」，共享会改变被测语义；真机 Word 验收一项不砍。
+
+实测：word 套件 165.7s → 85.4s；全量 354s → 163.9s（465 passed, 11 skipped 零回归）。
+
 ### distill 报告新增字体本机可用性检测（回答"字体怎么保证"）
 
 字体是引用不是嵌入：docx 只写名字，渲染时系统按名解析，**本机没有就静默回退**——
