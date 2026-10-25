@@ -46,7 +46,6 @@ PROPERTY_CHECKS: dict[str, list[str]] = {
     "image_embedding": ["image_embedding"],
     "section_count": ["section_count"],
     "toc_field": ["toc_field"],
-    "caption": [],  # caption_recognition 检查尚未实现，此映射留空（原幽灵值已清除）
     "page_numbering": ["page_numbering"],
     "blank_pages": ["blank_pages"],
     "visual_baseline": ["visual_drift"],
@@ -79,7 +78,6 @@ ADVISORY_MODE: dict[str, str] = {
     "body_font": Severity.WARN.value,
     "heading_font": Severity.WARN.value,
     "toc": Severity.WARN.value,
-    "caption": Severity.WARN.value,
     "page_numbering": Severity.WARN.value,
     "blank_pages": Severity.WARN.value,
     "renderer_acceptance": Severity.WARN.value,
@@ -93,7 +91,6 @@ STRICT_MODE: dict[str, str] = {
     "heading_font": Severity.ENFORCE.value,
     "table_border": Severity.ENFORCE.value,
     "toc": Severity.ENFORCE.value,
-    "caption": Severity.ENFORCE.value,
     "page_numbering": Severity.ENFORCE.value,
     "blank_pages": Severity.ENFORCE.value,
     "renderer_acceptance": Severity.ENFORCE.value,

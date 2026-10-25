@@ -340,16 +340,16 @@ class TestHelpAndVersion:
 
 @pytest.mark.word
 class TestProfileValidation:
-    """Test profile integration（0.9.3：四个内置 profile 合并为一次参数化运行）。
+    """Test profile integration（0.9.3：内置 profile 合并为一次参数化运行）。
 
-    旧版每个 profile 各 spawn 一次 validate = 4 次 Word 往返；profile 的差异只
+    旧版每个 profile 各 spawn 一次 validate = 多次 Word 往返；profile 的差异只
     影响 --profile 文件本身（metadata 附带与 baseline 回退），同一份文档上行为
     仅在契约字段上有别——参数化共享 docx、逐 profile 断言 exit 0 语义不变。
     """
 
     @pytest.mark.parametrize(
         "profile_name",
-        ["formal-cn-v1.json", "tender-v1.json", "gongwen-v1.json", "application-v1.json"],
+        ["formal-cn-v1.json", "gongwen-v1.json", "application-v1.json"],
     )
     def test_profile_works(self, tmp_path, profile_name):
         docx = _build_sample_docx(tmp_path)

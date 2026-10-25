@@ -89,7 +89,7 @@ def test_cn_profiles_toc_title_matches_render_default():
     历史漂移：profile 写半角「目  录」而 post.py 渲染全角「目　　录」。断言侧
     （_check_profile_toc）不消费 title 文案，故此统一不翻转任何门禁结论。
     """
-    for name in ("formal-cn-v1", "gongwen-v1", "tender-v1", "application-v1"):
+    for name in ("formal-cn-v1", "gongwen-v1", "application-v1"):
         title = _load(name + ".json")["toc"]["title"]
         assert title == _shared.TOC_HEADING, "%s 的 toc.title %r ≠ 渲染默认 %r" % (
             name,
@@ -103,7 +103,6 @@ def test_cn_profiles_toc_title_matches_render_default():
 # 全角三份互不一致，见 CHANGELOG），所以「重复就必须逐字等值」得由机器守：
 # 改一处忘四处时当场红。真正有意分叉的段请写进该节并在下面名单里移出。
 SHARED_SEGMENTS_WITH_FORMAL = {
-    "tender-v1": ("page", "styles", "caption", "table", "header", "footer", "toc"),
     "application-v1": ("styles", "caption", "table", "header"),
 }
 

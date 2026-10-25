@@ -500,13 +500,13 @@ pre-commit run --all-files                   # 手动跑：lint + 格式 + 不�
 | `scripts/_evidence.py` | Evidence/Manifest 纯逻辑核（报告骨架 `_new_report` + pandoc provenance、`_tally`、report.json/signature 写盘、显式 `build_manifest`）；由 `validate.py` re-export |
 | `scripts/_compile.py` | compile 能力纯逻辑助手（`_should_prompt`、`_outside_code_fences`、`_build_pandoc_cmd`——返回可断言的命令 list）；由 `render.py` re-export |
 | `scripts/_mutate.py` | mutate 能力纯逻辑核（声明式 Patch 引擎：schema 校验、前置条件、7 个 `op(doc, spec) -> MutationResult` 操作原语、assess/dry_run/apply/validate 编排 + 共享编辑助手）；`patch.py`/`edit.py` re-export 并把 `MutationResult` 降级回 `tuple[bool, str]` |
-| `profiles/*.json` | 设计契约：`formal-cn-v1`（通用正式）、`gongwen-v1`、`tender-v1`、`application-v1`、`neutral-en-v1`（英文排版基线） |
+| `profiles/*.json` | 设计契约：`formal-cn-v1`（通用正式；投标版式同此，`tender-v1` 已并入）、`gongwen-v1`、`application-v1`、`neutral-en-v1`（英文排版基线） |
 | `assets/ref.docx` | 中文排版模板：宋体小四正文、黑体标题阶梯、表格边框、题注样式、封面样式（CoverTop/…）、提示框样式（Lead/SmallNote） |
 | `assets/sample.md` / `assets/sample_config.json` | 钉死的回归夹具，不是展示样例：四个测试文件与 `baselines/` 都只渲染这一份文档（`--sample` 已删）。展示与开箱演示请看 `examples/` |
 | `examples/` | 可运行示例：投标文件、公文请示、项目申报书、会议纪要、经营分析报告、技术服务合同、表格排版（见 `examples/README.md`） |
 | `docs/` | `SCRIPT_HELP.md`（CLI 参考，**仅中文单份**）、`CONFIG.md`（config 字段）、`TABLES.md`（表格）、`VALIDATION.md`（9 项检查）、`EDITING.md`（编辑与 Patch）——后四者各有 `.zh-CN` 镜像 |
 | `baselines/` | 快照基线（按渲染器分目录，如 baselines/word/） |
-| `tests/` | 分层 pytest 套件（L1–L4）：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + 覆盖分层 + renderer 矩阵）、依赖方向守卫（`test_module_boundaries.py`：core `_*.py` 绝不 import CLI 壳）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、禁止文档写死断言计数） |
+| `tests/` | 分层 pytest 套件（L1–L4）：排版规则、题注识别、表格特性、退出码、快照逻辑、只改版式契约、跨 run 编辑（`test_edit.py`）、模板复用与蒸馏（`test_distill.py`）、9 项验收器（`test_validate.py`）、Patch API（`test_patch.py`）、版本一致性与页码/基线纯函数（`test_version.py` / `test_validate_units.py`）、Renderer 抽象护栏（`test_renderer.py`：适配器契约 + PDF 派生检查 renderer-agnostic；`test_renderer_contract.py`：抽象契约 + 超时/并发集成）、验收策略模型（`test_policy.py`：四级严重度语义 + 属性反查 + renderer 矩阵）、依赖方向守卫（`test_module_boundaries.py`：core `_*.py` 绝不 import CLI 壳）、文档与代码同步守卫（`test_docs_sync.py`：CLI 参数 ↔ SCRIPT_HELP 双向对拍、单一来源、中英镜像结构与脚本覆盖、锚点有效性、SKILL.md front matter 合法性、禁止文档写死断言计数） |
 | `CHANGELOG.md` | 版本历史与每条修复的理由 |
 
 ## 📜 许可

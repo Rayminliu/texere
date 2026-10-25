@@ -22,7 +22,7 @@
 | 文档类型 | 推荐 Profile | 关键特性 |
 |---------|-------------|---------|
 | **通用正式文档** | `formal-cn-v1.json` | 宋体正文、黑体标题、全框线表格、页码「— n —」 |
-| **投标文件** | `tender-v1.json` | 与 formal-cn 完全同版式（同一契约的投标场景命名） |
+| **投标文件** | `formal-cn-v1.json` | 与通用正式文档同一版式契约（`tender-v1` 已并入） |
 | **政府公文** | `gongwen-v1.json` | GB/T 9704-2012、仿宋字体 |
 | **项目申报书** | `application-v1.json` | 页脚「第 {n} 页」、Word 默认页边距 |
 | **英文文档（版式基线）** | `neutral-en-v1.json` | Times New Roman 段块式、Arial 标题、Page {n} 页脚 |
@@ -268,7 +268,7 @@ python scripts/finalize.py input.docx output.pdf
 ### 案例 1: 投标文件编制
 
 **步骤**:
-1. 用 distill 或手写生成投标 config.json（可参考 `profiles/tender-v1.json` 的设计约定）
+1. 用 distill 或手写生成投标 config.json（可参考 `profiles/formal-cn-v1.json` 的设计约定）
 2. 编写 Markdown 章节（投标函、技术方案、报价等）
 3. 渲染并验证
 4. 生成证据包供审计

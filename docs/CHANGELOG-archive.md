@@ -1,0 +1,1099 @@
+# 更新记录（归档：0.9 之前）
+
+> 本文件是 [CHANGELOG.md](../CHANGELOG.md) 的历史归档（0.8.1 及更早），条目内容未删改，仅位置移动。
+
+## 0.8.1 — 2026-10-09 — 样式出口补全 `title_size`（0.8.0 用户验收的唯一残留）
+
+0.8.0 六项修复经用户以全新干净源文件实测逐一通过；唯一残留：YAML `title:` 落到
+Title 样式（模板基线 26pt），作业类「标题三号（16pt）」仍要回退 custom-style /
+reference_doc。补 `config.style.title_size`（pt，默认 26 = 模板基线）：
+
+- **只作用 Title 本样式**（`Title` / `标题`）——Subtitle / Author / Date 刻意不跟随，
+  作者行不该跟着标题字号走；要调走 custom-style 或模板。
+- 与 `body_size` 等同一条纪律：没写的键不动模板，默认渲染产物与 0.8.0 完全同口径
+  （无新键时零行为差异，故按修订号发布）。
+- config 键四方同步守卫（S/_STYLE、schema、双语键表、KNOWN_CONFIG_KEYS）与文档
+  （CONFIG 双语、SKILL）跟上；测试补双向断言（写了生效 + 没写保持 26pt 基线）。
+
+## 0.8.0 — 2026-10-07 — 中文排版开箱化（用户实测 R4 六项全修）
+
+首位真实使用者拿 2000 字短报告实测反馈六项，全部核实成立、全部修复。主题：让
+「学生作业 / 短通知」这类最大宗用法不再需要绕坑，同时把模板基线开放为逐文档出口。
+
+- **CJK 直引号配对（R4 #1，每次都踩）**：pandoc `smart` 的引号开闭判定以西文空格分词
+  为前提，中文文本里 ASCII 直引号 `6/6` 全部错配成右引号 `”`（pandoc 3.11 实测，段首
+  也不幸免；验收归一化把左右引号压平，此前永远不会被发现）。现于合并阶段检测 CJK
+  主导（`_compile.is_cjk_dominant`：汉字 ≥30 且不低于拉丁字母的 30%，围栏不计），
+  命中即关闭 smart 并把围栏外直引号按段配对成全角 `“”`（`pair_cjk_quotes`：行内代码
+  span 不动、转义引号不计、奇数个的段落整段放弃并告警）。all.md 落盘的就是转换后
+  文本——它就是 pandoc 实际吃进去的东西，证据链不打折。
+- **短报告模式 `mode: "simple-report"`（R4 #2）**：一行配置即开箱——默认不插目录、
+  所有 H1 不另起一页、无封面时 H1 前的 YAML 标题/作者行居中保留；显式写的
+  `toc` / `page_break_h1` 优先于模式派生值，非法值立刻报错。
+- **标题块不再被无声删除（R4 #2 的根）**：`_strip_front_matter` 此前无条件删除 H1 前
+  的 Title/Author 段——用户只能靠 `custom-style` 绕行。现在：有封面才删（与封面行
+  重复），无封面一律居中保留；目录（若开）插在标题块之后，标题仍是文档门面。
+- **H1 段前分页开放配置（R4 #3）**：模板把 `page_break=True` 写死在 Heading 1，此前
+  只豁免第一章，短报告 3 节硬变 3 页。新增顶层键 `page_break_h1`：`false` 关闭全部
+  H1 段前分页；缺省/`true` 维持「第一章豁免、其余每章一页」的标书/长报告惯例。
+- **验收末页豁免（R4 #4）**：`check_pdf.py` 此前对任何 <60 字无图页 FAIL，末页只剩
+  两行结语的真实文档被误杀。现在：有字的短末页降级为 `WARN`（附「微调段后距可收
+  回」提示），0 字真空末页（失控分页）照旧 FAIL；新增 `--near-empty-chars`（阈值可
+  配）与 `--strict-last`（恢复严格口径）。`validate.py` 的 blank_pages 是 10 字真空白
+  口径（另有签字盖章豁免），不受影响、不改。
+- **样式逐文档出口（R4 #5）**：`config.style` 新增 `body_size` / `h1_size` / `h2_size` /
+  `h3_size`（pt）与 `margin_top/bottom/left/right`（cm），渲染时直接改写 styles.xml 与
+  sectPr——不再需要写 Python 脚本重建 ref.docx。只动显式给出的键：没写的保留模板
+  （含甲方 `reference_doc`）自带版式；`body_size` 变更时首行缩进按「2 字符」重算。
+- **误导警告门控（R4 #6，用户点名核实）**：`会排在目录之后` 警告此前无条件发出——
+  `toc:false` 时目录根本不存在。现在按 `toc` 门控：开着照旧警告（此时它是真的），
+  关着改为 `[info] 保留在文档开头`。
+- **resource-path 命令行超长兜底（R4 复现时发现）**：`--resource-path` 会把 src 父目录
+  的一级子目录全部塞进命令行，src 放 /tmp 类位置时撑爆 Windows 32767 字符上限
+  （WinError 206，实测）。加 6000 字符预算：超支从尾部裁剪（父目录扩展本就是兜底，
+  src 自身/子目录/显式 `resource_paths` 永不裁）并告警。
+- **测试 +24**：`test_compile_cjk.py`（判定口径 4 / 配对规则 9 / 预算 3 / 真 pandoc 端到
+  端 1）、`test_postprocess.py` +9（模式/标题/分页/门控/样式出口）、`test_snapshot.py` +4
+  （末页豁免矩阵）；config 键四方同步守卫（schema ↔ 双语键表 ↔ KNOWN_CONFIG_KEYS ↔
+  S/apply_style_cfg）全部跟上。
+
+## 0.7.4 — 2026-10-01 — 能力模块化 + 全项目审计两轮（渐进内部重构，CLI 冻结）
+
+把巨型脚本里的纯逻辑外提为**可导入、可单测的平铺能力模块**，脚本收敛为 thin CLI 壳并 re-export 同名符号。
+不改任何 CLI 路径、argparse 选项与 stdout 措辞，**不升 minor 版本**（maintenance-mode 内部重构）。
+依赖单向 DAG：`_version → _shared → {_ooxml,_docx_edit,_verify,_visual_diff,_evidence,_compile,_mutate}`
+→ 脚本壳；能力模块绝不反向 import 壳。每步以「净搬 + re-export、计数不变」+ 全量 pytest 绿放行；
+唯一大规模碰版式的写侧收敛步以默认配置快照 **0.00%** 为硬门禁。
+
+- **verify 侧外提 → `scripts/_verify.py`**：`CheckResult` + 状态常量、profile→断言 enforcement 内核、文本归一 /
+  页码收集等零 I/O 纯函数逐字节搬出；`validate.py` 顶部 `from _verify import` 并 re-export 同名，
+  `test_validate_units.py`（77 项进程内直调）不改一行即绿——这就是等价性的机器证明。
+- **视觉差异外提 → `scripts/_visual_diff.py`**：`diff_ratio`、抽样页号、`compute_visual_diff` 收成单一实现；
+  消灭 `validate.py` 里 `_import_diff_ratio` 的 sys.path hack，`snapshot.py` 同步改裸名 `from _visual_diff import`。
+- **Evidence/Manifest 外提 → `scripts/_evidence.py`**：报告骨架 `_new_report`、`_tally`、report.json / signature
+  写盘、新增显式 `build_manifest`；签名与 manifest 字段文案逐字搬，evidence 产物字节口径不变。
+- **compile 侧外提 → `scripts/_compile.py`**：`_build_pandoc_cmd`（返回可断言的命令 list）、`_outside_code_fences`、
+  `_should_prompt` 搬出，`render.py` re-export。含 `sys.exit` 的 CLI 语义与 subprocess 调 post.py 的边界一律留壳。
+- **mutate 侧外提 → `scripts/_mutate.py`**：声明式 Patch 引擎——schema 校验、前置条件、7 个
+  `op(doc, spec) -> MutationResult` 原语、assess/dry_run/apply/validate 编排 + 共享编辑助手收拢；
+  `patch.py`（739→347 行）、`edit.py` re-export 并把 `MutationResult` 降级回原 `tuple[bool, str]`，stdout 措辞
+  （"越界"/"通过"等）逐字节不变；`test_patch.py::TestPatchUnits` 进程内哨兵不改一行即绿。
+- **docx kernel 写侧收敛 → `scripts/_ooxml.py`**（最高风险、排最后）：仅迁 S-independent 的写原语
+  `set_pgnum_start`/`set_repeat_header`/`clear_repeat_header`（与读侧 `style_fonts` 对称）；依赖 `global S` 的版式
+  写原语（`set_run_font`/`add_field`/`shade`/边框）与 `make_ref.set_font` 按设计保留原地不强行合并。迁移后
+  `render --sample` + `snapshot.py` 对 `baselines/word/` 实测 **0.00%**。
+- **测试安全网 + 分层兑现性能**：新建 `tests/conftest.py`——共享内存 docx 构造 fixture + `_NoopRenderer`（
+  `render()` 恒 `ok=False`、`available()` 恒 `(False, …)`），把 report 结构 / 文件产出 / 反 fail-open 的 evidence
+  组装下沉为进程内 L2（零 Word，见 `test_validate_units.py::TestEvidenceInProcess`）；`test_validate.py` 需启
+  Word 的 L3/L4 契约用例打 `@pytest.mark.word`（收集 20 项），CI 拆 `pytest -m "not word"`（快子集 + 全量逻辑，
+  不启 Word）与 `-m word`（L3/L4 契约）两步。marker 不改变收集数。
+- **依赖方向守卫 → `tests/test_module_boundaries.py`**（防回归，不属重构本体）：静态扫 `scripts/_*.py`，
+  禁止 core 能力模块 import 任一 CLI 壳（validate/render/patch/edit/post/snapshot…），把刚收敛的
+  `CLI 壳 → capability → primitive` 单向依赖钉死；防止将来“就 import 一个函数”把耦合拉回来。
+  只锁禁止方向，不做通用架构检查框架；同级（core import core/_shared）与 peer（renderers）均放行。
+- **文档同步**：`_verify`/`_visual_diff`/`_evidence`/`_compile`/`_mutate` 补进中英两份 README 仓库地图（与模块
+  首次落地同批）；`docs/VALIDATION.md` + `.zh-CN.md` 新增「能力模块与测试分层」一节；`test_docs_sync` 仓库地图
+  + 中英同构 + 计数守卫全程绿。
+- **README 证据优先重排 + 计数守卫反转**（纯文案 + 一个测试函数改名，不新增用例、收集数不变）：中英 README
+  首屏从「能力清单」改为「证据优先」——`See the result` 由 h3 升为 h2，新增 h4「成品 / 凭据」子块，内联一份
+  **通过态 `report.json` 形状**（9 项检查名与真实结构逐字对齐；**不链接** 被 gitignore 的 `evidence/report.json`，
+  只嵌已入库的 `evidence/page-001/004.png`、`assets/previews/`、`baselines/word/`）+ 四态语义（SKIP 不计通过）
+  + 0.00% 像素漂移；新增 `## Verification layers` / `## 验证分层`（L1–L4）。撤除 README×2 / SKILL 共 7 处写死的
+  「346 assertions / 346 项断言」，改述 L1–L4 分层。守卫 `test_stated_test_count_is_current` 反转为
+  `test_docs_do_not_hardcode_test_count`——从「文档数字 == 收集数」改为「禁止文档出现精确断言计数」（反漂移更强，
+  且去掉 `subprocess` 依赖）；h1–h3 镜像序列、内部锚点、仓库地图、脚本覆盖等同步守卫全程绿。
+- **首屏 Hero 合成图 + 旗舰 Showcase + tagline 重定位**（Commit A：纯文档 + 确定性生成图，**不依赖外部渲染环境**）：
+  新增 `scripts/make_hero.py`——仅用 PyMuPDF（`check` extra，已在 `requirements.txt`）把已入库的 `assets/previews/tender.png`
+  与「通过态」9 检查凭据合成一张 `Intent → Document → Proof` 对比面板 `assets/hero-verified.png`（文本纯 ASCII、勾/点用矢量
+  图元，**不需 Word / pandoc**，重跑即刷新）；中英 README 首屏在定位语下方嵌入该 Hero。中文 H1/tagline 从「面向 AI agent 的
+  …流水线」重定位为「面向 AI 工作流的可验证文档基础设施」（降级 Agent 为入口、核心=文档正确性）；新增 `docs/showcase.md`
+  以一份投标文件端到端叙事（复用现有图，非教程），两份 README 正文与文档地图链向它。`make_hero.py` 无 argparse 选项，
+  不进 `ARGPARSE_SCRIPTS` / `SCRIPT_HELP`；仓库地图与脚本覆盖镜像守卫同步补行并全程绿。**不新增用例，收集数仍 346。**
+  （真·端到端绿色 evidence 需一次真实 Word 渲染并固化产物，留作后续独立的 Commit B，不与文档改动耦合。）
+- **全项目审计修正（三视角只读审计 + 逐项读码复核后综合；Tier 1 正确性 / Tier 2 守卫 / Tier 3 卫生）**：
+  - **Tier 1（证据可信度 bug，均配回归用例）**：`validate.py` 读 `--source-md` 时过 `_outside_code_fences`，与
+    `render.py` 用同一条围栏规则（此前文档里一个围栏示例 `![...]` 会让 `image_embedding` 凭空 FAIL，而 render 判 OK）；
+    `_verify._source_md_segments` 认 `~~~` 围栏且只由同字符围栏关闭（判定与 `_compile` 同源，消除 `source_content` 假 FAIL）；
+    `renderers.py` 的 `app.Quit()` 包进 `try/except` 并把结果先存局部变量——COM 偶发 RPC 错误（本机实测
+    `0x800706be`）不再在 finally 里丢弃已算好的 return，**成功导出的 PDF 不再被误判为失败**，异常降级为 `warnings`；
+    `validate.print_report` 不再自行 `sys.exit(1)`（退出码统一由 `main()` 末尾决定），从而失败时也能打印
+    `Evidence package saved to ...`——恰是最需要知道证据在哪的时刻。CLI 选项 / stdout 措辞 / exit 语义均未变；
+    `render --sample --pdf` + `snapshot.py` 对 `baselines/word/` 实测 **0.00%**。
+  - **Tier 2（把刚开的口子焊住，纯测试 + 一个新增常量）**：`_verify.CHECK_NAMES` 成为九项检查名的单一来源，
+    `test_check_names_have_single_source` 用 ast/文本对拍 `validate.py` 注册表、`make_hero.CHECKS`、README×2 的
+    report 摘录、`docs/showcase.md` 检查表与摘录（Hero 图与 Showcase 是对「不摆拍」的承诺，改名不跟就是谎报）；
+    `test_relative_links_in_docs_resolve` 守 README×2 + `docs/showcase.md` 的相对链接与图片（既有锚点守卫只看
+    `](#锚点)`，跨目录路径错一个只会默默显示碎图）；`test_doc_h1_does_not_name_another_markdown_file` 拦「H1 写成
+    别的文件名」这一类复制粘贴错型；`test_precommit_ruff_rev_matches_requirements_pin` 兑现 ruff 版本三源同步的
+    口头约定（此前只查 requirements↔pyproject，钩子那一侧无守卫）；`test_changelog_top_release_matches_version`
+    把 CHANGELOG 首个带版本号的标题对齐当前版本（顶部合法的「未发布」段不影响判定）。
+  - **Tier 3（文档与仓库卫生）**：修 `docs/TABLES.zh-CN.md` 的 H1（曾顶着一行 `# CONFIG.zh-CN.md`）；删除零引用的
+    入库死文件 `sample_test.docx` 并补进 `.gitignore`；`.gitignore` 为已入库并被 README/showcase 直接嵌入的
+    `evidence/page-001.png`、`page-004.png` 加白名单例外（父目录被忽略时文件级 `!` 无效，故先 `!evidence/` 放行
+    目录、再 `evidence/*` 忽略其内容），`report.json` 与 `evidence-*` 变体仍保持忽略。
+  - **本轮不做的已记录在案**（maintenance-mode：不为顺手而改）：profile 五份近乎重复不引继承机制、`timeout=300`
+    不提取为常量、9 个 CLI 壳顶层裸调 `force_utf8_stdio()` 不下沉、多处 `subprocess.run` 不批量加 timeout、
+    Word 超时 taskkill 安全网、`_write_screenshots` 落盘保护域。理由见审计计划 Tier 4。
+- **全项目审计第二轮（首屏诚实性 + 证据正确性 + 挂起点；三视角规划 + 逐项读码/实测复核）**：
+  原 6 项设计债判定为 2 做 4 不做，复核规划时另挖出 4 个清单外真缺陷一并修。CLI 选项 / stdout 措辞 /
+  exit 语义（SKIP 不计通过）/ report 字段名全程冻结；`render --sample --pdf` + `snapshot.py` 对
+  `baselines/word/` 实测 **0.00%**。
+  - **Tier 1 首屏不再说谎**：`make_hero.py` 的 `CHECKS` 从 `list[str]` 改为 `(name, status)`，逐项照抄两份
+    README 的真实摘录（`source_content` / `visual_drift` = SKIP），渲染按状态分流（PASS 绿勾 / SKIP 空心圆灰字），
+    汇总行三个数字改由同一数据结构计数得出——此前同一张图九行一律画 PASS、却又印「2 skipped」，与 README 的
+    `7 passed / 2 skipped` 直接矛盾，而脚本注释自称「不摆拍，字段即真」；重生成 `assets/hero-verified.png`。
+    守卫从「只比名单」升级为「名单 + 逐项状态 + 汇总数字 + `tool_version` 未过期」四层对拍
+    （`test_hero_check_statuses_match_the_published_receipt` / `test_hero_summary_matches_extracted_statuses` /
+    `test_docs_do_not_pin_a_stale_tool_version`，全走 ast/正则零 import，Hero 图不需 pymupdf 也能对拍），
+    每条新守卫都做过「改回摆拍形态必红」的否定测试实证。
+  - **Tier 2 证据与资源正确性（B-4 三层修法，不是单一吞异常）**：`_write_screenshots` 的 `pymupdf.open` 移进
+    try、逐页 `pix.save` 单独容错并返回失败页码；调用点把截图异常记进 `metadata.screenshot_error`（九项名单有
+    四方对拍且硬断言 `len == 9`，不为记一笔失败而添第十个名字）；`_write_report` / `_write_signature` 从 finally
+    之后搬进 finally，且自身失败只告警——不再出现「验证跑完却交不出凭据」，也不让 finally 里的新异常顶掉在飞
+    的原始异常。`metadata.cli` 由 `" ".join(sys.argv)` 改为逐参数剥目录（真跑一次实测旧值含
+    `C:\Users\<user>\AppData\Local\Temp\...`，而证据是对外交付物）；`snapshot.py` / `check_pdf.py` 的 pymupdf 句柄
+    改为 `try/finally: doc.close()`（七条 return 全路径共用一个出口；Windows 上句柄不关会一直占住那份 PDF，
+    后续删除 / 重导会 PermissionError）。回归用例 4 项进零 Word 的 `test_validate_units.py`（单页被占用不带走
+    其余页 / 截图失败仍交出证据 / 更早阶段异常仍交出证据且不掩盖原异常 / cli 不泄本机路径）。
+  - **Tier 3 挂起点与超时层级**：`edit.py --verify` 的 subprocess 补 `timeout=300`——下游 `finalize.py` 直连
+    `WordRenderer().render` 而 COM 渲染接口无任何超时形参，Word 冻结时终端会永久卡死；已知局限（`run(timeout)`
+    只杀直接子进程，Word COM 可能成孤儿）写在原地注释里。`_evidence._pandoc_version` 与 `render._pandoc` 补
+    `timeout=30`（前者在 report.json 写入关键路径上，两者走既有 `except` 回落 `"unknown"` / `"?"`，措辞不变）；
+    修 `validate.export_pdf_once` 超时层级倒挂：外层写死 300 < LO 内层 600 且从不向下传参，外层先弃等并报
+    「300s」而 soffice 实跑到 600s 才被强杀、强杀逻辑形同虚设，改为「读得到内层就取内层 + `_OUTER_MARGIN`，
+    读不到（Word / WPS 走 COM）才用 `_OUTER_FALLBACK`」；守卫
+    `test_outer_watchdog_exceeds_inner_engine_timeout`（ast 对拍两侧默认值，并钉住 LO 的 600 不得被缩小），
+    同样做过否定测试。`ci.yml` 两个 job 补 `timeout-minutes: 20`（此前挂起只能等 runner 默认 6 小时）。
+  - **Tier 4 契约与约定卫生**：`tests/conftest.py` 的 `_NoopRenderer.render` 删掉死形参 `timeout=300`，docstring
+    不再描述一个不存在的契约（真实契约是 `render(docx, pdf, *, save_updated_fields=False)`，`validate.py` 从不传
+    timeout）；profiles 不加继承而是加等值守卫（`tender-v1` 与 `formal-cn-v1` 的 7 个共享段、`application-v1` 的
+    4 个逐字等值，实测今日成立、历史真出过 `toc.title` 半角/全角三份互不一致的漂移）+ 在
+    `docs/VALIDATION.md` / `.zh-CN.md` 的「Profile 契约边界」节把「刻意自包含、不做继承」声明为设计决策（计划原写
+    `docs/CONFIG.md`，但 CONFIG 只讲 config.json、无 profile 章节，写进去就是第二份复述）；`force_utf8_stdio()`
+    从 8 个 CLI 壳顶层下沉进各自 `main()` 首行（向 `render.py` 的既定约定对齐；`errors="replace"` 单向有损，
+    宿主 stdio 被改掉会把潜伏编码问题静默吞掉），`tests/test_render_import.py` 由单文件守卫参数化为
+    9 壳 × 3 项（顶层无副作用 / main() 内必调 / import 零输出）并做过否定测试。
+  - **被实测否决的方案**：给 `render.py` 的 `wait_timeout` 套 `ThreadPoolExecutor` 看门狗是**假修复**——实测
+    `shutdown(wait=False, cancel_futures=True)` 后主流程 0.04s 返回、进程 wall clock 6.107s（解释器退出仍会 join
+    非守护 worker），COM 真挂住时终端照样收不到退出码。该不对称及其后果已精确写进
+    `docs/SCRIPT_HELP.md` §Renderer 已知边界，让「不做」成为有据决策而非悬案。
+  - **本轮仍然不做（含理由）**：Word `taskkill` 安全网——`SCRIPT_HELP.md` 已明文「只记录不实现」，COM 在本进程内
+    无自有 PID，按镜像名杀会吞掉用户自己打开的 Word / 未保存文档，按 PID 精确回收需新增 COM→PID 归属判定
+    = 新机制；profile `base/extends`——仓库零继承机制且证据里嵌入整个 profile，合并语义会改动 `report_hash`，
+    改用等值守卫；timeout 提取统一常量——300（子进程挂钟）/ 300（线程软看门狗，不约束进程）/ 600（LO 强杀）/
+    30（版本探测）语义实测互异，统一会制造虚假单一事实并掩盖刚被暴露的层级倒挂；Commit B 字面版真凭据入库——
+    `cli` / timestamp / hash 机器相关且泄本机路径，入库即成为「永不更新的历史化石」，改用状态对拍 + `cli` 脱敏 +
+    指向 CI `upload-artifact` 的完整证据包；LO `-env:UserInstallation`——缺本机症状实证且改变 LO 首次初始化行为；
+    `make_ref.py` 的顶层 `force_utf8_stdio()`——它没有 `main()`，整个模块体就是脚本本体（顶层 parse_args → 末尾
+    doc.save）且从不被 import，收敛需把脚本重构成 `main()`，属结构重构；已在 `test_render_import.py` 模块
+    docstring 与本条双处存档。
+
+新增 35 项用例（Tier 1 首屏对拍 5 + Tier 2 证据回归 4 + Tier 3 超时层级 1 + Tier 4 profile 等值 1 +
+stdio 守卫参数化 24），收集数 371 → **406**；文档不写死该计数。
+
+新增 25 项用例（Tier 1 回归 7 + Tier 2 守卫 18），收集数 346 → **371**；文档不写死该计数。
+
+内部重构，净搬 + re-export 未改行为；因下沉新增 1 项进程内 evidence 用例 + 1 项依赖方向守卫，
+收集数 344 → **346**。文档不再写死该计数（见上条 README 证据优先重排：改述 L1–L4，
+`test_stated_test_count_is_current` 反转为 `test_docs_do_not_hardcode_test_count`）。
+
+## 未发布 — 流水线优化与文档完善（依赖 / 重复 / 多语言 / 知识同步四轨道）
+
+不改任何 CLI 路径、argparse 选项与 stdout 措辞（tests 以 subprocess + 字符串为契约）；
+唯一碰版式的步骤（keep_with_next）以默认配置快照 **0.00%** 为硬门禁验收。
+
+### 重构：单一事实源收敛
+
+- **编辑原语下沉**：新建 `scripts/_docx_edit.py`（异常类 AnchorNotFound/StyleNotFound/
+  CellOutOfRange + t_nodes/find_anchors/replace_in_paragraph/set_cell_text 等 14 个纯函数）。
+  `edit.py` 只留 CLI wrapper（异常转 `sys.exit(str(e))`，措辞逐字不变）；`patch.py` 不再
+  借 `sys.path` hack 反向伸手拿 `edit._xxx` 私有名，`except (Exception, SystemExit)` 收窄为
+  `except Exception`。
+- **OOXML 有序插入**：新建 `scripts/_ooxml.py`（ECMA-376 顺序表唯一实现），post/make_ref/
+  edit/patch 不再各自维护副本。
+- **`_shared.py` 扩展**：sha256_file / force_utf8_stdio / UTF8_ENV / display_width / 常量
+  （BASELINE_DPI、DEFAULT_MAX_DIFF）/ 语言词表（字体对、页码模板、目录文案、样式别名、
+  题注默认词、页脚识别式、稀疏页豁免词）。题注词表曾计划单独建 `_locale.py`，但
+  `_locale` 是 CPython 内置模块名、永远遮蔽脚本目录同名文件，故并入 `_shared`。
+- **render.py 去 import 副作用**：`force_utf8_stdio()` / `cleanup_old_temp()` 从顶层移进
+  `main()`——被 import（测试守卫 / 工具链）不再默默改控制台编码、扫删临时目录；
+  新增 `tests/test_render_import.py` 钉住（AST + 真实子进程静默双验）。
+- **视觉漂移口径彻底单一来源**：`check_pdf.py` 的 `SNAPSHOT_DPI` 此前独立硬编码 100，
+  现引用 `_shared.BASELINE_DPI`（值不变）；新增 `test_snapshot_thresholds_have_single_source`
+  守卫——DPI/阈值只允许在 `_shared` 定义，消费脚本（snapshot/validate/check_pdf）顶层
+  凡名字含 DPI 或 MAX_DIFF 的赋值不得是数字字面量。
+- **读/写原语分家（有意保留）**：`_ooxml.style_fonts` 只做信息提取（读侧），
+  `make_ref.set_font` 是写入器（找到/新建 rFonts 再 setattr），语义不同故意不强行合并，
+  已在其 docstring 注明避免未来误合。
+- **性能快赢**：COM 渲染器 `available()` 按 PROGID memo（DispatchEx 拉起 Office 是百毫秒级）；
+  `--doctor` 复用循环里已有的 Word 探测；`_pandoc_version()` memo + 显式 UTF-8 解码；
+  `snapshot.diff_ratio` 64K 分块短路（全等页不再整页解码比对；逐字节结果与旧
+  实现等价，`test_snapshot.py` 钉住）。
+
+### 新增：多语言容错（只改 PASS/SKIP，不改产物）
+
+- 页脚识别追加整行锚定的 `N / M`（半/全角斜杠）、`Page N of M`、`S. N`/`Nr. N`；
+  顺序不变（「— N —」仍优先于裸数字）。负例保留：正文日期「2026年9月」、「工期 90 日历天」
+  仍不得被当页码。
+- 稀疏页豁免追加英文全称变体（`This page intentionally left blank` / `Page left blank
+  intentionally`）。
+- 题注词表三份互不一致的漂移修正：lua 默认词表 TABLE 侧误收「圖片」、FIGURE 侧缺
+  `Fig.` → 与 `_shared.DEFAULT_CAPTION_WORDS` 逐词对齐，新增只解析不执行的守卫钉死。
+- **keep_with_next 贯通 caption_words**（唯一碰版式项）：表题粘表格的判定此前硬编码
+  `^(表|表格|Table)`，config 配了自定义表题词也分家；现改用同源重建的表题前缀 matcher。
+  默认词表行为逐字不变（快照 0.00% + 新旧两用例各钉一边）。
+
+### 文档与知识同步
+
+- profile 契约边界写进 `docs/VALIDATION.md`+`.zh-CN.md`：profile=验收契约 / config=渲染输入，
+  打通是明确 non-goal；给出五类 enforced vs declared-only 清单与可选键（`baseline_dir` /
+  `acceptance.renderers`）示例。
+- profile 漂移修正：中文侧 `toc.title` 半角「目  录」统一为渲染默认全角「目　　录」（断言侧
+  不消费 title 文案，不翻转任何门禁）；`neutral-en-v1` 的 `font_eastAsia` 在 description 与
+  SCRIPT_HELP 注明为 CJK 回退字体语义。
+- README「each with a `.zh-CN` mirror」为已证实的错误——`SCRIPT_HELP.md` 是中文单份，改为
+  如实标注；仓库地图补漏列条目（`policy.py` 注明未接入退出码、`align_tables.py`、
+  `renderers.py`、`_shared.py`、`_ooxml.py`、`_docx_edit.py`、`_version.py`）与
+  `neutral-en-v1`；新增守卫：`scripts/*.py` 全部出现在两份地图里。
+- `style.caption_words` 补进 `config.schema.json`（post.py 运行时兼容读取早已存在，schema
+  预校验却会误报），双语 CONFIG 同步补行。
+- 依赖约束守卫（pyproject ↔ requirements 对拍）、ARGPARSE_SCRIPTS 补 `align_tables.py`、
+  style 键四方同步守卫升级（解析 `from _shared import` 的词表字面值）。
+
+断言从 315 增至 344，新增用例锁定被改动的每一条契约。
+
+## 未发布 — 全面审查修复（scripts/ 全部 12 个脚本，三视角交叉审查）
+
+按简洁性 / 健壮性 / 最小改动三个视角逐行审查全部脚本，确认 12 个实际 BUG（均为代码阅读实证）
++ 性能资源项 + 重构项，分两批落地。断言从 297 增至 315，新增用例锁定被改动的每一条契约。
+
+### 新增：人工验收确认后才回收中间产物
+
+- `render.py` 跑完不再无条件 `rmtree` 临时目录：交付物齐备后，**人在终端前**会列出
+  `all.md` / `body.docx` / `check_pages/` 与路径，问一句「验收确认无需返修吗？[y/回车]」——
+  **y 才删，直接回车先留着**。返修时拿 `body.docx` 直接用 `patch.py` / `edit.py` 改，或对照截图
+  定位问题，不必整链重跑（272 页文档上 pandoc + 真机导 PDF 是分钟级）。
+- 三种边界：脚本 / CI / 输出被管道接管时不猜意图，沿用旧的「跑完即回收」并提示加 `--keep-work`；
+  渲染失败 / 缺图退出时一律回收（那时没有可交付的东西，留着只涨磁盘）；留着的目录超过 24 小时
+  会在下次 `render.py` 启动时被 `cleanup_old_temp` 自动回收。
+- 新增互斥开关 `--keep-work`（跑完保留现场等返修）/ `--discard-work`（跑完即删，供脚本用）。
+
+### 破坏性修正
+
+- **patch 多行插入顺序**（最高危）：`insert_after` / `insert_before` 的 `content` 此前被写成
+  **倒序**（`addnext` 用正序遍历、`addprevious` 用逆序遍历，与 `edit.py` 里的正确参照正好相反）。
+  现在 `content` 顺序即文档顺序；按旧行为编写的补丁需要重排 content。锚点未命中时
+  `edit._anchors()` 抛的 `SystemExit` 不再中止整批操作（捕获 `(Exception, SystemExit)`，记为单条失败）。
+
+### BUG：产出错误或崩溃
+
+- **blank_pages 假 FAIL**：判空白页只看文本长度，纯附图页（有图无文）被计入空白页；现与
+  `check_pdf.py` 判据对齐，有图的页一律豁免。
+- **profile 断言无保护**：非法 profile 值（如 `width: "abc"`）抛 ValueError，report.json / signature
+  永不写出。现循环体包 try/except，异常降级为一条 `profile_assert` ERROR 并计入 failed。
+- **`--profile` 路径写错被静默忽略**：profile={} → enforce 空转 → 退出码 0；现直接退出并报路径。
+- **policy 不受 ERROR 门禁**：ENFORCE + ERROR 仍判 PASS，与 validate 自己「FAIL 与 ERROR 都算不合格」
+  矛盾；现 `raw in ("FAIL", "ERROR")` 一律不合格。
+- **finalize 无 PDF 仍退出 0**：只看 `res.errors`，Word 渲染器返回 `ok=False, errors=[]` 时打印 OK；
+  现 `not res.ok` 也以退出码 1 结束（`edit.py --verify` 依赖这个退出码）。
+- **LibreOffice 不检查退出码 + 陈旧 PDF 冒充**：soffice 失败但目录里有上次运行的同名 PDF 时被判成功；
+  现导出前删除陈旧产物、检查 `proc.returncode`、超时时强杀整棵进程树。
+- **post 空正文崩溃**：空白 md 经 pandoc 后 body 只剩 `sectPr`，`addprevious(None)` 抛 AttributeError；
+  现给出用户可读错误。
+- **distill 格式化崩溃**：模板 sectPr 缺 pgSz/pgMar 时 `cm(None)` 返回 None，`'%.1f' % None` TypeError；
+  现统一显示 `n/a`。
+- **源内容比对假 FAIL**：pandoc smart 把直引号排成弯引号、`--` 收成 en-dash、`...` 收成省略号，
+  `_normalize` 只映射了弯引号；现补齐破折号 / 省略号映射并把连续 `-` 压成单个，
+  `2020--2024` 与 `2020–2024` 视为同一句话。
+- **重复定义的 `_sha256_file`**：validate 里两个同名函数，后者（整文件读入、失败返回 None）遮蔽前者；
+  现统一用 `_shared.sha256_file`（流式，大图不再有内存尖峰），不可读文件走结构化失败。
+- **render `--config` 路径不存在被静默忽略**：显式传入的路径缺失现直接退出，不再交付「看着对」的错版式。
+- **render 缺图自检把代码围栏算进引图数**：与 validate 的段落抽取规则不对齐，带 markdown 教程段落的
+  文档会凭空报缺图并以退出码 1 结束；现排除 ``` / ~~~ 围栏。
+
+### 性能与资源
+
+- **同一个 docx 被 python-docx 解析最多 6 次**：`generate_evidence_package` 顶层解一次并把 `doc` 注入
+  各检查函数（预解析失败时回落自己解，保留「文件打不开」的准确措辞）；重复图片的 sha256 按路径去重。
+- **export_pdf_once 假超时**：`with ThreadPoolExecutor(...)` 退出时 `shutdown(wait=True)` 仍会等 COM 线程，
+  Word 挂死时超时形同虚设；现显式 `shutdown(wait=False, cancel_futures=True)`。
+- **`available()` 泄漏僵尸 Office 进程**：`DispatchEx` 成功但 `.Name` / `.Version` 抛异常时跳过 `Quit()`；
+  现 finally 无条件关闭。
+- **snapshot 全书像素一次性驻留**：272 页 A4@100dpi 峰值约 2GB，`--update` 分支还渲染第二遍；
+  现逐页渲染 + 逐页比对 + 即时释放。
+
+### 可维护性
+
+- 新增 **`scripts/_shared.py`**：版本号、`force_utf8_stdio()`、`sha256_file()`、`UTF8_ENV` 单一来源
+  （此前 8 个脚本逐字复制，改一处忘三处）。
+- **`renderers.py` 抽出 `_ComRenderer` 骨架**：Word 与 WPS 的 COM 链路各约 70 行、近乎逐行相同，
+  现收敛为子类只声明 ProgID / 标签与差异钩子；`doc.Close(0)` 移进 finally，异常路径不再留打开的文档。
+- **拆分过长函数**：`validate.generate_evidence_package` 207→113 行、`post.main` 257→31 行、
+  `render.render` 155→46 行，各步骤独立成可读小函数。
+- **CLI 迁移 argparse**：`snapshot.py` / `check_pdf.py` / `finalize.py` / `post.py` 此前手解 argv，
+  缺参数值会 IndexError 崩栈、未知选项静默忽略；现统一由 argparse 报错（退出码 2），
+  并第一次有可用的 `--help`。`docs/SCRIPT_HELP.md` 与 `tests/test_docs_sync.py` 同步。
+- **文件句柄卫生**：`json.dump(..., open(...))` 一律改为 `with open(...)`。
+- **patch 的 `dry_run_patch` 不越权退出**：失败路径里它自己 `sys.exit(1)`，让调用方的
+  `sys.exit(0 if success else 1)` 永远走不到失败分支（死代码），库调用方也接不到结果；
+  现按签名契约回报 `(False, msg)`，退出码归 CLI 层。
+
+### 已知未做（按设计排除）
+
+- validate 全 SKIP 时非零退出（fail-close）：会改变现有 CI 行为，需以新 flag 渐进启用。
+- post.py 去模块级 `global` 状态：改动面大且现有调用方不受影响，作为长期重构排后。
+- 字符串格式化全量 f-string 化：大范围 touch，交给 lint 自动修复而非人工逐行改。
+
+## 0.7.3 — 2026-09-29 (代码复审修复：退出码诚实性 + 话术自洽)
+
+逐行审 render / post / validate 后采纳的三条（成熟度很高，仅以下几处挂得上）：
+
+- **render 缺图不再假装成功**（中）：`check_images` 此前只 `print("[ERROR] ...")`
+  后返回，源 md 引了 N 张图、docx 只嵌进 M 张时退出码仍是 0。只跑 `render.py`（不接
+  `validate`）的 CI/自动化场景，会拿到一份丢了图的文档还当成功。现 `check_images`
+  返回状态、`render()` 在**产出全部交付物（docx + PDF + --check 截图）之后**再以退出码
+  1 结束——缺图时用户恰恰需要这些产物肉眼确认丢了哪几张，故延迟退出而非立即中断。
+  与 `validate` 的 `image_embedding` FAIL→exit(1) 契约对齐。--sample / 无图源走 `n_ref==0`
+  早返回，零影响。加 test_postprocess 缺图非零退出用例。
+- **signature 话术纠正**（低）：validate 结尾把证据清单打印成 "SHA256 signature"，与同
+  文件 docstring、清单文件头、docs/VALIDATION、SKILL.md 一致声明的「checksum manifest，
+  非密码学签名」矛盾——是 oversell。改回 checksum manifest，让代码向早已写对的文档看齐。
+- **visual_drift SKIP 补补救指路**（建议）：SKIP 消息过去只说「未提供基线目录」，新用户
+  不知如何开启这维保护。补一句 `snapshot.py <pdf> --update` 录基线 + `--baseline` 指定。
+  **仍不自动建基线**（会固化 bug），只指路。中英 VALIDATION 示例输出同步。
+- 用例数 293 → 294。
+
+## 0.7.2 — 2026-09-29 (审计 R3：编辑链证据包 + schema 预校验)
+
+外部审计第三轮 4 条全采纳：
+
+- **编辑链证据包**：patch 证据增补 before_sha256 与 --validate 结论；edit 新增
+  `--evidence <文件>`（前后 sha256 + 操作序列 + verify 结论）。编辑链契约
+  「只改指定处、其余字节不动」从此可自证——与 0.7.1 渲染链 provenance 是同一件事
+  的另一半。verify 失败仍 fail-loud 退出（备份在），证据只记成功与未验收两种。
+- **config.schema.json**：顶层键 + style 键的 JSON Schema（additionalProperties: false），
+  供编辑器 / agent 静态预校验；test_docs_sync 新增 schema ↔ CONFIG 双语键表 ↔
+  render 白名单三方一致守卫（R1 的 [warn] 是运行时兜底，schema 是静态层）。
+- **doctor 僵尸 WINWORD 检查前置**到渲染器探测之前——available() 起 COM，
+  僵尸实例干扰的正是探测本身，告警晚了就没意义（审计 R2 #3 的顺序修正）。
+- **doctor pandoc 版本范围提示**：3.1–3.11 之外提示「未经实测」。
+- 用例数 290 → 293。
+
+## 0.7.1 — 2026-09-29 (外部实测反馈修复·两轮)
+
+外部审计两轮共 12 项输入——4 项属旧版本问题（当前代码已修，审计方请升级到
+≥ v0.6.3 重测），8 项当场修复：
+
+**第一轮（审计 vs v0.6.3 前的旧码 + 4 项现行问题）：**
+
+- **[warn] config 未知顶层键**：键写错层级 / 拼错会被静默忽略（实测：page_number、
+  toc_title 写在顶层毫无作用）——render 启动时对白名单外的顶层键逐个 [warn]，
+  白名单与 docs/CONFIG 字段表同步。
+- **控制台编码**：全部脚本强制 `sys.stdout/stderr.reconfigure(encoding="utf-8",
+  errors="replace")`——GBK 终端下中文 / emoji 不再乱码（此前只换了错误策略，没换编码）。
+- **check_pages/ 不再散落**：`--check` 的页面截图默认随临时目录清理（外部实测一次
+  留下 29 张 PNG），要肉眼检查用 `--keep-pages` 保留在 PDF 同目录。
+- **docx-only 提示**：不加 `--pdf` 时输出 [hint]——只出 docx 秒级完成、无需渲染器
+  （反馈者以为验收必须走 Word 全流程；能力一直在，可发现性不在）。
+
+**第二轮（对着当前代码核实过的 6 条，4 条并入本版）：**
+
+- **--out 父目录自动创建**：pandoc / Word SaveAs 遇缺父目录直接挂——render 建目录后渲染。
+- **--doctor 僵尸 WINWORD 告警**：启动前已存在的他人 Word 实例会锁 COM 导出（审计当天真实踩到）。
+- **证据 provenance 三件**：validate 新增 `--config` / `--reference`，把 config.json 与
+  ref.docx 的 sha256、完整 CLI 命令行、pandoc 版本写进 metadata 与 signature——
+  证据此前只回答「哪个产物」，现在连「哪份契约 + 哪个模板 + 哪个转换器」一起回答。
+- **公式 OMML 边界文档化**：行内 / 显示公式经 pandoc 原生转 OMML 存活全管线（审计实测），
+  已知边界补一条 + `test_math_survives_postprocess` 守卫防未来回归。
+
+**随批加固**（同日精修）：近空白页豁免（签字 / 盖章 / 无正文声明属有意稀疏）、
+快照基线按渲染器分目录 + renderer 不一致拒比、ruff 钉版 0.16.8（pre-commit 与 CI 同版）、
+actions 升级 v7（Node 20 告警消除）。
+
+**已在旧版修复、无需重做**（审计方请升级到 ≥ v0.6.3 重测）：TOC 假阳性（hasattr 短路 →
+instrText 直扫）与「异常算通过」（→ 一律 ERROR/FAIL）在 v0.6.3 的验证器可信化中落地；
+SKIP 独立计数、不计入通过。
+
+**延后**：examples/lab-report/ 试点（等公式守卫落地后下批，即现在）、grid table 错位
+前置告警（align_tables 解析复用，下批）。用例数 281 → 290。
+
+## 0.7.0 — 2026-09-27 (解冻首版：运维加固 + 英文基线)
+
+图表自动编号经风险评估后**放弃**（0.2.0 的教训 + 域缓存与证据签名可能分歧；
+手写编号零风险，痛点是机械性的）——改做四件零风险增强，CI 二层同批转正：
+
+- **CI 二层转正**（二层 CI 随 0.7.1 周期引入）：`render-libreoffice` 去掉
+  continue-on-error 成为必需门禁；第一层加装 LibreOffice + 中文字体，
+  LibreOffice 契约用例在 CI 真跑（此前 SKIP）。Word/WPS 用例仍 SKIP。
+- **grid table 显示宽度对齐器** `scripts/align_tables.py`：按 East Asian 显示
+  宽度（W/F=2）重排竖线与填充，单元格内容字节不变（写回前逐格自校验）；
+  默认报告、`--fix` 写回、`--check` 供 pre-commit；解析失败报错退出，绝不猜测性修复。
+- **证据 manifest 全覆盖**：signature 在 document_hash/report_hash 之外新增
+  全量文件清单（report.json + 全部截图的 sha256）、generated_at、tool_version
+  ——证据目录里任何文件被事后改动都可检出。
+- **英文文档版式基线** `profiles/neutral-en-v1.json` + `examples/en-report/`：
+  Times New Roman 段块式正文、Arial 标题、Page {n} 页脚；英文题注识别
+  是管线既有能力（Table/Figure 关键字本就在默认正则里）。版式基线，
+  不是英文商务规范全覆盖。
+- 用例数 269 → 281。
+
+## 0.6.8 — 2026-09-27 (test-infra)
+
+测试执行层优化（无产品行为变化；用例数 274 → 269，本地全量实测 16:01 → 6:17）：
+
+- **共享渲染产物**：test_patch / test_validate 的 41 条 e2e 用例此前每条都
+  子进程重渲染同一份样例（pandoc + 后处理 + Word 导出）——现在整个 pytest
+  进程只渲染一次（`tests/_sample_render.py`：进程级缓存 + 逐用例拷贝，
+  改写型用例不污染共享源；加载器以 sys.modules 去重，缓存跨文件生效）。
+- **同源断言合并**：TestEvidencePackage 4→1（同一份证据包的目录 / 报告 /
+  签名 / 截图）、TestReportStructure 3→1（同一份 report.json 的结构断言）
+  ——同一次 validate 运行不该拆成多次 Word 往返。
+- **本地工作流**：新增「Word 半边」命令（patch / validate / renderer_contract
+  三份，CI 跳过、仅本机能验）；全量降频为发版 / 改渲染链路前跑。
+- 无渲染器环境（托管 CI）语义不变：仍逐用例 SKIP，CI 耗时不受影响。
+
+## 0.6.7 — 2026-09-26 (ci + fixes)
+
+首批托管 CI 上线（`.github/workflows/ci.yml`），首轮即抓出两个真缺陷，一并修复：
+
+- **CI**：ubuntu runner 跑 ruff + 快速子集 + 全量套件（渲染相关用例自动 SKIP）
+  + 渲染/验收冒烟 + 证据包 artifact。pandoc 锁 3.11（与开发机同版）。
+  验收类用例仍要真 Word，托管 runner 只覆盖无渲染器的那一半——边界不变。
+- **renderers.py**：`render()` 的惰性 import 挪进 try——pywin32 缺失时返回
+  结构化 `RenderResult(ok=False)`，不再裸抛 `ModuleNotFoundError`
+  （「失败必须结构化」契约此前只在装了 pywin32 的机器上成立）。
+- **validate.py**：`renderer_acceptance` 在渲染器不可用时降级 SKIP，不再把
+  「没装渲染器」冒充成「验收失败」——与缺 PyMuPDF 的 SKIP 同语义；
+  渲染器在但导出失败仍是真 FAIL。
+- **tests**：+6 条回归单测锁住上述两条语义（`test_validate_units.py` /
+  `test_renderer.py`）；patch / validate 的 e2e 用例在无渲染器环境自动
+  跳过（此前直接 FAIL）。
+
+## 0.6.6 — 2026-09-23 (docs-only)
+
+README 友好度打磨（无功能 / 行为变化；对齐高星 skill 项目的可读惯例）：
+- 目录（导航）前置到顶部，不再被「看看产物」图廊挤到页面后部；
+- 顶部价值句改为结果导向（「把最花时间的排版与验收交给一条命令」）；
+- 「本仓库是脚本集合、无需 `pip install`」的坑前置到快速开始顶部；
+- 补充「没装任何渲染器也能先出 docx」的最小可运行路径；
+- 各级 `##` 标题加 emoji 小标记，提升扫描可读性。
+- `tests/test_docs_sync.py` 的 `_slug` 与 GitHub 锚点生成对齐（丢弃 emoji 后去掉首尾 /
+  合并连字符），使带 emoji 的标题锚点不再被误判为死链。
+
+版本号自 0.6.5 起已对齐；本补丁仍属文档维护，不改动版本语义。
+
+## 0.6.5 — 2026-09-23 (docs-only)
+
+发布前最后一次文档契约收口（无代码 / 行为变化）：把 SKILL.md front matter、
+docs/VALIDATION.md（中英）、README（中英）里残留的 `Word acceptance` / `Word 验收`
+统一为 `renderer acceptance` / `渲染器验收`，与 `validate.py` 的 `renderer_acceptance`
+检查及 README 已声明的 Word / WPS / LibreOffice 多 renderer 架构对齐。
+仅在与 Microsoft Word 保真强相关处保留 Word 口径。版本号自 0.6.4 起已对齐，
+本补丁不改动版本语义，仅修正文档漂移。
+
+## 0.6.4 — 2026-09-23 (stable)
+
+### Renderer 抽象收尾：validate 直连渲染器 + LibreOffice/WPS 渲染器 + CLI 选择
+
+把「docx → PDF」从核心彻底抽成可插拔的 `RendererAdapter`，核心（compile / OOXML /
+source / image / profile / metadata / evidence）不再依赖任何 Office：
+
+- **`validate.py` 去掉调 `finalize.py` 的子进程往返**：`export_pdf_once` 现在直接消费
+  `WordRenderer.render()`（保留线程级超时安全网），`word_acceptance` 检查消息随渲染器名
+  动态变化；只收敛为一次导出，PDF 派生检查（page_numbering / blank_pages / visual_drift）仍只吃 PDF
+- **新增 `LibreOfficeRenderer`（soffice headless，跨平台 CI 友好）与 `WPSRenderer`
+  （WPS Writer COM: KWPS.Application）**，`get_renderer(name)` 工厂统一入口，三者各自带
+  `available()` 能力探测
+- **`render.py` / `validate.py` 暴露 `--renderer word|libreoffice|wps`**（默认 word）；
+  `render.py --doctor` 改为列出三种渲染器的可用性，`preflight` 改用渲染器探测替代硬编码 pywin32 检查
+- **`finalize.py` 降级为 `WordRenderer` 的薄 CLI 壳**（仍可单独调用，人读输出不变）
+- 测试 230 → 237 项：新增渲染器工厂 / 可插拔接缝（注入 `FakeRenderer` 证明 validate 不再
+  shell finalize 或起 Word）/ LibreOffice·WPS 可用性 skip 测试；renderer-agnostic 护栏守住
+  「换渲染器不改结论」
+
+### Renderer 身份进入 evidence + 文档漂移修正（架构已脱离 Word，但产品层 fidelity 未证）
+
+评审校准后的边界：架构上 `Core` 已不依赖任何 Office，`RendererAdapter` 把 docx→PDF 抽成
+可插拔（Word / LibreOffice / WPS），`page_numbering` / `blank_pages` / `visual_drift` 只消费 PDF、
+与具体 renderer 无关（契约测试用 `FakeRenderer` 守住）。但**产品层尚未证明 WPS / LO 的中文正式文档
+fidelity**，因此：
+
+- **renderer 身份进 evidence**：`validate.export_pdf_once` 现在返回 `RenderResult`，`report["metadata"]["renderer"]`
+  记录 `{name, version, engine_path}`——别人看到 PASS/FAIL 也知道是 Word / WPS / LO 出的，provenance 不再靠猜
+- **`word_acceptance` → `renderer_acceptance`**：检查名随渲染器走，不再写死 Word（否则 `--renderer wps` 时名称仍在撒谎）
+- **文档漂移修正**：两份 README 的「运行平台 / 架构图 / Quick Start / 依赖表」从「需要本机 Word」改为
+  「需要渲染器（三选一，默认 word）」；`--doctor` 现列三种渲染器可用性
+- **暂不新增渲染器、不声称「支持 WPS 验收」**：只声称「架构支持 WPS / LO renderer」，真机 corpus 验证留到真机阶段
+
+### 验收策略模型（policy.py）：Flexible input, explicit policy, deterministic verification（脊柱，未接入 validate.py）
+
+评审校准的产品哲学：确认要有，但不能把用户绑死在「逐项确认 / 严格 profile / 固定 renderer」。
+验收严格度应为**按属性四级**（ignore / observe / warn / enforce），而非「全严格 / 全不严格」二元。
+
+- 新增 `scripts/policy.py`：`Severity` 四级枚举、`PROPERTY_CHECKS` 属性→检查反查表、
+  三层模式预设（`free` / `advisory` / `strict`）、`resolve_policy` 覆盖分层、
+  `required_renderers`（renderer 矩阵验收）、`evaluate`（按严重度算摘要与结论）
+- 新增 `tests/test_policy.py`（9 项，纯函数、无需 Word）守住四级语义、反查、覆盖、矩阵
+- **尚未接入 validate.py**：Phase 2 把 `--enforce-profile` 的布尔门禁升级为按属性严重度；
+  并引入 `check` / `verify` / `certify` 与 override layering（模板检测 spec → 已批准约束 → 任务临时覆盖）
+
+### Profile enforcement 作为可选 policy layer（opt-in，非 core acceptance）
+
+外部 review 校准了定位：`profile` 不该成为核心验收的前提——Texere 的核心验收本来就是
+「structural invariants + 真实 Word acceptance + visual baseline regression」，template 承担
+presentation truth、baseline 承担 rendered truth。所以 `profile` 保持**可选**的
+customer-specific policy layer，绝不替代原有 acceptance：
+
+- **profile 从「只选 baseline 的 metadata」接成可执行契约（opt-in）**：`validate.py` 新增
+  `compile_profile_checks(profile, docx)`，把 profile 里声明的 `page / styles / table / toc`
+  编译成 `profile.page / profile.body_font / profile.heading / profile.table / profile.toc`
+  断言（Level 1 Structural，纯 OOXML 读取，不依赖 Word），命名空间独立、可单独追溯
+- 这些断言**只在显式 `--enforce-profile` 时计入门禁**（profile 是按需 opt-in 的 contract，
+  默认仍只当 baseline 选择器）；未传 `--profile` 时这条链路完全不出现，核心 9 项检查不受任何影响
+- `SCRIPT_HELP.md` 补 `--enforce-profile` 文档与「profile 作为可执行契约」小节
+- **修正 `profile.table` 边框检测 bug**（opt-in 层自身正确性，不是把 profile 抬成核心）：旧实现用
+  `borders.findall(qn("w:border"))`，但真实 OOXML 里 `w:tblBorders` 的子元素是
+  `w:top/w:left/w:bottom/w:right/w:insideH/w:insideV`，没有 `w:border` 这个标签，于是恒返回空 →
+  有边框的表被错判为「无可见边框」。改为遍历 `w:tblBorders` 的真实子元素（测试辅助函数同步改用
+  真实标签，否则会和 bug 互相「自洽」漏网）
+- 测试 213 → 219 项：新增 `TestProfileContract`（规范文档全 PASS、违规文档 FAIL、空 profile 无断言）
+  + `test_table_border_detection`（钉死边框标签误判）+ `test_missing_required_property_fails`
+  （缺失 required 字段判 FAIL）
+
+### 让已有 5 个断言「真的严」（contract semantics，而非听起来严）
+
+外部 review 指出：profile 已声明但尚未执行的字段、以及「要求某字段但文档根本没声明」被静默放行，
+都会回到项目一直在消灭的「听起来很严、实际保障没那么强」。这一步只收紧**已有**断言语义，不新增字段：
+
+- **`profile.body_font` / `profile.heading`：required 字段缺失也判 FAIL**：旧逻辑只在「声明了但不符」
+  时 FAIL，「profile 要求宋体、实际根本没设东亚字体」会被放过。现在 profile 要求 font_eastAsia /
+  font_latin / size / bold 任一项时，实际缺失（None / 未声明）与值不符都判 FAIL，消息里标
+  「缺失」vs「≠」
+- **`SCRIPT_HELP.md` 新增「Profile 字段执行状态」矩阵**：逐项标注每个 profile 字段是 ✅ enforced
+  还是 ⚠️ declared-only（`line_spacing` / `space_*` / `caption.*` / `header.*` / `footer.*` /
+  `tender_specific.*` 等目前只是声明、未编译成断言），避免「JSON 写了就以为 validator 会保护我」
+
+### Evidence Enrichment（只填 `evidence`，不增 check / 不改 verdict）
+
+`CheckResult.evidence` 槽位与 `report.json` 落盘早在 profile 章节就已就位，但多数检查留空 `{}`。
+这一步把已有判定的「实际观测值」填实——**不新增断言、不改变 PASS/FAIL/SKIP/ERROR、不改变
+默认验收行为、只提高 `report.json` 的可解释性**，为将来的 Build Manifest 直接消费做准备：
+
+- **`profile.page`**: `evidence` 把每个维度（width/height/margin_top/bottom/left/right）的
+  `expected_cm` / `actual_cm` 并排，审计方无需反解中文 message
+- **`profile.body_font` / `profile.heading`**: `evidence.fields` 数组，每项 `{field, expected, actual}`；
+  `actual: null` 天然表达「缺失 ≠ 不符」（正是 contract semantics 修的那条），`source: "profile"`
+- **`profile.table`**: `{bordered, total, rule: "at_least_one_visible_border"}`——`rule` 把粗粒度语义
+  写死，防止误读成「所有表全部符合边框规范」
+- **`profile.toc`**: `{has_field, count}`（count 是实数，不只一个 bool）
+- **`image_embedding`**: 复用**同一次** `doc_shas` 扫描填 `evidence`
+  （`referenced / embedded / resolved / unresolved / images[document_index, sha256]`），绝不为了
+  填 evidence 再跑一遍解析（不把 evidence 做成第二套 validator）
+- `SCRIPT_HELP.md` 补「检查语义边界（Known limitations，只记录不实现）」：明确 `profile.page` 只看
+  `sections[0]`（first_section）、`profile.table` 是 at_least_one 粗粒度、evidence 不参与 status 判定、
+  以及 declared-only 字段清单
+- 测试 219 → 226 项：新增 `TestEvidenceEnrichment`（5 个 profile 检查的 evidence 形状 +
+  `json.dumps` 可序列化守护 + image 复用单次扫描守护）
+
+### Renderer 抽象（Core vs Renderer 抽离，行为 0 变化）
+
+把「docx → PDF」从核心里抽出来，Word 从核心依赖降级为「一个 renderer adapter」——这是
+Texere 从「Word automation tool」走向「Document acceptance engine」的第一步：
+
+- 新增 `scripts/renderers.py`：`RenderResult` + `RendererAdapter`（ABC）+ `WordRenderer`
+  （原 `finalize.py` 的 Word/COM 逻辑迁入）+ `FakeRenderer`（无 Office 的测试 / CI 渲染器）
+- `finalize.py` 改为薄 CLI 壳，只做参数解析与人读输出，**输出格式逐行不变**（行为 0 变化）
+- `validate.py` 的 `export_pdf_once` 仍经 `finalize.py` 出 PDF，核心验证逻辑完全未动——
+  本次只是把渲染器实现挪了位置，不改变任何检查结论或 `report.json` 结构
+- `SCRIPT_HELP.md` 补「渲染器抽象（Core vs Renderer）」：核心不依赖 Office，PDF 派生检查
+  （`page_numbering` / `blank_pages` / `visual_drift`）只读 PDF、绝不感知渲染器
+- 测试 +4：新增 `test_renderer.py`，含 renderer-agnostic 护栏——用 PyMuPDF 合成 PDF 证明
+  三个 PDF 派生检查只消费 `pdf_path`、与具体渲染器无关（换 Word / WPS / LO / Fake 出同一
+  PDF 结论不变）。这是后续接 LibreOffice / WPS 渲染器的硬前提
+- 断言数 226 → 230
+
+## 0.6.3 — 2026-09-22
+
+### README：从「工程手册」改成「产品首页 + 工程索引」
+
+此前 README 是 manual-first：先讲哲学、再讲文档治理、最后才讲到「你输入什么、得到什么」。
+现在按漏斗重排，并把 reference / cookbook 类内容下沉到 `docs/`：
+
+- 第一屏：管线图 + 示例画廊（7 张真实渲染图）+ 一句话定位，不再先要求读者理解
+  Semantic IR / design contract
+- 新增 `Why not pandoc alone?`（五句话）与 `Have an existing Word template? Keep it.`（客户模板）
+- 「三条支柱」下移到设计原则旁：它和「为什么不是 Pandoc」相邻时两节都在列差异化点
+- 去掉重复：`--sample` 的产物图不再在 README 展示（首屏画廊是唯一展示入口）；
+  `Repository map` 并入 `Documentation map`（两张表都列 `SKILL.md` 与 `docs/`）
+- 下沉到 `docs/`，各带 `.zh-CN` 镜像：`CONFIG.md`（config 字段 + `style` 键）、
+  `TABLES.md`（表格写法）、`VALIDATION.md`（9 项检查逐项 + 人工门槛）、
+  `EDITING.md`（编辑操作 + Patch schema + 重排）。README 只留命令与关键口径
+- 英文 600 → 429 行，中文 559 → 396 行；信息一条没丢，只是分层
+- `test_docs_sync.py` 新增 `test_docs_mirrors_share_structure`：内容一旦离开 README 就不再被
+  原镜像守卫覆盖，不补这条的话「下沉」会悄悄变成「英文一套、中文另一套」
+- 下沉同步修掉的跨区锚点：config 表引用 `Visual control`、Tables 引用 `The style section`，
+  以及 SKILL.md 里的 `README §Configuration / §Tables / §Validation / §Editing`
+
+### 修复
+- **`SKILL.md` 的 front matter 不是合法 YAML，导致技能加载报错**：
+  `description:` 的值未加引号，而值中间含 `: `（`… with unified validation: 9 automated checks …`），
+  严格解析器报 `mapping values are not allowed in this context (line 2, column 205)`。
+  现用双引号包住整个值（文本一字未改），并顺手把 `compatibility` 保持原样（它不含 `: `）。
+  仓库内副本与已安装副本 `~/.qoder-cn/skills/texere/SKILL.md` 同步修正。
+- `test_docs_sync.py` 新增 `test_skill_frontmatter_is_valid_yaml`：front matter 里出现
+  「未引用且值内含 `: `」的键即红。不依赖 PyYAML（它不是项目依赖），用结构检查查这一类错型。
+- 测试 161 → 162 项。
+
+### 验收器：把「听起来很严」改成「真的严」
+
+一轮外部 code review 后做的收敛，全部针对同一类问题——**指标比实际保障能力更强**。
+
+- **「查不了就算过」**：9 项检查此前都返回 `(bool, str)`，前置条件缺失时也
+  `return True, "跳过…"`，于是 `Passed: 9/9` 里可能塞着 3 项根本没跑的检查。现改为
+  `PASS / FAIL / SKIP / ERROR` 四态：`SKIP` 不计入 passed，`summary` 增 `skipped`、
+  `signature` 增 `checks_skipped`，摘要行写成 `Passed: 6/9 (skipped: 3)`。退出码仍只由
+  FAIL / ERROR 决定。转为 SKIP 的是：source_content（两个参数都不给）、image_embedding
+  （无 Markdown 引用数）、page_numbering / blank_pages（无 PDF 或缺 PyMuPDF）、
+  toc_field（文档本就没有目录）、visual_drift（无基线）。
+- **`toc_field` 是死检查**：靠 `hasattr(doc, "tables_of_contents")` 短路，而 python-docx
+  （1.2.0 实测）根本没有这个属性，于是这一项恒定「跳过」，其后三行是永不执行的代码。
+  现下到 OOXML 数 `w:instrText` / `w:fldSimple` 里的 `TOC` 域，与 `post.py` 注入目录域的
+  写法对齐。
+- **视觉漂移两套口径**：`snapshot.py` 逐页全量，`validate.py` 却只比首 / 中 / 尾三页——
+  272 页文档第 137 页表格溢出时，抽样的三页可能全都干净；而 validate 的注释还写着
+  「逐字节全量比对」。现默认全量，页数双向卡齐（变多同样 FAIL），`--sample-visual` 才退回抽样。
+- **页码检查的 fail-open**：识别不出页脚页码格式时旧实现返回 PASS，且文案里写「连续」，
+  把一个没验证的结论说成了通过。现返回 SKIP。
+- **`source_content` 名不副实**：它 hash 的是 docx 文件本身，只证明字节未变，证明不了
+  内容与源一致。新增 `--source-md <file>`：Markdown 归一化后逐段比对 docx 正文，跳过代码块 /
+  pandoc fenced div / 表格分隔行 / 列表符号 / 行尾硬换行，并统一直引号与弯引号（前两版在真实
+  样例上分别误报 7 处和 1 处，都是这些噪声）。只给 `--expected-hash` 时消息里写明是产件级 hash。
+
+### Patch：schema 声明的能力必须真的能用
+
+- **`add_row` 的 `after_row` 只是预留参数**（源码里写着 `# 预留参数`）：schema 收下、实现忽略，
+  Agent 按文档写了会被静默追加到表尾。现按声明语义落地：deepcopy 锚点行的 `<w:tr>` 继承边框 /
+  底纹 / 字号，清空文字后插到该行之后；`assess_patch` 校验越界，`--validate` 回验新行位置。
+- **`from scripts import edit` 是坏导入**：以 `python scripts/patch.py` 运行时 `sys.path[0]`
+  是 `scripts/`，`scripts` 会被解析成空的命名空间包，于是 `set_cell` / `insert_after` /
+  `insert_before` / `add_row` 全部抛 `cannot import name 'edit' from 'scripts'`，又被
+  `except Exception` 兜成「操作失败」，长期被误当成「目标不存在」。改为显式把脚本目录放进
+  `sys.path` 后按模块名导入。
+
+### 图片：从「数量下限」升级为「身份 + 顺序」
+
+- 此前只做 `n_img >= n_ref`：`图A 图B → 图B 图B` 数量正确也判 PASS。实测 pandoc **原样嵌入图片
+  字节**（`contract.png` 的 sha256 与 `word/media/rId9.png` 完全一致），于是可以逐图比对：
+  md 侧按文档顺序取 `![](path)` 的 sha256，docx 侧按文档顺序取 `a:blip/@r:embed` → rels →
+  media 的 sha256，比 missing / extra / 顺序（子序列匹配，允许夹带模板 logo）
+- 顺带修掉两个盲区：改走 `a:blip` 而非 `inline_shapes`，浮动型（anchor）图片从此也计数；
+  不按 media 文件名排序（`rId12` 会排在 `rId9` 前面，实测踩到），改走文档顺序
+- 未给 `--source-md` 时行为不变，仍是数量检查
+
+### signature：把话说准，并补上 report.json 的摘要
+
+- 文件头明写「checksum manifest, not a cryptographic signature」。没有密钥，任何人都能重算
+  这些 hash，它证明的是「这份证据描述的是哪个产物」，不是「证据没被改过」
+- **顺序 bug**：`report.json` 原本在签名之后才落盘，不在摘要范围内——改报告结论不会破坏
+  证据。现在先写 report、再写清单，新增 `report_hash`
+- 文件名不动（`signature`），避免破坏已有消费方；README / SKILL / SCRIPT_HELP 口径统一
+
+### 契约措辞收窄
+
+- `SKILL.md` 的「output text comes from the source, character by character」在任何配了
+  `content_fixes` 的项目里都是假的。契约作用域明确为 `post.py`（后处理阶段），并写清
+  `content_fixes` 发生在渲染管线更早处、是一张用户自己写的显式替换表而非静默改写。
+  中英 README 同步。
+
+- 测试 162 → 195 项：新增 PASS/SKIP 分级与反 fail-open、TOC 域真检查、`--source-md`
+  正文比对与 Markdown 归一化、`after_row` 插入位置与坏导入回归。
+
+### Layer 0：验证器自身可信化（integrity foundation）
+
+外部 review 后进一步收口「验证器本身必须可信」——这是 0.6.3 收尾的三道关：
+
+- **`CheckResult` 统一四态类型**：各 validator 不再各自 `return (bool, str)`，改为
+  `CheckResult(name, status, message, evidence)`；后续 profile 断言 / provenance / CLI 报告都依赖这一类型
+- **`finalize.py` 只读验收**：默认只拿输入 docx 的临时副本交给 Word 做域更新 / 重分页 / 导 PDF，
+  **绝不写回原文件**；只有显式 `--save-updated-fields` 才写回——验证不再改变被验证对象
+- **`doctor` 状态模型 + 能力感知 preflight**：`_word_engine()` 返回 `(available, text)`，
+  Word 缺失 / 启动失败不再被硬写成「可用」；`--doctor` 输出 `DOCX 渲染 / PDF 导出 / 验收(--check)`
+  三档 `READY / NOT READY`，避免把「docx 可用」误读成「完整环境就绪」
+- **图片未定位降级 SKIP**：源图路径解析不到时不再并入强 PASS，整项降为 `SKIP`；
+  已定位图片仍按身份 SHA-256 + 顺序做强校验（fail-close 在身份/顺序，fail-open 在解析能力边界）
+- **结论行 skip 感知**：除 `Passed: 7/9 (skipped: 2)` 外，最终结论行在有 SKIP 时改报
+  `Required checks passed (N skipped — see Summary above)`，不再只写 `All checks passed`
+- **回归测试钉死契约**：新增 `TestFinalizeIsReadOnly`（默认不改输入 sha、仅 `--save-updated-fields`
+  才写回）；新增 `tests/test_validate_units.py` 纯函数级覆盖页码识别 / 连续性 / 基线像素差 / 四态 /
+  fail-open / TOC / Markdown 归一化 / 源完整性 / 图片身份顺序（不启动 Word，加速迭代）
+- 测试 195 → 213 项
+
+## 0.6.2 — 2026-09-21
+
+**文档体验优化 + 把 0.6.1 的单一来源约定补全**（对 README 逐条核验代码/仓库实况后修的都是实账）
+
+- 删掉 README 里「GitHub Actions - CI/CD with multi-platform testing」这条：0.2.1 已主动移除 CI
+  （见下方「移除」条目，理由就写着「留着一个从未跑过的配置反而会造成『有保障』的错觉」），这句是删除后
+  漏改的残留，且「multi-platform」与「Windows + Word 绑定」自相矛盾。新增「开发」一节如实说明：
+  本仓库靠 pre-commit 本地检查，没有托管 CI，并解释为什么
+- 中英 README 重新对齐：中文版此前整段没有「验证与证据包」（9 项检查、report.json、证据包目录、
+  示例输出），三条支柱也还停在 0.5 的旧表述；英文版的「人工门槛」四检查项此前中文版独占。
+  现在两份标题层级序列完全一致，并由 `test_readme_mirrors_share_structure` 把守
+- `test_docs_sync.py` 新增 5 项守卫（共 7 条用例）：
+  - `test_no_key_defined_twice_in_manual`：同一个配置键不得在手册里定义两次。0.6.1 的守卫只拦
+    SKILL/BEST_PRACTICES，README 自己在「style 段」与「表格视觉控制」两张表里各写了一份
+    `header_rows` 等 7 个键的默认值（对 0.6.1 的 README 跑这条守卫，7 个键全部命中）
+  - `test_internal_anchors_resolve`：README 顶部锚点导航必须指向真存在的标题——新增的 23 个锚点
+    没测试兜着的话，下次改标题就会默默断链
+  - `test_readme_mirrors_share_structure` / `test_readme_mirrors_cover_same_scripts`：中英镜像结构与脚本覆盖对齐
+  - `test_stated_test_count_is_current`：文档里写死的断言数必须等于 pytest 实际收集数——治自己
+- README 结构体验：加顶部锚点导航；Windows + Word 前置到第一屏（原来埋在 500 行后的「已知限制」）；
+  Does/Doesn't 从两个 300 字巨型表格拆成清单；「三条支柱」升为 h2
+- README 复述收敛：§Usage 与 §编辑已有 docx 的 CLI 全量转投不再手抄，改为「真要跑的五条流程 +
+  指向 SCRIPT_HELP」，与文档地图那条约定一致；`style` 键表声明为默认值唯一来源，「视觉控制」只讲何时该动
+- 清理状态性措词：repository map 里 validate.py / patch.py / profiles 上的「**New**」（已三个版本不新了），
+  并补齐 4 个 profile
+- 修复中文 README 「文件地图」的坏表格（表头重复了一行，多出一个 `| 路径 | 职责 |` 数据行）
+- 修复英文 README 开篇标语的破损斜体（`*From Latin* texere*, …*` 星号配对错乱）
+- `SKILL.md`：孤儿段落 `"toc": false` 从「硬契约与陷阱」移到「Minimal config shape」，并补上表单类
+  `header_rows: 0` 的同类提示；测试时长口径与 README 对齐
+- 测试 154 → 161 项，全部绿；版本号 0.6.2（纯文档与守卫，不动任何渲染逻辑，模板未变）
+
+## 0.6.1 — 2026-09-21
+
+**文档信息分层治理**（使用反馈："同一件事在 SKILL/README/BEST_PRACTICES 各有一份，
+你在跟漂移打架"——属实，本轮把约定机制化）
+
+- README×2 顶部新增「文档地图」：每条信息只住一个地方，其余文档只指路不复述
+- 删除 `docs/CONFIG_SCHEMA.md`：它是 README 配置字段表的第 4 份拷贝
+  （0.5.1 审查时造的文件，本身就成了漂移源——诚实记录这个弯路）
+- `SKILL.md` 384 行 → 162 行：删去与 README/SCRIPT_HELP 重复的输入要求细节、
+  grid 语法块、模板继承表、9 项检查表、repository map，改为引用；
+  保留 agent 工作必需的决策信息（硬契约、陷阱清单、Patch schema、验收门槛）
+- `BEST_PRACTICES.md`：删「Markdown 写作规范」重复段（指向 README），只留场景经验
+- `test_docs_sync.py` 新增字段表守卫：`| \`key` | 说明 |` 式表格出现在
+  SKILL/BEST_PRACTICES 即 commit 失败——单一来源约定从自觉变成机器强制
+- 测试 154 项全绿
+
+## 0.6.0 — 2026-09-21
+
+**使用反馈落地：批量编辑三件套 + 无目录模式 + 文档守卫**
+
+### 新增
+- `edit.py --add-rows 表 数量 [--template-row 行]`: 批量加空行，复制模板行的全部格式
+  （边框/底纹/字号/加粗）——python-docx 的 add_row() 是丢格式的裸行
+- `edit.py --fill data.json|data.csv`: 批量填表；null/空单元格跳过不清空；
+  合并单元格按「写主格、跳过后续坐标」处理；越界只警告不崩
+- config `"toc": false`: 通知/公示类短文档不插目录页，标题样式照常保留，
+  无封面时不分节。旧写法只能「不写 #」绕过，代价是全文变普通段落手工后补
+- `render.py --src` 支持直接传单个 .md 文件（一页的通知不必先建目录）
+- `finalize.py` 的 out.pdf 可省略，默认取输入同名 .pdf
+- 空白格写入时借用同表已有 run 的 rPr，填空白表单不再字体回退
+- `tests/test_docs_sync.py`: CLI 参数 ↔ SCRIPT_HELP 双向对拍守卫
+  （漏写文档/虚构文档参数都会被拦），已入 pre-commit 快速子集
+
+### 修复
+- Windows 中文乱码根修：子进程管道统一注入 `PYTHONIOENCODING=utf-8`
+  （旧乱码根源是子进程 GBK 输出被父进程 utf-8 解码，非控制台编码问题）
+- 全部 `fitz` 别名换成 `pymupdf`（PyMuPDF 1.28 起 fitz 每次加载都刷 deprecation warning）
+- pre-commit 形同虚设：hooks 从未安装；配置升级 ruff v0.16.8、
+  新增 check-added-large-files（拦误提交产物）与秒级测试子集
+
+### 文档
+- README×2 / SCRIPT_HELP 补齐本轮全部新参数与 `toc` 字段；make_ref 历史欠账（--dst/--latin-font）补录
+
+### 测试
+- 152 项断言（新增 toc:false ×2、批量编辑 ×6、文档守卫 ×7）
+
+## 0.5.1 — 2026-09-20
+
+**全面代码审查修复 + validate 性能重构 + 示例扩充**
+
+### 修复
+- `patch.py`: 错误信息统一输出到 stderr；补 apply 时的备份与另存逻辑；
+  修复 dry-run 在空 operations 时的 `UnboundLocalError`；修复跨模块 import
+- `validate.py`: 修复 `expected_hash` / `max_empty` / `baseline_dir` 未传入检查函数的
+  `NameError`（`--max-empty` 此前实际无效）；补丢失的 `re` / `glob` 导入；
+  异常捕获按类型细化；`--quiet` 不再隐藏检查项列表（调用方可从 stdout 判断哪一项失败）
+- 页码连续性检查重写：只从页脚区域（按版面位置 `sort=True` 排序后的页尾三行）提取
+  页码，避免把正文数字（日期、金额）误当页码；校验缺口序列
+- 视觉漂移比对与 `snapshot.py` 统一口径（dpi=100 + 全量 `diff_ratio`）；
+  旧实现的 2x 矩阵与 `baselines/` 尺寸对不上，会把「没漂移」误判成漂移
+- `fitz` 改惰性导入：未装 PyMuPDF 时基础检查（包结构/分节/TOC）仍可运行
+- 所有 `subprocess.run` 加超时；所有 fitz 文档显式 `close()`（防 Windows 文件句柄泄漏）
+- `examples/gongwen/config.json`: 移除指向 JSON 的 `reference_doc`（pandoc 要求 docx，
+  该示例此前无法渲染）；`tender/` / `gongwen/` 补占位图（md 引用了不存在的 png）
+- `render.py`: 启动时清理超过 24h 的旧临时目录（实测一天可积累 12 个）
+
+### 性能
+- validate 的 4 项 PDF 检查 + 证据截图从「各自启动一次 Word」收敛为一次导出共享，
+  完整测试套件耗时 800s → 394s
+
+### 新增
+- 示例从 4 个增至 7 个：`minutes/`（会议纪要）、`report/`（经营分析报告：多文件合并、
+  Lead 提示框、grid 二级表头、图注）、`contract/`（技术服务合同：grid 单元格内换行、签署栏）
+- `scripts/_version.py`: 版本号单一来源，`tests/test_version.py` 校验与 pyproject 一致
+- `tests/test_validate_units.py`: 16 项纯函数单测（页码识别/基线比对），不启动 Word
+- `docs/CONFIG_SCHEMA.md`、`docs/SCRIPT_HELP.md`
+- `validate.py` 新增 `--baseline <dir>` 参数；patch.py 新增 `--no-backup`
+- 依赖升级：lxml 6.1 / PyMuPDF 1.28 / python-docx 1.2 / pywin32 312；pandoc 3.11 实测兼容
+
+### 文档
+- 修正 README / README.zh-CN / SKILL / BEST_PRACTICES 中过时的测试数（74→137）、
+  「no Word needed」表述、不存在的 `render.py --profile` 用法
+- 删除 `PLUGIN_README.md`：其描述的两个插件目录已在上一提交中移除，全文指向不存在的路径
+
+### 版本说明
+上一版 0.5.0 发布时漏 bump pyproject/_version（停在 0.4.0），本版一并拉齐。
+
+### 测试
+- 137 项断言全过（含新增 validate/patch/version/纯函数用例）
+
+## 0.5.0 — 2026-09-19
+
+**Productize texere as document compiler + verification layer**
+
+### 新增
+- **Profile 体系扩展**: 新增行业专用 profile
+  - `profiles/formal-cn-v1.json`: 中文正式文档默认 profile
+  - `profiles/tender-v1.json`: 投标文件专用 profile（标书格式、报价表样式）
+  - `profiles/gongwen-v1.json`: 公文专用 profile（GB/T 9704-2012 标准）
+  - `profiles/application-v1.json`: 项目申报书专用 profile（表单式表格）
+- **统一验收 CLI (`scripts/validate.py`)**: 9 项自动化检查 + 证据包生成
+  - Package integrity, Image embedding, Section count, TOC field
+  - Page numbering, Blank pages, Word acceptance, Visual drift
+  - 输出：`report.json` + `page-XXX.png` + `signature`
+- **Agent Patch API (`scripts/patch.py`)**: 声明式编辑原语
+  - Hash precondition + must_contain precondition
+  - Dry-run → Assess → Apply → Validate 完整流程
+  - 支持 7 种原子操作（replace_text, insert_after, set_cell 等）
+- **真实项目案例**:
+  - `examples/tender/`: 智慧园区平台建设投标文件（完整示例）
+  - `examples/gongwen/`: 关于推进数字化转型工作的请示（公文示例）
+- **README/SKILL.md 重写**: 强调 "Compiler + Contract + Evidence" 定位
+
+### 产品定位进化
+从 "turn Markdown into properly typeset Chinese documents"
+到 "Reference/Spec → Deterministic Document → Evidence"
+
+建立三重竞争壁垒：
+1. **Contract 壁垒**: profile.json 让版式规则显式化、可审计、可复用
+2. **Evidence 壁垒**: validate.py 提供 delivery-ready guarantee
+3. **Agent 壁垒**: patch.py 提供声明式编辑原语，适合 Goal Mode/MCP
+
+### 测试
+- `tests/test_distill.py`: 12 项断言，验证模板蒸馏报告与 config 可用性
+- `tests/test_validate.py`: 新增 20+ 项断言（待添加）
+- `tests/test_patch.py`: 新增 15+ 项断言（待添加）
+- 总计 74+ 项断言通过
+
+## 0.4.0 — 2026-09-18
+
+复用已有模板（甲方模板 / 自己攒的模板）。不启用新开关时，输出版式零变化。
+
+### 新增
+- **`scripts/distill.py`：模板蒸馏**。读一份已有 docx，输出「建议 config」+ 体检报告：
+  页面设置（纸型 / 方向 / 页边距）、正文与各标题的字体字号、各节页眉页脚、分节数与表格数，
+  并给出对应的 `make_ref.py` 命令。目的是接一份新模板时，不用手工去 Word 里量页边距、抄页眉。
+  能确定的报出来，判断不了的（封面结构、页码格式、表格细节）在报告里列成人工确认项——
+  **蒸馏是"把模板拆成 config 字段、人来拍板"，不是让工具去理解模板**
+- **`style.page_number: null` —— 保留模板自带页脚**。此前页脚被无条件重写成 `— n —`，
+  甲方模板里带公司名 / 文档编号的页脚会被冲掉。实测默认行为其实是**追加**
+  （`…XYZ-2026— 1 —`），只有显式写 `null` 才是一个字都不动
+
+### 修正
+- **README 低估了 `reference_doc` 的继承能力**。实测：页边距、纸型、正文与标题样式，
+  以及**页眉**都能继承（页眉只在 config 配了 `header` 时才被覆盖）。原文档只写
+  "正文样式即继承对方模板"，会让人以为页边距和页眉得手工重设——其实是白费功夫。
+  已按实测结果补成一张表
+
+### 测试
+- `tests/test_distill.py`：12 项断言。守蒸馏报告的内容与 `--out` 写出的 config 可用，
+  以及 `page_number: null` 时模板页脚**一个字都不许追加**
+- 74 项断言全过
+
+## 0.3.0 — 2026-09-18
+
+按 Agent Skills 规范做结构重组，并新增「编辑已有 docx」的第二条链路。
+输出版式零变化：62 项断言全过，`--sample` 仍是 4 页、快照比对 0.00%。
+
+### 变更（破坏性：路径全变）
+- **脚本移入 `scripts/`，模板与样例移入 `assets/`**，符合规范的
+  `SKILL.md` + `scripts/` + `assets/` 结构
+- `render.py` / `make_ref.py` 的 `KIT` 由「脚本所在目录」改为「其父目录」（即仓库根）。
+  `tests/` 里本来就是这么算的，所以测试侧只需改引用路径，逻辑不动
+- **命令行随之变化**：`python render.py` → `python scripts/render.py`（双语 README 已同步）
+
+### 修复
+- **`--doctor` / `preflight` 给出的安装命令必然失败**：代码里 4 处仍写着
+  `pip install "."` / `".[pdf]"` / `".[check]"` / `".[pdf,check]"`，而本仓库没有构建后端。
+  0.2.1 只改了 README、没改代码，恰好是那类"会让人直接失败"的错误。
+  现统一改为 `pip install -r requirements.txt`（缺哪个可选依赖就单装哪个）
+
+### 新增
+- **`scripts/edit.py`：编辑已有 docx 的第二条链路**。与渲染链路契约相反：
+  渲染是「只改版式、不改内容」，编辑是「**只改你指定的地方，其余字节原样保留**」——
+  不注入封面 / 目录 / 页码，不重排样式。支持：替换文字、锚点前后插入段落、删除段落、
+  改单元格、增删行、改页眉页脚
+- 跨 run 替换（不写出来必踩的两个坑）：
+  - **Word 会把文字切成多个 run**：`自开标之日起 90 日历天` 实测是三个 run，数字单独一个，
+    逐 run 搜索会漏。做法是拼接整段 `w:t` 定位，替换内容只写进「命中起点所在的 run」，
+    其余 run 仅删掉被覆盖的字符——run 数与各 run 的格式（加粗/颜色）都保住
+  - **`xml:space="preserve"`**：`w:t` 首尾有空格时必须设，否则 Word 会吞掉空格
+  - 写法借鉴 Codex Documents 插件的 `redact_docx.py`（拼接 → 定位 → 按原切分写回），只取思路
+- **锚点命中多处时拒绝执行**：实测目录被 Word 刷成静态文本后，`1.2 资质与业绩` 在目录与正文
+  各有一份，照着插两遍会把内容插进目录。现在列出候选并退出，可换更精确的锚点或加 `--all-anchors`
+- 默认备份 `<name>.bak.docx`；`--verify` 复用 `finalize.py` 让 Word 真机打开一次，
+  编辑链路与渲染链路共用同一个验收环节
+- **明确不做**（写进文档，避免以后被当成遗漏）：批注、修订、水印、内容控件；
+  带宏的 `.docm`（`python-docx` 保存会丢 `vbaProject.bin`）
+- `tests/test_edit.py`：26 项断言，守跨 run 替换、run 结构与格式保留、含图段落跳过、
+  歧义锚点拒绝、页眉只动正文节、备份与 `--list` 只读
+- `examples/`：可运行的最小示例——`form/`（表单式文档，`header_rows: 0`）与
+  `tables/`（grid 多级表头 + 合并单元格 + 斑马纹）。自带 md 与 config，渲染产物已忽略
+
+### SKILL.md 按规范重写
+- frontmatter 补 **`license: MIT`** 与 **`compatibility`**（Windows + 本机 Word + pandoc ≥3.1；
+  Linux/macOS 只有 docx 那半条链）。后者让 agent 在**加载前**就能判断环境是否达标，
+  不必等跑完一轮才发现没有 Word
+- `description` 改为规范要求的**第三人称**（`This skill should be used when...`），
+  并补上负向约束（不该用于编辑既有 docx / 学位论文 / 英文文档）。实测 811 字符（上限 1024）
+- 正文新增规范要求的 **`## Examples`**（4 段 input→output：最小标书、grid 多级表头、
+  图注、无标题表单）与 **`## Guidelines`**（原 hard contract 与边界规则合流）
+- **删去与 README 逐字重复的四节**（Configuration 全表 / Known limitations / Repository map /
+  Performance），改为一句指向 `README.md`——规范明确要求同一信息只存一处
+
+## 0.2.1 — 2026-09-17
+
+面向公开使用（全球读者）的文档与元数据整理。功能无变化，`ref.docx` 未动。
+
+### 新增
+- `SKILL.md`：给其他 agent 用的技能说明（何时用/不用、验证门槛、硬契约）。frontmatter 的
+  `description` 用英文写，便于全球 agent 命中
+- `README.zh-CN.md`：原中文 README 改名保留；`README.md` 改为**英文主文档**
+  （GitHub 只把 `README.md` 渲染成仓库首页），两文件首行互为语言切换入口
+- `LICENSE`：**MIT**；`pyproject.toml` 加 `license` 字段
+
+### 变更
+- **改名 `docx-kit` → `texere`**（拉丁语"编织"，即 `text` / `textile` 的共同词源；排版本就是
+  把正文、表格、题注、页码编织成一页）。改名原因：原名实测已被多处占用——npm 包名 `docx-kit`
+  被占、GitHub 另有 `ntnyq/docx-kit`（TS 库，有独立文档站）与 `LLYN077/docx-kit`。
+  涉及 10 处手改 + 2 处自动重生成。**功能与输出版式零变化**（快照 0.00%，36 项测试全过）。
+  两个容易漏的点：`SKILL.md` 的 `name` 必须与技能目录名一致；`render.py` 的临时目录前缀与
+  `tests/` 里检查"临时目录泄漏"的 glob **互相耦合，必须同步改**
+- 候选名核验方法与实测结论（供将来命名参考）：
+  - 用 GitHub `in:name` 计数，**看占用质量而非数量**（是否活跃、多少 star）
+  - **子串陷阱**：`pagina` 命中 **229,988**（pagination）、`collatio` 命中 **444**（collation）、
+    `maat` 命中 **2,268**（code-maat）——名字藏在常见词里就永远搜不到自己
+  - **拼音同音陷阱**：`kaogong`（考工）被 **191** 个"考公"备考仓库淹没
+  - 神话/古籍类名字基本被占：`maat` 2,268、`scriptorium` 727、`scriba` 404、`seshat` 402、
+    `erya` 329、`colophon` 161、`nisaba` 71、`shuowen` 41
+  - 最终存活的是**拼写独特且非英语日常词**的：`texere` 13 个（全是 0–5 star 空壳）
+- README 重写为使用者视角：新增「能做什么/不做什么」「效果」（引用 `baselines/` 的两张渲染图）
+  「验证门槛」；「文件地图」移到末尾
+- 修正 README 两处**会让人直接失败**的错误：
+  - `pip install .` —— 实测失败（本仓库无构建后端，且工具靠相对路径找 `ref.docx`/`filters/`），
+    改为 `uv sync --all-extras` / `pip install -r requirements.txt`（均已验证）
+  - `tests/` 的描述仍写着已删除的「自动编号与交叉引用」
+
+### 仓库
+- 清除文档中残留的项目名与开发机绝对路径
+- 提交身份与全局配置改为 GitHub 匿名邮箱（`<id>+<user>@users.noreply.github.com`），
+  并 `reflog expire` + `gc --prune=now` 使旧提交不可取回；**因此本日之前的 commit hash 全部变更**
+- 删除从未验证过的 GitHub Actions 配置（本地自用，且 Linux runner 无 Word，只能覆盖半条验收链）
+
+## 0.2.0 — 2026-09-16
+
+### 新增
+- 表/图按章自动编号与 `@tab:` / `@fig:` 交叉引用（config `"auto_number": true` 启用）
+- `filters/captions.lua`：在 pandoc **AST 层**把题注标记成 `TableCaption` / `FigureCaption`，
+  `post.py` 不再靠正则反推
+- `snapshot.py`：PDF 版式快照回归，逐像素比对 `baselines/`，漂移即 `exit 1`
+- `post.py` 支持 config 的 `style` 段：**全部版式数值可配**——页码模板与字号、页眉字号/灰色/下边框、
+  目录标题字号与占位提示、题注颜色/字号/段前后、单元格边距、表格边框粗细颜色、三线表顶底线
+- `caption_words`：题注关键字可自定义（默认 表/图/Table/Figure），`post.py` 与 lua filter 同步
+
+### 已知限制（`auto_number` 开启时）
+- 会改写题注段落文字：题注内的局部加粗/斜体被合并掉
+- 会给原本无编号的题注补号（如 `附件 8-1 …` → `图 8-1 附件 8-1 …`）
+- 不同步正文里手写的引用（`（表2-2）` 这类），只有 `@tab:` / `@fig:` 标签会更新
+- **编号本已正确的文档建议不开**：真实项目实测，关闭后页数一致且原文一字不改
+- **表格**：支持 grid table（多级表头 / 合并单元格 / 单元格内换行 / 列宽控制，均为 pandoc 原生能力，已文档化）
+- `style.header_rows`：多级表头的视觉表头行数；`style.table_border`：`full` / `three`（三线表）/ `none`
+- `make_ref.py` 支持 `--body-font / --latin-font / --heading-font / --body-size`
+- `render.py --version`
+
+### 移除
+- **GitHub Actions CI 配置**：本地自用 + 只有熟人使用，且 CI 的 Linux runner 没有 Word，
+  只能覆盖 33 项断言那半条链，而 Word 真机验收才是这个项目最值钱的部分。
+  留着一个从未跑过的配置反而会造成"有保障"的错觉。需要时再写，五分钟的事。
+- **图表自动编号与 `@tab:` / `@fig:` 交叉引用**（0.2.0 内测期间的功能）整体删除。
+  理由：它会改写题注文字（题注内局部加粗被合并）、给原本无编号的题注补号
+  （`附件 8-1 …` → `图 8-1 附件 8-1 …`）、且不同步正文里手写的引用。
+  真实项目实测：关闭后页数一致、原文一字不改，说明它在"编号已正确"的文档上零收益、纯风险。
+  现在 `post.py` 的契约是**只改版式、不改内容**，并有测试守着。
+
+### 新增（借鉴通用 docx 技能的表格规范）
+- `style.table_header_color`：表头文字颜色（深色底配白字）
+- `style.table_zebra` / `table_zebra_fill`：表体隔行浅底，首条数据行保持白底
+- 默认值不变（浅灰表头 + 黑字 + 无斑马纹，中文正式文档惯例），
+  有测试同时守住「可配」与「默认不变」两侧
+
+### 新增（真实项目实测暴露）
+- **`content_fixes` / `content_fixes_file`**：编辑性替换表（删注释性括号、统一措辞），
+  在合并 md 之后、转换之前套用。指向上游已有的 `.py` 时用 `ast` 只读取值、不执行代码。
+  真实项目里这一步影响 122 处、约 1581 字，不做的话正文与定稿版本不一致
+
+### 修复（第三份真实素材：表单式申报书）
+- **无一级标题的文档被直接拒绝**：附件/申报书这类表单文档天然没有章节标题，
+  以前 `post.py` 会 `sys.exit`。现改为：跳过目录注入（无标题可索引）、
+  封面仍插到最前面、表格与题注排版照做
+- **空分节符产生完全空白的首页**：没有封面也不插目录时，第 1 节里只剩一个
+  空的分节段 → 整页空白。现在只有真往第 1 节放东西时才分节
+- **表单表格首行被误当表头**：外部 docx 转 md 后 pandoc 会给首行加 `w:tblHeader`，
+  「项目名称」那行就被灰底加粗、还跨页重复。新增 `style.header_rows: 0`
+  显式声明"这张表没有表头"（同时清掉跨页重复标记）
+
+### 修复（第二份真实素材实测暴露）
+- **封面插错位置**：封面/目录原本插在「第一个一级标题之前」，源文件在第一个 `#`
+  之前写了内容时，那些段落会排到封面之前单独占一页。现改为插入 body 最前面；
+  同时**提示而不删除**这些前置内容（契约要求不改内容）
+- **`keep_with_next` 语义修正**：原本无差别加在所有题注上，但图注在图片**之后**，
+  粘住它会把后面内容整块推走——47 图的真实文档实测多出 **4 页**。
+  现只对「位于表格之前的表题」与「载有图片的段落」生效：**60 页 → 56 页**
+- **UTF-8 BOM 导致读配置失败**：`render.py` / `post.py` 用 `utf-8` 读 config，
+  而 Windows 记事本、PowerShell 写出的 json 默认带 BOM。全部改用 `utf-8-sig`
+  （源 md 同样处理），并加了回归测试
+
+### 修复（真实项目实测暴露）
+- **自动编号篡改正文**：`**表层（边缘轻算力）：**` 被当成表题，改写成
+  「表 3-5 层（边缘轻算力）：」并毁掉加粗。现在文档里一旦存在 AST 层打的题注样式，
+  就**只信样式**，不再用文本正则兜底
+- `filters/captions.lua` 的文字判定收紧为「关键字 + 编号」（或短句无句号），
+  避免把「表层…」这类正文标记成题注
+- **自动编号会抹掉图片**：pandoc 把图片放在 `Captioned Figure` 样式的段落里，
+  按文本重写该段落时清空了带 `w:drawing` 的 run——真实项目里 28 张图全部丢失。
+  现跳过含图段落，并加了回归测试（去掉防护即测试失败，已验证）
+- **图片搜索范围不含 src 的兄弟目录**：真实项目 md 在 `build/src/`、图在 `build/media_plan/`，
+  导致 28 张图全部找不到。现自动加入父目录及其子目录，并支持 `resource_paths`
+- **pandoc 的 WARNING 被静默吞掉**：缺图只给警告不报错，会让人交付一份没图的文档。
+  现在 `run()` 始终上报诊断信息，渲染后再自检 `images: n/m ok`
+
+### 修复（其他）
+- ~~跨页重复表头（`w:tblHeader`）此前只写在 README 军规里，**代码未实现**~~
+  **更正**：pandoc 原生就给表头行设了 `tblHeader`（grid table 的 `+===+` 以上全部算表头），
+  本轮新增的 `set_repeat_header()` 只是**幂等加固**，并非该功能的实现者。
+  之前的判断是只 grep 了代码、没验证 pandoc 输出得出的，在此更正。
+- `make_ref.py` 硬编码开发机上的绝对路径，换机器即失效且模板会悄悄漂移
+- `post.py` 缺一级标题时抛 `StopIteration`，现给出可诊断提示
+- Windows GBK 控制台下 `render.py` 打印子进程输出会 `UnicodeEncodeError` 崩溃
+- `--check` 单独使用时被静默忽略，现自动补 `--pdf`
+- 表题未设 `keep_with_next`，可能与表格分家（表题留页尾、表格跑下页）
+- `--doctor` 依据注册表 `CurVer` 误报 WPS，改为 **COM 实测**引擎身份
+- `check_pdf.py` 无论检出多少空白页都 `exit 0`，现带阈值退出码
+
+## 0.1.0 — 2026-09-16
+- 从一份中文正式文档渲染管线抽离并独立成包
+- 依赖迁移到 `pyproject.toml` + `uv.lock`，可选依赖按用途分离
+- 新增 `render.py --doctor` 环境自检
+- 新增覆盖「排版六条军规」的 pytest 断言
