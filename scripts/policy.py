@@ -17,10 +17,6 @@
     free      只生成：默认一切 observe，不强制任何 profile
     advisory  机器发现、用户选择：选定的属性设为 warn
     strict    完整验收：选定的属性设为 enforce（配合 profile + baseline + renderer）
-
-策略可分层叠加（后者覆盖前者），对应「模板检测 spec → 用户已批准约束 → 本次任务临时覆盖」：
-
-    base (template spec)  →  approved overrides  →  task overrides
 """
 
 from __future__ import annotations
@@ -109,15 +105,6 @@ MODE_PRESETS: dict[str, dict[str, str]] = {
     "advisory": ADVISORY_MODE,
     "strict": STRICT_MODE,
 }
-
-
-def resolve_policy(*layers: dict[str, str]) -> dict[str, str]:
-    """分层叠加策略；靠后的层覆盖靠前的层（override layering）。"""
-    out: dict[str, str] = {}
-    for layer in layers:
-        if layer:
-            out.update({k: str(v) for k, v in layer.items()})
-    return out
 
 
 def required_renderers(acceptance: dict | None) -> list[str]:

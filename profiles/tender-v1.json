@@ -90,13 +90,5 @@
     "title_color": "#000000",
     "placeholder": "【目录将在打开文档时自动生成；若未显示请全选后按 F9】",
     "placeholder_size": 12
-  },
-  "tender_specific": {
-    "cover_title": "投 标 文 件",
-    "cover_subtitle": "",
-    "bid_letter_page": true,
-    "signature_page": true,
-    "sealing_requirement": "骑缝章",
-    "price_table_style": "three_line"
   }
 }

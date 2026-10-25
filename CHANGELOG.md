@@ -28,6 +28,26 @@
 
 ## 未发布
 
+### 删除 policy 分层叠加与 profile `*_specific` 声明段（死代码清理）
+
+过度设计审计（用户裁决"清理删除"）：两处"文档承诺了、代码从不消费"的残留。
+
+- `policy.resolve_policy` 删除：三层叠加（template spec → approved → task）从未被
+  validate.py 调用（主链路只用单层 `mode_policy` 预设），唯一调用方是它自己的单测
+  ——经典的 speculative generality。模式预设与严重度裁决语义不受影响。
+- 三个 profile 的 `*_specific` 段删除（tender_specific / official_specific /
+  application_specific，共 20 个字段）：零代码消费（无 validator、无渲染器读取），
+  SCRIPT_HELP 一直如实标注 declared-only，但 BEST_PRACTICES 却把"报价表样式、
+  骑缝章要求"当作 tender-v1 的关键特性宣传——对以"验证"为卖点的项目，摆设字段
+  是自我打脸。骑缝章、签章页这类客户语义回到它们真正的家：README / SKILL 的
+  "仍需人工检查"清单本就写着。
+- 文档同步：SCRIPT_HELP 执行状态表删 `tender_specific.*` 行与清单项；VALIDATION
+  双语表格删 `*_specific.*` 通配；test_profiles 的 `_specific` 通配守卫分支随之
+  删除（未来再写 `_specific` 键会直接红"文档未覆盖的顶层键"，保护不变）。
+- BEST_PRACTICES 场景匹配表改讲真话：formal-cn 的"三线表"实为全框线
+  （`table.border: full`）；tender-v1 与 formal-cn 七段逐字等值（守卫钉住的），
+  如实写"完全同版式"；application 的真实差异是页脚「第 {n} 页」。
+
 ### 删除 --sample CLI 入口（examples/ 接管全部演示职责）
 
 用户裁决："sample 不需要，要测试有 example"。上一轮已把 `--sample` 降位出 Quick start，

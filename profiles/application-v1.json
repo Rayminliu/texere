@@ -90,14 +90,5 @@
     "title_color": "#000000",
     "placeholder": "【目录将在打开文档时自动生成】",
     "placeholder_size": 12
-  },
-  "application_specific": {
-    "form_style_tables": true,
-    "project_name_field": true,
-    "applicant_info_section": true,
-    "budget_table_required": true,
-    "timeline_chart_required": true,
-    "signature_page": true,
-    "attachment_list": true
   }
 }

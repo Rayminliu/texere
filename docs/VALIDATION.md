@@ -96,7 +96,7 @@ Which profile fields the gate actually enforces (details: `docs/SCRIPT_HELP.md` 
 | Headings | `styles.h1/h2/h3` eastAsia / latin / size / bold | `page_break_before`, `space_*` |
 | Tables | `table.border` ≠ none → at least one visible border | `border_size`, `border_color`, `header_shade`, `zebra`, … |
 | TOC | `toc` section declared → a TOC field exists | `toc.depth`, `toc.title`, `placeholder`, … |
-| Other | — | `caption.*`, `header.*`, `footer.*`, `*_specific.*` |
+| Other | — | `caption.*`, `header.*`, `footer.*` |
 
 Optional keys (valid in any profile; none of the five built-in profiles uses them): `baseline_dir`
 (visual-drift fallback when `--baseline` is not passed) and `acceptance.renderers`

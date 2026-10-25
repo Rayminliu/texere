@@ -215,7 +215,7 @@ observe 掩盖但实际 FAIL 的检查名——降级不销毁证据）。
   `evidence`（机器可读的 `expected` / `actual` / `field` / `source`），但它**不参与 status 判定**，
   缺失 evidence 也绝不改变 verdict——仅用于可解释审计与将来的 Build Manifest 直接消费。
 - 下列 profile 字段**目前仅声明、未强制验证**（declared-only，非 enforced）：`line_spacing`、
-  `first_line_indent`、`space_*`、`caption.*`、`header.*`、`footer.*`、`tender_specific.*`。
+  `first_line_indent`、`space_*`、`caption.*`、`header.*`、`footer.*`。
 
 #### Profile 字段执行状态（声明 ≠ 一定检查）
 
@@ -235,7 +235,6 @@ observe 掩盖但实际 FAIL 的检查名——降级不销毁证据）。
 | `caption.*` / `header.*` / `footer.*` | ⚠️ declared-only | 渲染指令，未编译成断言 |
 | `table` 其余键（border_size / border_color / header_shade / zebra / ...） | ⚠️ declared-only | 渲染指令，未编译成断言 |
 | `toc.depth` / `toc.title` / ... | ⚠️ declared-only | 只检查 TOC 域存在，不校验深度 / 标题（中文 profile 的 `toc.title` 已与渲染默认 `目　　录`（全角空格）统一，但断言侧不消费它） |
-| `tender_specific.*`（signature_page / sealing_requirement / price_table_style / ...） | ⚠️ declared-only | 客户语义信息，目前无对应 validator |
    无基线目录 → SKIP
 
 **关于 `profiles/neutral-en-v1.json` 里的 `font_eastAsia`（宋体/黑体）**：这是 **CJK 回退字体语义**——英文基线文档内混排中文时的回退字体声明，不是「这是中文 profile」的误写。`--enforce-profile` 会逐字断言它，改值会翻转门禁结论，故只补文档不删字段。

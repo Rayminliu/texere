@@ -1,6 +1,6 @@
 """policy 模型单测（纯函数，无需 Word / 渲染器）。
 
-守住：四级严重度语义、属性→检查反查、模式预设、覆盖分层、renderer 矩阵解析。
+守住：四级严重度语义、属性→检查反查、模式预设、renderer 矩阵解析。
 """
 
 from collections import namedtuple
@@ -32,14 +32,6 @@ def test_severity_for_check_uses_property_registry():
     assert policy.severity_for_check("toc_field", {"toc": "warn"}) is policy.Severity.WARN
     # 未登记的检查回落到默认 observe
     assert policy.severity_for_check("mystery_check", {}) is policy.Severity.OBSERVE
-
-
-def test_resolve_policy_layers_override():
-    base = {"page": "enforce", "body_font": "enforce"}
-    override = {"body_font": "warn"}  # 任务临时把正文字体降级为 warn
-    merged = policy.resolve_policy(base, override)
-    assert merged["page"] == "enforce"
-    assert merged["body_font"] == "warn"
 
 
 def test_free_mode_never_gates():

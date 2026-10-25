@@ -10,7 +10,6 @@ pytest -q tests/test_profiles.py
 import importlib.util
 import json
 import os
-import re
 import sys
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,7 +135,7 @@ def test_duplicated_segments_match_formal_cn_byte_for_byte():
 def test_profile_keys_covered_by_docs():
     """各 profile 的顶层键都必须被文档措辞覆盖（契约边界节的词汇表）。
 
-    覆盖词汇：必备/常规键逐个点名；`*_specific` 用通配措辞；可选键单独说明。
+    覆盖词汇：必备/常规键逐个点名；可选键单独说明。
     同时检查 SCRIPT_HELP 和 VALIDATION 两份文档。
     """
     docs = ""
@@ -161,12 +160,6 @@ def test_profile_keys_covered_by_docs():
     }
     for name in _profiles():
         for key in _load(name):
-            if key.endswith("_specific"):
-                # 文档以 `*_specific.*` 通配或逐字 `xxx_specific.*` 覆盖
-                assert re.search(r"\*_specific\.\*|%s\.\*" % key, docs), (
-                    "%s 的键 %r 未在文档措辞中出现" % (name, key)
-                )
-                continue
             assert key in vocab, "%s 出现文档未覆盖的顶层键：%s" % (name, key)
     # 可选键的示例确实在文档里（baseline_dir / acceptance.renderers）
     assert "baseline_dir" in docs

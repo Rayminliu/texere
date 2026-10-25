@@ -21,10 +21,10 @@
 
 | 文档类型 | 推荐 Profile | 关键特性 |
 |---------|-------------|---------|
-| **通用正式文档** | `formal-cn-v1.json` | 宋体正文、黑体标题、三线表 |
-| **投标文件** | `tender-v1.json` | 报价表样式、骑缝章要求 |
+| **通用正式文档** | `formal-cn-v1.json` | 宋体正文、黑体标题、全框线表格、页码「— n —」 |
+| **投标文件** | `tender-v1.json` | 与 formal-cn 完全同版式（同一契约的投标场景命名） |
 | **政府公文** | `gongwen-v1.json` | GB/T 9704-2012、仿宋字体 |
-| **项目申报书** | `application-v1.json` | 表单式表格、预算表 |
+| **项目申报书** | `application-v1.json` | 页脚「第 {n} 页」、Word 默认页边距 |
 | **英文文档（版式基线）** | `neutral-en-v1.json` | Times New Roman 段块式、Arial 标题、Page {n} 页脚 |
 
 > `neutral-en-v1` 是英文文档的**版式基线**（示例见 `examples/en-report/`）：

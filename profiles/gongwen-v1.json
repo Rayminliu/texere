@@ -90,14 +90,5 @@
     "title_color": "#000000",
     "placeholder": null,
     "placeholder_size": 10.5
-  },
-  "official_specific": {
-    "document_number_required": true,
-    "secret_level": null,
-    "emergency_level": null,
-    "issuer_required": true,
-    "date_format": "阿拉伯数字",
-    "signature_block": true,
-    "seal_position": "骑缝章"
   }
 }

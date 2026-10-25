@@ -93,7 +93,7 @@ profile 与渲染 config 是**两个不同的对象**，刻意不打通：
 | 标题字体 | `styles.h1/h2/h3` 中/西文字体、字号、加粗 | `page_break_before`、`space_*` |
 | 表边框 | `table.border` ≠ none → 至少一个可见边框 | `border_size`、`border_color`、`header_shade`、`zebra` 等 |
 | 目录 | 声明了 `toc` 段 → TOC 域存在 | `toc.depth`、`toc.title`、`placeholder` 等 |
-| 其余 | — | `caption.*`、`header.*`、`footer.*`、`*_specific.*` |
+| 其余 | — | `caption.*`、`header.*`、`footer.*` |
 
 可选键（任何 profile 都可写；5 个内置 profile 均未使用）：`baseline_dir`（未传 `--baseline` 时
 视觉漂移检查回退读它）与 `acceptance.renderers`（多渲染器验收矩阵，如 `["word", "wps"]`；
