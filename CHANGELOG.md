@@ -28,7 +28,25 @@
 > 是功能版本，近半年保持每周量级的提交。实际执行的模式是**问题驱动的小步演进**
 > （新功能仅在确有未覆盖的真实需求时进入核心），本表如实更正，不再自称维护模式。
 
-## 未发布
+## 0.9.3 — 2026-10-27 — 用户视角减负：删挂起件、删演示入口、提速测试、诚实性对齐
+
+主题是**砍掉维护成本高于用户价值的部分**，并把工具能证明什么、不能证明什么说破。
+两次外部审计（用户 + 顾问）逐条核实后：确属多余的全部删除，有实证理由的一项未动
+（9 项检查、守卫测试、真机 Word 验收、双语文档）。
+
+**删除清单**（净减约 1,400 行，含归档迁移）：
+
+- `--sample` CLI 入口彻底删除（examples/ 接管全部演示职责）
+- `policy.resolve_policy` 三层叠加（无生产调用方）
+- `profiles/tender-v1.json`（与 formal-cn-v1 七段逐字等值）
+- 三个 profile 的 `*_specific` 声明段（20 个字段，零代码消费）
+- `policy` 模式预设里的 `caption`（映射为空，永远查不到）
+- CHANGELOG 0.8.1 及更早归档至 `docs/CHANGELOG-archive.md`（113KB→22KB）
+
+**新增/修复**：`--acceptance-mode` 把 policy 接进退出码、distill 字体可用性检测、
+distill 入口路由、validate 摘要范围声明。
+
+**性能**：全量测试 354s → 164s（-54%），validate e2e 165s → 85s。
 
 ### 二轮清理：caption 幽灵键、tender-v1 并入 formal-cn、CHANGELOG 归档
 
@@ -44,7 +62,7 @@
   守卫只剩 application-v1 一员；test_validate 参数化从四个 profile 减为三个。
 - **CHANGELOG 归档**：0.8.1 及更早条目（全文约八成，91KB）移至
   docs/CHANGELOG-archive.md，主文件 113KB→22KB；test_version 的
-  "首个版本标题 = 当前版本"守卫不受影响（0.9.2 仍在主文件顶部）。
+  "首个版本标题 = 当前版本"守卫不受影响（当前版本条目仍在主文件顶部）。
 - 顺手修正：README 双语仓库地图里 test_policy 的描述仍写着上轮已删的"覆盖分层"。
 
 ### 删除 policy 分层叠加与 profile `*_specific` 声明段（死代码清理）
