@@ -1,9 +1,9 @@
 """依赖声明双轨一致性守卫：pyproject.toml ↔ requirements.txt 不许漂移。
 
 背景（0.7.3 全面审查发现的最高风险项）：pyproject 声明 `python-docx>=1.1,<2.0`
-而 requirements 写着 `>=1.2,<3`——CI 按 requirements 安装、uv 用户按 pyproject 解析，
-两边可以装出不同大版本；而 post.py 大量依赖 OOXML 底层 API，主版本漂移是静默版式风险。
-本守卫钉死两轨的区间一致，新增依赖必须两边同批声明。
+而 requirements 写着 `>=1.2,<3`——CI 按 requirements 安装、手工 pip 环境按 pyproject
+理解，两边可以装出不同大版本；而 post.py 大量依赖 OOXML 底层 API，主版本漂移是
+静默版式风险。本守卫钉死两轨的区间一致，新增依赖必须两边同批声明。
 
 纯文本解析（不依赖 tomllib / packaging），Python 3.10 也能跑。
 """
@@ -16,7 +16,7 @@ KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # requirements.txt 里允许**不**出现在 pyproject 核心 deps 的运行时包 → 理由。
 # 守卫之外的新白名单必须写清为什么。
 RUNTIME_WHITELIST = {
-    # lxml 的传递依赖；显式钉下限只为防降级报错，故意不进 pyproject（避免收紧 uv 解析）。
+    # lxml 的传递依赖；显式钉下限只为防降级报错，故意不进 pyproject（避免收紧解析）。
     "typing-extensions": "transitive pin only",
     # ruff 在 requirements 是 == 精确钉版（与 .pre-commit-config.yaml 的 rev 同步），
     # pyproject dev 组只给区间下限；守卫按「精确版必须落在区间内」校验。

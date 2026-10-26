@@ -296,7 +296,7 @@ def doctor():
     if missing:
         print("\n缺失项处理：")
         # 本仓库没有构建后端，pip install "." 一定失败；只能按依赖清单装。
-        print("  pip install -r requirements.txt   # 或用 uv：uv sync --all-extras")
+        print("  pip install -r requirements.txt   # 依赖装齐后再跑 --doctor")
         if "pandoc" in missing:
             print("  winget install --id JohnMacFarlane.Pandoc   # 已装则把所在目录加进 PATH")
         return 1

@@ -9,21 +9,19 @@ license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     # post.py 大量使用 python-docx 的 OOXML 底层 API（OxmlElement / qn / schema 顺序），
-    # 故锁主版本：升到 2.x 前必须先跑 --sample 回归。
-    # 下限 1.2 是实测基线（uv.lock 解析 1.2.0）；与 requirements.txt 由
-    # tests/test_deps_sync.py 守住同步，不许双轨漂移。
+    # 故锁主版本：升到 2.x 前必须先跑一遍渲染回归。
+    # 与 requirements.txt 由 tests/test_deps_sync.py 守住同步，不许双轨漂移。
     "python-docx>=1.2,<2.0",
     # python-docx 的底层依赖，显式声明防止被其他包降级导致难懂的报错。
     "lxml>=5.2,<7",
 ]
 
 # 可选依赖：按需安装，非 Windows / 无 Word 的机器不必装 pywin32。
-#   uv sync --extra pdf      仅 Word 验收 + 导 PDF
-#   uv sync --extra check    仅 PDF 目视验收
-#   uv sync --all-extras     全装
+#   pip install -r requirements.txt           核心 + 目视验收
+#   pip install pywin32                       仅 --pdf 的 Word/WPS 导出（Windows）
 #
 # 注意：本仓库是脚本集合，没有构建后端，**`pip install .` 会失败**。
-# 纯 pip 环境请用 `pip install -r requirements.txt`；本文件的 extras 是给 uv 用的。
+# 纯 pip 环境请用 `pip install -r requirements.txt`。
 [project.optional-dependencies]
 pdf = ["pywin32>=312,<400"]
 check = ["PyMuPDF>=1.28,<2"]
@@ -47,9 +45,6 @@ known-first-party = ["texere"]
 quote-style = "double"
 indent-style = "space"
 
-[tool.uv]
-package = false
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
@@ -59,5 +54,5 @@ markers = [
     "word: 需要本机真 Word/WPS COM 渲染的 L3/L4 契约用例",
 ]
 
-# 注意：pandoc 与 Microsoft Word 是系统级依赖，pip/uv 都无法安装。
+# 注意：pandoc 与 Microsoft Word 是系统级依赖，pip 无法安装。
 # 用 `python scripts/render.py --doctor` 检查。

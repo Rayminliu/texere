@@ -41,6 +41,10 @@
 - `profiles/tender-v1.json`（与 formal-cn-v1 七段逐字等值）
 - 三个 profile 的 `*_specific` 声明段（20 个字段，零代码消费）
 - `policy` 模式预设里的 `caption`（映射为空，永远查不到）
+- **`uv.lock` 与 `[tool.uv]` 段删除**：本机从未装 uv，锁文件里的 texere 版本停在
+  0.4.0 且与 pyproject 脱节；CI 全程 `pip install -r requirements.txt`。依赖声明
+  收敛为单轨（pyproject 区间 + requirements 清单，由 test_deps_sync 守住），
+  README/--doctor 提示同步去掉 uv 双轨说法。
 - CHANGELOG 0.8.1 及更早归档至 `docs/CHANGELOG-archive.md`（113KB→22KB）
 
 **新增/修复**：`--acceptance-mode` 把 policy 接进退出码、distill 字体可用性检测、

@@ -200,12 +200,11 @@ No renderer installed? Drop `--pdf --check` and run anyway (rendering and accept
 | python-docx, lxml | **Required**, docx I/O and OOXML handling | see below |
 | pywin32 | `--pdf` only (Word / WPS acceptance + PDF export; not needed for LibreOffice) | see below |
 | PyMuPDF | `--check` only (PDF visual acceptance) | see below |
-| Microsoft Word / WPS / LibreOffice | `--pdf` only (pick one via `--renderer`) | system-level; neither pip nor uv can install Word/WPS; LibreOffice via package manager |
+| Microsoft Word / WPS / LibreOffice | `--pdf` only (pick one via `--renderer`) | system-level; neither pip can install Word/WPS; LibreOffice via package manager |
 
 ```powershell
 winget install --id JohnMacFarlane.Pandoc
-pip install -r requirements.txt      # plain pip; versions are exported from uv.lock
-                                     # (uv users: `uv sync --all-extras`)
+pip install -r requirements.txt      # core deps + visual check (PyMuPDF)
 ```
 
 `--doctor` **probes the renderers you can use**: it launches the default Word via COM and checks for `soffice` (LibreOffice) / `KWPS` (WPS) on PATH. It does not read the registry:

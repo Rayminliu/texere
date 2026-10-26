@@ -186,12 +186,11 @@ H1 前的标题/作者行自动居中保留；中文里的 ASCII 直引号也会
 | python-docx、lxml | **必需**，docx 读写与 OOXML 处理 | 见下 |
 | pywin32 | 仅 `--pdf` 的 Word / WPS 渲染器（COM）；选 LibreOffice 则不需要 | 见下 |
 | PyMuPDF | 仅 `--check`（PDF 目视验收） | 见下 |
-| Microsoft Word / WPS / LibreOffice | 仅 `--pdf`（三选一，用 `--renderer` 指定） | 系统级，pip / uv 都装不了（LO 走系统包管理器） |
+| Microsoft Word / WPS / LibreOffice | 仅 `--pdf`（三选一，用 `--renderer` 指定） | 系统级，pip 装不了（LO 走系统包管理器） |
 
 ```powershell
 winget install --id JohnMacFarlane.Pandoc
-pip install -r requirements.txt      # 纯 pip；版本由 uv.lock 导出锁死
-                                     # 用 uv 的话：uv sync --all-extras
+pip install -r requirements.txt      # 核心依赖 + 目视验收（PyMuPDF）
 ```
 
 `--doctor` 会**实测三种渲染器的可用性**（默认 Word 走 COM；LibreOffice 查 soffice；WPS 查 KWPS）。不读注册表——注册表里的 `CurVer`
